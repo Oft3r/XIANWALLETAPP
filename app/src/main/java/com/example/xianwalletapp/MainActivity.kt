@@ -1,0 +1,155 @@
+package com.example.xianwalletapp
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import com.example.xianwalletapp.crypto.XianCrypto
+import com.example.xianwalletapp.navigation.XianDestinations
+import com.example.xianwalletapp.navigation.XianNavArgs
+import com.example.xianwalletapp.network.XianNetworkService
+import com.example.xianwalletapp.ui.screens.*
+import com.example.xianwalletapp.ui.theme.XIANWALLETAPPTheme
+import com.example.xianwalletapp.wallet.WalletManager
+import kotlinx.coroutines.delay
+
+class MainActivity : ComponentActivity() {
+    private lateinit var walletManager: WalletManager
+    private lateinit var networkService: XianNetworkService
+    
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        
+        // Initialize wallet manager and network service
+        walletManager = WalletManager.getInstance(this)
+        networkService = XianNetworkService.getInstance(this)
+        
+        // Set RPC and explorer URLs from wallet manager
+        networkService.setRpcUrl(walletManager.getRpcUrl())
+        networkService.setExplorerUrl(walletManager.getExplorerUrl())
+        
+        enableEdgeToEdge()
+        setContent {
+            XIANWALLETAPPTheme {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    XianWalletApp(walletManager, networkService)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun XianWalletApp(walletManager: WalletManager, networkService: XianNetworkService) {
+    val navController = rememberNavController()
+    var startDestination by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(true) }
+    var requirePasswordVerification by remember { mutableStateOf(false) }
+    var passwordVerified by remember { mutableStateOf(false) }
+    
+    // Determine start destination based on whether a wallet exists and if password is required
+    LaunchedEffect(Unit) {
+        delay(1000) // Brief delay for splash screen effect
+        if (walletManager.hasWallet()) {
+            // Check if password verification is required
+            requirePasswordVerification = walletManager.getRequirePassword()
+            // Even if biometrics is enabled, we still need password verification screen
+            // as it's where biometric auth is handled
+            startDestination = XianDestinations.WALLET
+        } else {
+            startDestination = XianDestinations.WELCOME
+        }
+        isLoading = false
+    }
+    
+    // Redirect to password verification if needed
+    LaunchedEffect(requirePasswordVerification, passwordVerified, isLoading, startDestination) {
+        if (requirePasswordVerification && !passwordVerified && !isLoading && startDestination == XianDestinations.WALLET) {
+            navController.navigate(XianDestinations.PASSWORD_VERIFICATION) {
+                // Clear backstack so user can't go back by pressing back button
+                popUpTo(0) { inclusive = true }
+            }
+        }
+    }
+    
+    // Register composable screens
+    NavHost(
+        navController = navController,
+        startDestination = if (isLoading) XianDestinations.SPLASH else startDestination
+    ) {
+        // Add a password verification route
+        composable(XianDestinations.PASSWORD_VERIFICATION) {
+            PasswordVerificationScreen(
+                navController = navController,
+                walletManager = walletManager,
+                onPasswordVerified = {
+                    passwordVerified = true
+                    navController.navigate(XianDestinations.WALLET) {
+                        popUpTo(0) { saveState = true }
+                    }
+                }
+            )
+        }
+        
+        composable(XianDestinations.SPLASH) {
+            SplashScreen()
+        }
+        
+        composable(XianDestinations.WELCOME) {
+            WelcomeScreen(navController)
+        }
+        
+        composable(XianDestinations.CREATE_WALLET) {
+            CreateWalletScreen(navController, walletManager)
+        }
+        
+        composable(XianDestinations.IMPORT_WALLET) {
+            ImportWalletScreen(navController, walletManager)
+        }
+        
+        composable(XianDestinations.WALLET) {
+            WalletScreen(navController, walletManager, networkService)
+        }
+        
+        composable(
+            "${XianDestinations.SEND_TOKEN}?${XianNavArgs.TOKEN_CONTRACT}={${XianNavArgs.TOKEN_CONTRACT}}&${XianNavArgs.TOKEN_SYMBOL}={${XianNavArgs.TOKEN_SYMBOL}}"
+        ) { backStackEntry ->
+            val contract = backStackEntry.arguments?.getString(XianNavArgs.TOKEN_CONTRACT) ?: "currency"
+            val symbol = backStackEntry.arguments?.getString(XianNavArgs.TOKEN_SYMBOL) ?: "XIAN"
+            SendTokenScreen(navController, walletManager, networkService, contract, symbol)
+        }
+        
+        composable(XianDestinations.RECEIVE_TOKEN) {
+            ReceiveTokenScreen(navController, walletManager)
+        }
+        
+        composable(XianDestinations.WEB_BROWSER) {
+            WebBrowserScreen(navController, walletManager, networkService)
+        }
+        
+        composable(XianDestinations.MESSENGER) {
+            MessengerScreen(navController, walletManager, networkService)
+        }
+        
+        composable(XianDestinations.NEWS) {
+            NewsScreen(navController, walletManager, networkService)
+        }
+        
+        composable(XianDestinations.SETTINGS) {
+            SettingsScreen(navController, walletManager, networkService)
+        }
+    }
+}
