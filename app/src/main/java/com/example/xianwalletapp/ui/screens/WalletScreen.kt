@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Newspaper
+import androidx.compose.material.icons.filled.Visibility // For View icon
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,7 +38,11 @@ import com.example.xianwalletapp.R
 import com.example.xianwalletapp.navigation.XianDestinations
 import com.example.xianwalletapp.navigation.XianNavArgs
 import com.example.xianwalletapp.network.TokenInfo
+import coil.compose.AsyncImage // For Coil image loading - TODO: Add Coil dependency
+import android.content.Intent
+import android.net.Uri
 import com.example.xianwalletapp.network.XianNetworkService
+import com.example.xianwalletapp.network.NftInfo // Import the new data class
 import com.example.xianwalletapp.wallet.WalletManager
 import kotlinx.coroutines.launch
 
@@ -73,6 +78,10 @@ fun WalletScreen(
     var snackbarMessage by remember { mutableStateOf("") }
     val snackbarHostState = remember { SnackbarHostState() }
     
+    // State for NFTs
+    var nftList by remember { mutableStateOf<List<com.example.xianwalletapp.network.NftInfo>>(emptyList()) } // Assuming NftInfo data class exists
+    var isNftLoading by remember { mutableStateOf(false) }
+    
     // Add a refresh trigger
     var refreshTrigger by remember { mutableStateOf(0) }
     
@@ -104,6 +113,7 @@ fun WalletScreen(
         }
         
         tokenInfoMap = newTokenInfoMap
+        tokenInfoMap = newTokenInfoMap
         balanceMap = newBalanceMap
         isLoading = false
     }
@@ -118,6 +128,7 @@ fun WalletScreen(
             kotlinx.coroutines.delay(30000) // Check every 30 seconds
         }
     }
+    
     
     Scaffold(
         topBar = {
@@ -287,6 +298,20 @@ fun WalletScreen(
                         text = { Text("NFTs") }
                     )
                 }
+
+                // Load NFT data when NFT tab is selected
+                LaunchedEffect(selectedTabIndex) {
+                    if (selectedTabIndex == 1 && publicKey.isNotEmpty()) { // Ensure publicKey is available
+                        isNftLoading = true
+                        nftList = networkService.getNfts(publicKey) // Call the new network function
+                        android.util.Log.d("WalletScreen", "Fetched ${nftList.size} NFTs")
+                        isNftLoading = false
+                    } else if (selectedTabIndex == 1 && publicKey.isEmpty()) {
+                         android.util.Log.w("WalletScreen", "Cannot fetch NFTs, publicKey is empty.")
+                         isNftLoading = false // Ensure loading stops if publicKey is missing
+                    }
+                }
+
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
@@ -342,13 +367,43 @@ fun WalletScreen(
                         }
                     }
                     1 -> {
-                        // NFTs tab (placeholder for future implementation)
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(
-                                text = "NFT support coming soon",
-                                textAlign = TextAlign.Center,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        // NFTs tab
+                        if (isNftLoading) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator()
+                            }
+                        } else if (nftList.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "No NFTs found.",
+                                    textAlign = TextAlign.Center,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        } else {
+                            // Use LazyColumn for NFT list
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(bottom = 80.dp) // Add padding for FAB
+                            ) {
+                                items(nftList) { nft ->
+                                    NftItem(
+                                        nftInfo = nft,
+                                        onViewClick = { url ->
+                                            // Open the NFT view URL in a browser
+                                            try {
+                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                                context.startActivity(intent)
+                                            } catch (e: Exception) {
+                                                android.util.Log.e("WalletScreen", "Failed to open URL: $url", e)
+                                                coroutineScope.launch {
+                                                    snackbarHostState.showSnackbar("Could not open link")
+                                                }
+                                            }
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -524,3 +579,75 @@ fun TokenItem(
         }
     }
 }
+
+
+// --- NftItem Composable ---
+@Composable
+fun NftItem(
+    nftInfo: NftInfo,
+    onViewClick: (String) -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant // Slightly different background
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            // NFT Image
+            AsyncImage(
+                model = nftInfo.imageUrl,
+                contentDescription = "${nftInfo.name} NFT Image",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp) // Adjust height as needed
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)), // Placeholder background
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                error = painterResource(id = android.R.drawable.ic_menu_gallery) // Use standard gallery icon as fallback
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // NFT Name
+            Text(
+                text = nftInfo.name,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // NFT Description
+            Text(
+                text = nftInfo.description,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 14.sp,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // View Button
+            Button(
+                onClick = { onViewClick(nftInfo.viewUrl) },
+                modifier = Modifier.align(Alignment.End),
+                colors = ButtonDefaults.buttonColors() // TODO: Revert to xianButtonColors if definition is correct
+            ) {
+                Icon(Icons.Default.Visibility, contentDescription = "View NFT", modifier = Modifier.size(ButtonDefaults.IconSize))
+                Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                Text("View")
+            }
+        }
+    }
+}
+// --- End of NftItem Composable ---

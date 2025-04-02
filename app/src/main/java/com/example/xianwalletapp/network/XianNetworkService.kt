@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Base64
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import okhttp3.MediaType.Companion.toMediaTypeOrNull // Import for extension function
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -429,6 +430,189 @@ class XianNetworkService private constructor(private val context: Context) {
             }
         }
     }
+
+    // --- Start of new NFT functions ---
+
+    /**
+     * Fetches the keys of NFTs owned by a specific public key.
+     * Corresponds to the first GraphQL query in the web version.
+     */
+    private suspend fun getOwnedNftKeys(publicKey: String): List<String> = withContext(Dispatchers.IO) {
+        val graphQLEndpoint = "$rpcUrl/graphql"
+        val query = """
+            query MyQuery {
+              allStates(
+                filter: {
+                  key: { startsWith: "con_pixel_frames_info.S", endsWith: "owner" }
+                  value: { equalTo: "$publicKey" }
+                }
+                offset: 0
+                first: 100
+                orderBy: UPDATED_DESC
+              ) {
+                nodes {
+                  key
+                }
+              }
+            }
+        """.trimIndent()
+
+        val requestBody = JSONObject().apply {
+            put("query", query)
+        }.toString()
+
+        val request = Request.Builder()
+            .url(graphQLEndpoint)
+            .post(okhttp3.RequestBody.create("application/json".toMediaTypeOrNull(), requestBody))
+            .build()
+
+        try {
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                android.util.Log.e("XianNetworkService", "Failed to fetch owned NFT keys: ${response.code} ${response.message}")
+                return@withContext emptyList()
+            }
+
+            val responseBody = response.body?.string() ?: "{}"
+            android.util.Log.d("XianNetworkService", "Owned NFT Keys Response: $responseBody")
+            val json = JSONObject(responseBody)
+            val nodes = json.optJSONObject("data")?.optJSONObject("allStates")?.optJSONArray("nodes")
+
+            val keys = mutableListOf<String>()
+            if (nodes != null) {
+                for (i in 0 until nodes.length()) {
+                    val node = nodes.getJSONObject(i)
+                    val key = node.optString("key", "")
+                    // Extract the NFT address part using the logic from the web version
+                    // key format: con_pixel_frames_info.S:<nft_address>:owner
+                    if (key.contains("con_pixel_frames_info.S") && key.contains(":owner")) {
+                         val addressPart = key.substringAfter("con_pixel_frames_info.S") // Gives ":<nft_address>:owner" or "<nft_address>:owner"
+                         val nftAddress = addressPart.removePrefix(":").split(":")[0] // Remove leading ":" if present, then split and take first part
+                         if (nftAddress.isNotEmpty()) {
+                             keys.add(nftAddress)
+                             android.util.Log.d("XianNetworkService", "Found NFT Key: $nftAddress")
+                        }
+                    }
+                }
+            }
+            return@withContext keys
+        } catch (e: Exception) {
+            android.util.Log.e("XianNetworkService", "Error fetching owned NFT keys: ${e.message}", e)
+            return@withContext emptyList()
+        }
+    }
+
+    /**
+     * Fetches the metadata for a specific NFT key.
+     * Corresponds to the second GraphQL query in the web version.
+     */
+    private suspend fun getNftMetadata(nftKey: String): Pair<String?, String?> = withContext(Dispatchers.IO) {
+        val graphQLEndpoint = "$rpcUrl/graphql"
+        // Note: The web version uses specific indices (9 for name, 3 for description).
+        // This might be fragile. A more robust approach would be to filter by key suffix if possible.
+        val query = """
+            query MyQuery {
+              i_0: allStates(
+                filter: {key: {startsWith: "con_pixel_frames_info.S:$nftKey"}}
+              ) {
+                nodes {
+                  key
+                  value
+                }
+              }
+            }
+        """.trimIndent()
+
+        val requestBody = JSONObject().apply {
+            put("query", query)
+        }.toString()
+
+        val request = Request.Builder()
+            .url(graphQLEndpoint)
+            .post(okhttp3.RequestBody.create("application/json".toMediaTypeOrNull(), requestBody))
+            .build()
+
+        try {
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                android.util.Log.e("XianNetworkService", "Failed to fetch NFT metadata for $nftKey: ${response.code} ${response.message}")
+                return@withContext Pair(null, null)
+            }
+
+            val responseBody = response.body?.string() ?: "{}"
+             android.util.Log.d("XianNetworkService", "NFT Metadata Response for $nftKey: $responseBody")
+            val json = JSONObject(responseBody)
+            val nodes = json.optJSONObject("data")?.optJSONObject("i_0")?.optJSONArray("nodes")
+
+            var name: String? = null
+            var description: String? = null
+
+            if (nodes != null && nodes.length() > 9) { // Check length before accessing indices
+                 // Assuming indices 9 and 3 are correct based on web version
+                 try {
+                     name = nodes.getJSONObject(9)?.optString("value")
+                     description = nodes.getJSONObject(3)?.optString("value")
+                     android.util.Log.d("XianNetworkService", "Extracted Metadata for $nftKey - Name: $name, Desc: $description")
+                 } catch (e: org.json.JSONException) {
+                     android.util.Log.e("XianNetworkService", "Error accessing specific indices for NFT metadata $nftKey: ${e.message}")
+                     // Fallback: Iterate to find keys ending with specific metadata names if indices fail
+                     for (i in 0 until nodes.length()) {
+                         val node = nodes.getJSONObject(i)
+                         val key = node.optString("key", "")
+                         val value = node.optString("value", "")
+                         if (key.endsWith(":name")) name = value
+                         if (key.endsWith(":description")) description = value
+                     }
+                     android.util.Log.d("XianNetworkService", "Fallback Metadata for $nftKey - Name: $name, Desc: $description")
+                 }
+            } else {
+                 android.util.Log.w("XianNetworkService", "Metadata nodes array is null or too short for $nftKey")
+            }
+
+            return@withContext Pair(name, description)
+        } catch (e: Exception) {
+            android.util.Log.e("XianNetworkService", "Error fetching NFT metadata for $nftKey: ${e.message}", e)
+            return@withContext Pair(null, null)
+        }
+    }
+
+    /**
+     * Fetches all NFTs owned by the user, including their metadata.
+     */
+    suspend fun getNfts(publicKey: String): List<NftInfo> = withContext(Dispatchers.IO) {
+        android.util.Log.d("XianNetworkService", "Starting NFT fetch for publicKey: $publicKey")
+        val nftKeys = getOwnedNftKeys(publicKey)
+        if (nftKeys.isEmpty()) {
+            android.util.Log.d("XianNetworkService", "No NFT keys found for $publicKey")
+            return@withContext emptyList()
+        }
+        android.util.Log.d("XianNetworkService", "Found ${nftKeys.size} NFT keys for $publicKey")
+
+        val nftInfoList = mutableListOf<NftInfo>()
+        for (key in nftKeys) {
+             android.util.Log.d("XianNetworkService", "Fetching metadata for NFT key: $key")
+            val (name, description) = getNftMetadata(key)
+            if (name != null) { // Only add if we could get at least the name
+                val nft = NftInfo(
+                    contractAddress = key, // Using the key as the unique identifier/address
+                    name = name,
+                    description = description ?: "No description", // Provide default if null
+                    // Construct URLs based on the web version's pattern
+                    imageUrl = "https://pixelsnek.xian.org/gif/${key}.gif",
+                    viewUrl = "https://pixelsnek.xian.org/frames/${key}"
+                )
+                nftInfoList.add(nft)
+                android.util.Log.d("XianNetworkService", "Added NFT to list: ${nft.name}")
+            } else {
+                 android.util.Log.w("XianNetworkService", "Skipping NFT with key $key due to missing name in metadata.")
+            }
+        }
+        android.util.Log.d("XianNetworkService", "Finished fetching NFTs. Total found: ${nftInfoList.size}")
+        return@withContext nftInfoList
+    }
+
+    // --- End of new NFT functions ---
+
     
     /**
      * Broadcast a signed transaction to the Xian network
