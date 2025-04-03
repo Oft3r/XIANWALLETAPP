@@ -6,9 +6,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,22 +52,32 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onStop() {
+        super.onStop()
+        // Clear the cached private key when the app is stopped
+        walletManager.clearPrivateKeyCache()
+        android.util.Log.d("MainActivity", "onStop called, clearing private key cache.")
+    }
+
 }
 
 @Composable
 fun XianWalletApp(walletManager: WalletManager, networkService: XianNetworkService) {
     val navController = rememberNavController()
+    val snackbarHostState = remember { SnackbarHostState() } // Hoist SnackbarHostState
+    val coroutineScope = rememberCoroutineScope() // Hoist CoroutineScope
     var startDestination by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
     var requirePasswordVerification by remember { mutableStateOf(false) }
     var passwordVerified by remember { mutableStateOf(false) }
-    
     // Determine start destination based on whether a wallet exists and if password is required
     LaunchedEffect(Unit) {
         delay(1000) // Brief delay for splash screen effect
         if (walletManager.hasWallet()) {
             // Check if password verification is required
             requirePasswordVerification = walletManager.getRequirePassword()
+            android.util.Log.d("MainActivity", "Require password setting value: $requirePasswordVerification") // Add logging
             // Even if biometrics is enabled, we still need password verification screen
             // as it's where biometric auth is handled
             startDestination = XianDestinations.WALLET
@@ -78,12 +90,14 @@ fun XianWalletApp(walletManager: WalletManager, networkService: XianNetworkServi
     // Redirect to password verification if needed
     LaunchedEffect(requirePasswordVerification, passwordVerified, isLoading, startDestination) {
         if (requirePasswordVerification && !passwordVerified && !isLoading && startDestination == XianDestinations.WALLET) {
+            android.util.Log.d("MainActivity", "Navigating to PASSWORD_VERIFICATION") // Add log here too
             navController.navigate(XianDestinations.PASSWORD_VERIFICATION) {
                 // Clear backstack so user can't go back by pressing back button
                 popUpTo(0) { inclusive = true }
             }
         }
     }
+             android.util.Log.d("MainActivity", "Skipping navigation to PASSWORD_VERIFICATION. Conditions: require=$requirePasswordVerification, verified=$passwordVerified, loading=$isLoading, destination=$startDestination") // Add log for else case
     
     // Register composable screens
     NavHost(
@@ -149,7 +163,32 @@ fun XianWalletApp(walletManager: WalletManager, networkService: XianNetworkServi
         }
         
         composable(XianDestinations.SETTINGS) {
-            SettingsScreen(navController, walletManager, networkService)
+            SettingsScreen(
+                navController = navController,
+                walletManager = walletManager,
+                networkService = networkService,
+                snackbarHostState = snackbarHostState, // Pass hoisted state
+                coroutineScope = coroutineScope // Pass hoisted scope
+            )
+        }
+
+        composable(XianDestinations.SETTINGS_SECURITY) {
+            SecuritySettingsScreen(
+                navController = navController,
+                walletManager = walletManager,
+                snackbarHostState = snackbarHostState, // Pass hoisted state
+                coroutineScope = coroutineScope // Pass hoisted scope
+            )
+        }
+
+        composable(XianDestinations.SETTINGS_NETWORK) {
+            NetworkSettingsScreen(
+                navController = navController,
+                walletManager = walletManager,
+                networkService = networkService,
+                snackbarHostState = snackbarHostState, // Pass hoisted state
+                coroutineScope = coroutineScope // Pass hoisted scope
+            )
         }
     }
 }

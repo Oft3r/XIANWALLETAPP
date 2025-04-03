@@ -51,42 +51,21 @@ class XianWebViewBridge(private val walletManager: WalletManager, private val ne
     fun logDebug(message: String) {
         Log.d(TAG, "JS Debug: $message")
     }
+
+    /**
+     * Check if password was required on app startup
+     */
+    @JavascriptInterface
+    fun isPasswordRequiredOnStartup(): Boolean {
+        Log.d(TAG, "isPasswordRequiredOnStartup called from JavaScript")
+        return walletManager.getRequirePassword()
+    }
+
     
     /**
      * Sign a message with the wallet's private key
      * Requires password authentication
      */
-    @JavascriptInterface
-    fun signMessage(message: String, password: String): String {
-        Log.d(TAG, "signMessage called from JavaScript: $message")
-        
-        return try {
-            // Get the private key using the password
-            val privateKey = walletManager.getPrivateKey(password)
-            
-            if (privateKey == null) {
-                JSONObject().apply {
-                    put("success", false)
-                    put("error", "Invalid password or wallet not available")
-                }.toString()
-            } else {
-                // Use the crypto module to sign the message
-                val signature = XianCrypto.getInstance().signMessage(message.toByteArray(), privateKey)
-                
-                JSONObject().apply {
-                    put("success", true)
-                    put("signature", signature)
-                    put("message", message)
-                }.toString()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error signing message", e)
-            JSONObject().apply {
-                put("success", false)
-                put("error", e.message ?: "Unknown error")
-            }.toString()
-        }
-    }
     
     /**
      * Show a native transaction approval dialog
@@ -135,11 +114,32 @@ class XianWebViewBridge(private val walletManager: WalletManager, private val ne
         
         val passwordInput = view.findViewById<EditText>(R.id.et_password)
         val errorMessageView = view.findViewById<TextView>(R.id.tv_error_message)
-        
-        // Function to display error messages
+
+        // Check if password input is needed
+        val requirePasswordOnStartup = walletManager.getRequirePassword()
+        val cachedKey = walletManager.getUnlockedPrivateKey()
+        val needsPasswordInput = !requirePasswordOnStartup || cachedKey == null
+
+        if (needsPasswordInput) {
+            android.util.Log.d(TAG, "Transaction dialog requires password input.")
+            passwordInput.visibility = View.VISIBLE
+            errorMessageView.visibility = View.GONE // Start hidden
+        } else {
+            android.util.Log.d(TAG, "Transaction dialog using cached key, password input hidden.")
+            passwordInput.visibility = View.GONE
+            errorMessageView.visibility = View.GONE
+        }
+
+        // Function to display error messages (only if password field is visible)
         fun showError(message: String) {
-            errorMessageView.text = message
-            errorMessageView.visibility = View.VISIBLE
+             if (needsPasswordInput) {
+                errorMessageView.text = message
+                errorMessageView.visibility = View.VISIBLE
+             } else {
+                 // Log error if password field is hidden
+                 Log.e(TAG, "Error in transaction dialog (password hidden): $message")
+                 // Optionally send failure back to JS? Handled in processTransaction
+             }
         }
         
         builder.setView(view)
@@ -160,46 +160,81 @@ class XianWebViewBridge(private val walletManager: WalletManager, private val ne
         // Show the dialog
         dialog.show()
         
-        // Override the positive button click listener to prevent automatic dismissal on error
+        // Override the positive button click listener
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            val password = passwordInput.text.toString()
-            if (password.isEmpty()) {
-                // Show error if password is empty
-                showError("Password is required")
-            } else {
-                // Validate the transaction parameters before processing
-                try {
-                    // Basic validation of contract and method
-                    if (contract.isBlank()) {
-                        showError("Contract address cannot be empty")
-                        return@setOnClickListener
-                    }
-                    
-                    if (method.isBlank()) {
-                        showError("Method name cannot be empty")
-                        return@setOnClickListener
-                    }
-                    
-                    // Process the transaction with the provided password
-                    processTransaction(contract, method, kwargs, password, stampLimit, dialog, errorMessageView)
-                } catch (e: Exception) {
-                    // Show any validation errors
-                    showError("Validation error: ${e.message ?: "Unknown error"}")
+            var passwordToUse: String? = null // Null if using cached key
+
+            if (needsPasswordInput) {
+                passwordToUse = passwordInput.text.toString()
+                errorMessageView.visibility = View.GONE // Clear previous errors
+                if (passwordToUse.isEmpty()) {
+                    showError("Password is required")
+                    return@setOnClickListener // Stop if password needed but empty
                 }
+            } else {
+                 // Not requesting password input, will rely on cached key in processTransaction
+                 Log.d(TAG, "Approve clicked, proceeding with cached key.")
+            }
+
+            // Validate the transaction parameters before processing
+            try {
+                if (contract.isBlank()) {
+                    showError("Contract address cannot be empty")
+                    return@setOnClickListener
+                }
+                if (method.isBlank()) {
+                    showError("Method name cannot be empty")
+                    return@setOnClickListener
+                }
+
+                // Process the transaction (pass null password if using cached key)
+                processTransaction(contract, method, kwargs, passwordToUse, stampLimit, dialog, errorMessageView)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Validation or processing error", e)
+                showError("Error: ${e.message ?: "Unknown error"}")
+                // Send failure back to JS as well
+                sendTransactionFailureResponse("Validation error: ${e.message ?: "Unknown error"}")
             }
         }
     }
     
-    private fun processTransaction(contract: String, method: String, kwargs: String, password: String, 
+    // Password parameter is nullable (null means try using cached key)
+    private fun processTransaction(contract: String, method: String, kwargs: String, password: String?,
                                   stampLimit: Int, dialog: AlertDialog, errorMessageView: TextView) {
+        val showErrorInDialog = password != null // Only show error in dialog if password was requested
+
         try {
-            // Get the private key using the password
-            val privateKey = walletManager.getPrivateKey(password)
-            
+            var privateKey: ByteArray? = null
+            var errorMsg: String? = null
+
+            if (password != null) {
+                // If password was provided, try unlocking with it (this also caches)
+                Log.d(TAG, "processTransaction attempting unlock with provided password.")
+                privateKey = walletManager.unlockWallet(password)
+                if (privateKey == null) {
+                    errorMsg = "Invalid password"
+                }
+            } else {
+                // If password was null, try getting the cached key
+                Log.d(TAG, "processTransaction attempting to use cached key.")
+                privateKey = walletManager.getUnlockedPrivateKey()
+                if (privateKey == null) {
+                    // This should ideally not happen if startup auth was required and successful,
+                    // but handle it just in case.
+                    errorMsg = "Failed to retrieve cached key. Please restart the app or try again."
+                     // Force password next time? Or just fail? For now, just fail.
+                }
+            }
+
             if (privateKey == null) {
-                // Show error in the dialog
-                errorMessageView.text = "Invalid password or wallet not available"
-                errorMessageView.visibility = View.VISIBLE
+                Log.e(TAG, errorMsg ?: "Unknown error retrieving private key")
+                if (showErrorInDialog && errorMsg != null) {
+                    errorMessageView.text = errorMsg
+                    errorMessageView.visibility = View.VISIBLE
+                }
+                // Send failure back to JS
+                sendTransactionFailureResponse(errorMsg ?: "Failed to access private key")
             } else {
                 // Parse the kwargs JSON
                 val kwargsJson = JSONObject(kwargs)
@@ -244,21 +279,23 @@ class XianWebViewBridge(private val walletManager: WalletManager, private val ne
                     dialog.dismiss()
                     sendJavaScriptResponse(resultJson)
                 } else {
-                    // Mostrar error pero no cerrar el diálogo
+                    // Show error but don't dismiss dialog
                     val errorMsg = txResult.errors ?: "Unknown transaction error"
+                    Log.e(TAG, "Transaction failed: $errorMsg")
+                    // Always show error in dialog now
                     errorMessageView.text = getHumanReadableError(errorMsg)
                     errorMessageView.visibility = View.VISIBLE
-                    
                     // También enviar el error al WebView para que la dApp pueda manejarlo
                     sendTransactionFailureResponse(errorMsg)
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error processing transaction", e)
-            // Show error in the dialog instead of dismissing it
-            errorMessageView.text = "Transaction error: ${parseErrorMessage(e.message ?: "Unknown error")}"
+            Log.e(TAG, "Error processing transaction", e) // Keep original log
+            val errorMsg = "Transaction error: ${parseErrorMessage(e.message ?: "Unknown error")}"
+            // Always show error in dialog now
+            errorMessageView.text = errorMsg
             errorMessageView.visibility = View.VISIBLE
-            
             // También enviar el error al WebView
             sendTransactionFailureResponse(e.message ?: "Unknown error")
         }
@@ -317,42 +354,130 @@ class XianWebViewBridge(private val walletManager: WalletManager, private val ne
     }
     
     /**
-     * Send a transaction to the Xian blockchain
-     * Requires password authentication
+     * Sign a message with the wallet's private key.
+     * Uses cached key if available and appropriate, otherwise uses provided password.
+     * Password parameter is nullable from JS. Null means "try cached key".
      */
     @JavascriptInterface
-    fun sendTransaction(contract: String, method: String, kwargs: String, password: String, stampLimit: Int = 0): String {
-        Log.d(TAG, "sendTransaction called from JavaScript: contract=$contract, method=$method")
-        
-        return try {
-            // Get the private key using the password
-            val privateKey = walletManager.getPrivateKey(password)
-            
+    fun signMessage(message: String, password: String?): String { // Password can be null from JS
+        Log.d(TAG, "signMessage called from JavaScript. Password provided: ${password != null}")
+
+        var privateKey: ByteArray? = null
+        var errorMsg: String? = null
+        val requirePasswordOnStartup = walletManager.getRequirePassword()
+
+        if (requirePasswordOnStartup && password == null) {
+            // Startup required password, JS didn't provide one, try cached key
+            Log.d(TAG, "signMessage attempting to use cached key.")
+            privateKey = walletManager.getUnlockedPrivateKey()
             if (privateKey == null) {
-                JSONObject().apply {
-                    put("success", false)
-                    put("errors", "Invalid password or wallet not available")
-                }.toString()
+                errorMsg = "Failed to retrieve cached key for signing."
+            }
+        } else if (password != null) {
+            // Password was provided (either because startup didn't require it, or JS sent it anyway)
+             Log.d(TAG, "signMessage attempting unlock with provided password.")
+            if (password.isEmpty()){
+                 errorMsg = "Password cannot be empty."
             } else {
-                // Parse the kwargs JSON
-                val kwargsJson = JSONObject(kwargs)
-                
-                // Send the transaction using the network service
-                val txResult = runBlocking<com.example.xianwalletapp.network.TransactionResult> {
-                    networkService.sendTransaction(contract, method, kwargsJson, privateKey, stampLimit)
+                privateKey = walletManager.unlockWallet(password) // Try unlocking (also caches)
+                if (privateKey == null) {
+                    errorMsg = "Invalid password for signing."
                 }
-                
+            }
+        } else {
+             // Startup didn't require password, but JS didn't provide one either
+             errorMsg = "Password is required for signing when not authenticated at startup."
+        }
+
+
+        return try {
+            if (privateKey != null) {
+                val signature = XianCrypto.getInstance().signMessage(message.toByteArray(), privateKey)
                 JSONObject().apply {
                     put("success", true)
-                    put("txid", txResult.txHash)
-                    put("status", "pending")
+                    put("signature", signature)
+                    put("message", message)
+                }.toString()
+            } else {
+                 Log.e(TAG, "signMessage failed: $errorMsg")
+                 JSONObject().apply {
+                    put("success", false)
+                    put("error", errorMsg ?: "Failed to access private key for signing")
                 }.toString()
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error sending transaction", e)
+            Log.e(TAG, "Error signing message", e)
             JSONObject().apply {
                 put("success", false)
-                put("errors", e.message ?: "Unknown error")
+                put("error", e.message ?: "Unknown error during signing")
+            }.toString()
+        }
+    }
+
+    /**
+     * Send a transaction to the Xian blockchain (Older method).
+     * Uses cached key if available and appropriate, otherwise uses provided password.
+     * Password parameter is nullable. Null means "try cached key".
+     */
+    @JavascriptInterface
+    fun sendTransaction(contract: String, method: String, kwargs: String, password: String?, stampLimit: Int = 0): String { // Password can be null
+        Log.d(TAG, "sendTransaction (older method) called. Password provided: ${password != null}")
+
+        var privateKey: ByteArray? = null
+        var errorMsg: String? = null
+        val requirePasswordOnStartup = walletManager.getRequirePassword()
+
+         if (requirePasswordOnStartup && password == null) {
+            // Startup required password, JS didn't provide one, try cached key
+            Log.d(TAG, "sendTransaction (older) attempting to use cached key.")
+            privateKey = walletManager.getUnlockedPrivateKey()
+            if (privateKey == null) {
+                errorMsg = "Failed to retrieve cached key for transaction."
+            }
+        } else if (password != null) {
+            // Password was provided
+             Log.d(TAG, "sendTransaction (older) attempting unlock with provided password.")
+             if (password.isEmpty()){
+                 errorMsg = "Password cannot be empty."
+             } else {
+                privateKey = walletManager.unlockWallet(password) // Try unlocking (also caches)
+                if (privateKey == null) {
+                    errorMsg = "Invalid password for transaction."
+                }
+             }
+        } else {
+             // Startup didn't require password, but JS didn't provide one either
+             errorMsg = "Password is required for transaction when not authenticated at startup."
+        }
+
+
+        return try {
+             if (privateKey != null) {
+                val kwargsJson = JSONObject(kwargs)
+                val txResult = runBlocking<com.example.xianwalletapp.network.TransactionResult> {
+                    networkService.sendTransaction(contract, method, kwargsJson, privateKey, stampLimit)
+                }
+                 // Return full result including potential errors from sendTransaction
+                 JSONObject().apply {
+                     put("success", txResult.success)
+                     put("txid", txResult.txHash)
+                     put("status", if (txResult.success) "pending" else "failed")
+                     if (!txResult.success) {
+                         put("errors", txResult.errors ?: "Unknown transaction error")
+                     }
+                 }.toString()
+             } else {
+                 Log.e(TAG, "sendTransaction (older) failed: $errorMsg")
+                 JSONObject().apply {
+                    put("success", false)
+                    put("errors", errorMsg ?: "Failed to access private key for transaction")
+                }.toString()
+             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending transaction (older)", e)
+            JSONObject().apply {
+                put("success", false)
+                put("errors", e.message ?: "Unknown error during transaction")
             }.toString()
         }
     }

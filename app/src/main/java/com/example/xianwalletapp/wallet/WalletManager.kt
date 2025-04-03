@@ -16,6 +16,7 @@ class WalletManager private constructor(context: Context) {
     private val appContext = context.applicationContext
     private val crypto = XianCrypto.getInstance()
     private val prefs: SharedPreferences
+    private var cachedPrivateKey: ByteArray? = null // Variable to cache the decrypted key
     
     // Keys for SharedPreferences
     companion object {
@@ -147,7 +148,15 @@ class WalletManager private constructor(context: Context) {
         val publicKey = prefs.getString(KEY_PUBLIC_KEY, null) ?: return null
         val encryptedPrivateKey = prefs.getString(KEY_ENCRYPTED_PRIVATE_KEY, null) ?: return null
         
-        return crypto.decryptPrivateKey(encryptedPrivateKey, password, publicKey)
+        val decryptedKey = crypto.decryptPrivateKey(encryptedPrivateKey, password, publicKey)
+        if (decryptedKey != null) {
+            // Cache the key on successful unlock
+            cachedPrivateKey = decryptedKey
+            android.util.Log.d("WalletManager", "Private key unlocked and cached.")
+        } else {
+            android.util.Log.w("WalletManager", "Failed to unlock private key.")
+        }
+        return decryptedKey
     }
     
     /**
@@ -241,6 +250,22 @@ class WalletManager private constructor(context: Context) {
     fun deleteWallet() {
         prefs.edit().clear().apply()
     }
+
+    /**
+     * Get the cached private key if available (doesn't require password)
+     */
+    fun getUnlockedPrivateKey(): ByteArray? {
+        android.util.Log.d("WalletManager", "getUnlockedPrivateKey called. Cached key is ${if (cachedPrivateKey != null) "available" else "null"}.")
+        return cachedPrivateKey
+    }
+
+    /**
+     * Clear the cached private key from memory
+     */
+    fun clearPrivateKeyCache() {
+        cachedPrivateKey = null
+        android.util.Log.d("WalletManager", "Private key cache cleared.")
+    }
     
 
     /**
@@ -248,12 +273,17 @@ class WalletManager private constructor(context: Context) {
      */
     fun getRequirePassword(): Boolean {
         return prefs.getBoolean(KEY_REQUIRE_PASSWORD, false)
+        val value = prefs.getBoolean(KEY_REQUIRE_PASSWORD, false)
+        android.util.Log.d("WalletManager", "getRequirePassword read value: $value") // Add logging
+        return value
     }
 
     /**
      * Set require password on startup setting
      */
     fun setRequirePassword(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_REQUIRE_PASSWORD, enabled).apply()
+        android.util.Log.d("WalletManager", "setRequirePassword saving value: $enabled") // Add logging
         prefs.edit().putBoolean(KEY_REQUIRE_PASSWORD, enabled).apply()
     }
 }

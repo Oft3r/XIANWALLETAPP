@@ -21,6 +21,8 @@ object XianDestinations {
     const val NEWS = "news"
     const val SETTINGS = "settings"
     const val PASSWORD_VERIFICATION = "password_verification"
+    const val SETTINGS_SECURITY = "settings_security"
+    const val SETTINGS_NETWORK = "settings_network"
 }
 
 /**

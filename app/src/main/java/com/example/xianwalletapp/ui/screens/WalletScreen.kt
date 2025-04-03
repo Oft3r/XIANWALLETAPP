@@ -42,13 +42,14 @@ import coil.compose.AsyncImage // For Coil image loading - TODO: Add Coil depend
 import android.content.Intent
 import android.net.Uri
 import com.example.xianwalletapp.network.XianNetworkService
-import com.example.xianwalletapp.network.NftInfo // Import the new data class
+import com.example.xianwalletapp.network.NftInfo
 import com.example.xianwalletapp.wallet.WalletManager
 import kotlinx.coroutines.launch
-
 import androidx.compose.material.ExperimentalMaterialApi
 import com.google.accompanist.swiperefresh.SwipeRefresh
 import com.google.accompanist.swiperefresh.rememberSwipeRefreshState
+import com.example.xianwalletapp.data.LocalTransactionRecord // Added
+import com.example.xianwalletapp.data.TransactionHistoryManager // Added
 import com.example.xianwalletapp.ui.theme.XianButtonType
 import com.example.xianwalletapp.ui.theme.xianButtonColors
 
@@ -68,7 +69,7 @@ fun WalletScreen(
     val publicKey = walletManager.getPublicKey() ?: ""
     
     // State for tokens and balances
-    var tokens by remember { mutableStateOf(walletManager.getTokenList().toList()) }
+    var tokens by remember { mutableStateOf(walletManager.getTokenList().toList().sortedWith(compareBy<String> { it != "currency" }.thenBy { it })) }
     var tokenInfoMap by remember { mutableStateOf<Map<String, TokenInfo>>(emptyMap()) }
     var balanceMap by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -81,6 +82,8 @@ fun WalletScreen(
     // State for NFTs
     var nftList by remember { mutableStateOf<List<com.example.xianwalletapp.network.NftInfo>>(emptyList()) } // Assuming NftInfo data class exists
     var isNftLoading by remember { mutableStateOf(false) }
+    var transactionHistory by remember { mutableStateOf<List<LocalTransactionRecord>>(emptyList()) } // Added
+    var isHistoryLoading by remember { mutableStateOf(false) } // Added
     
     // Add a refresh trigger
     var refreshTrigger by remember { mutableStateOf(0) }
@@ -220,7 +223,7 @@ fun WalletScreen(
             state = rememberSwipeRefreshState(isLoading),
             onRefresh = {
                 coroutineScope.launch {
-                    tokens = walletManager.getTokenList().toList()
+                    tokens = walletManager.getTokenList().toList().sortedWith(compareBy<String> { it != "currency" }.thenBy { it })
                     refreshTrigger += 1  // Increment refresh trigger to force data reload
                 }
             }
@@ -231,7 +234,7 @@ fun WalletScreen(
                     .padding(paddingValues)
                     .padding(16.dp)
             ) {
-                // Wallet address card
+                // XIAN Balance Card
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -243,40 +246,35 @@ fun WalletScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp)
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally // Center items horizontally
                     ) {
+                        // Label
                         Text(
-                            text = "Wallet Address",
+                            text = "XIAN Balance",
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = publicKey,
-                                modifier = Modifier.weight(1f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+
+                        Spacer(modifier = Modifier.height(8.dp)) // Add space between label and balance
+
+                        // Display balance or loading indicator
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
-                            IconButton(
-                                onClick = {
-                                    clipboardManager.setText(AnnotatedString(publicKey))
-                                    coroutineScope.launch {
-                                        snackbarHostState.showSnackbar("Address copied to clipboard")
-                                    }
-                                }
-                            ) {
-                                Icon(
-                                    Icons.Default.ContentCopy,
-                                    contentDescription = "Copy Address",
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            }
+                        } else {
+                            val xianBalance = balanceMap["currency"] ?: 0f
+                            Text(
+                                text = "%.8f".format(xianBalance), // Format to 8 decimal places
+                                style = MaterialTheme.typography.headlineSmall, // Adjusted style for better visibility
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                textAlign = TextAlign.Center // Center the balance text
+                            )
                         }
                     }
                 }
@@ -297,6 +295,11 @@ fun WalletScreen(
                         onClick = { selectedTabIndex = 1 },
                         text = { Text("NFTs") }
                     )
+                    Tab(
+                        selected = selectedTabIndex == 2,
+                        onClick = { selectedTabIndex = 2 },
+                        text = { Text("Local Activity") }
+                    )
                 }
 
                 // Load NFT data when NFT tab is selected
@@ -309,6 +312,13 @@ fun WalletScreen(
                     } else if (selectedTabIndex == 1 && publicKey.isEmpty()) {
                          android.util.Log.w("WalletScreen", "Cannot fetch NFTs, publicKey is empty.")
                          isNftLoading = false // Ensure loading stops if publicKey is missing
+                    } else if (selectedTabIndex == 2) {
+                        // Load transaction history when tab is selected
+                        isHistoryLoading = true
+                        val historyManager = TransactionHistoryManager(context)
+                        transactionHistory = historyManager.loadRecords()
+                        android.util.Log.d("WalletScreen", "Loaded ${transactionHistory.size} history records.")
+                        isHistoryLoading = false
                     }
                 }
 
@@ -361,7 +371,6 @@ fun WalletScreen(
                                         }
                                     )
                                     
-                                    Divider()
                                 }
                             }
                         }
@@ -406,6 +415,32 @@ fun WalletScreen(
                             }
                         }
                     }
+                    2 -> {
+                        // Local Activity tab
+                        if (isHistoryLoading) {
+                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator()
+                            }
+                        } else if (transactionHistory.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "No local transaction history found.",
+                                    textAlign = TextAlign.Center,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(bottom = 80.dp) // Add padding for FAB
+                            ) {
+                                items(transactionHistory) { record ->
+                                    TransactionRecordItem(record = record)
+                                    Divider()
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -434,7 +469,7 @@ fun WalletScreen(
                     onClick = {
                         if (newTokenContract.isNotBlank()) {
                             if (walletManager.addToken(newTokenContract)) {
-                                tokens = walletManager.getTokenList().toList()
+                                tokens = walletManager.getTokenList().toList().sortedWith(compareBy<String> { it != "currency" }.thenBy { it })
                                 coroutineScope.launch {
                                     snackbarHostState.showSnackbar("Token added")
                                 }
@@ -626,6 +661,9 @@ fun NftItem(
 
             Spacer(modifier = Modifier.height(4.dp))
 
+
+
+// TransactionRecordItem moved below NftItem
             // NFT Description
             Text(
                 text = nftInfo.description,
@@ -651,3 +689,83 @@ fun NftItem(
     }
 }
 // --- End of NftItem Composable ---
+
+
+/**
+ * Composable function to display a single local transaction record.
+ */
+@Composable
+fun TransactionRecordItem(record: LocalTransactionRecord) {
+    val formatter = remember { java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(java.time.ZoneId.systemDefault()) }
+    val formattedTimestamp = remember(record.timestamp) { formatter.format(java.time.Instant.ofEpochMilli(record.timestamp)) }
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    val coroutineScope = rememberCoroutineScope()
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = record.type, // "Sent" or "Received"
+                    fontWeight = FontWeight.Bold,
+                    color = if (record.type == "Sent") Color(0xFFE57373) else Color(0xFF81C784), // Red for Sent, Green for Received
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = formattedTimestamp,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "${if (record.type == "Sent") "-" else "+"}${record.amount} ${record.symbol}",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            if (record.type == "Sent" && record.recipient != null) {
+                Text("To: ${record.recipient.take(8)}...${record.recipient.takeLast(6)}", fontSize = 12.sp)
+            }
+            // TODO: Add 'From' if needed for received transactions (requires storing sender)
+            Spacer(modifier = Modifier.height(2.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                 Text(
+                    text = "Tx: ${record.txHash.take(10)}...",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
+                 IconButton(
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(record.txHash))
+                        coroutineScope.launch {
+                            // Consider using a SnackbarHostState defined in WalletScreen if needed
+                            // snackbarHostState.showSnackbar("Transaction ID copied")
+                            android.widget.Toast.makeText(context, "Transaction ID copied", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.size(24.dp) // Smaller copy button
+                ) {
+                    Icon(
+                        Icons.Default.ContentCopy,
+                        contentDescription = "Copy Transaction ID",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                         modifier = Modifier.size(16.dp) // Smaller icon
+                    )
+                }
+            }
+        }
+    }
+}

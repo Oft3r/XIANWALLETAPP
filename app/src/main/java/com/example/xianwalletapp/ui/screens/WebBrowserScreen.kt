@@ -194,20 +194,30 @@ fun WebBrowserScreen(
                                     // Listen for sign message requests
                                     document.addEventListener('xianWalletSignMsg', function(event) {
                                         window.xianDebug('xianWalletSignMsg event received', event.detail);
-                                        // Show a prompt to get the password
-                                        const password = prompt('Enter your wallet password to sign the message', '');
-                                        if (!password) {
-                                            document.dispatchEvent(new CustomEvent('xianWalletSignMsgResponse', {
-                                                detail: {
-                                                    success: false,
-                                                    error: 'User cancelled the operation'
-                                                }
-                                            }));
-                                            return;
+                                        let passwordToUse = null; // Initialize password as null
+
+                                        // Check if password was required on startup via the bridge
+                                        const requirePasswordOnStartup = XianWalletBridge.isPasswordRequiredOnStartup();
+                                        window.xianDebug('Password required on startup? ' + requirePasswordOnStartup);
+
+                                        if (!requirePasswordOnStartup) {
+                                            // If password NOT required on startup, prompt for it now
+                                            passwordToUse = prompt('Enter your wallet password to sign the message', '');
+                                            if (!passwordToUse) { // Check if user cancelled prompt
+                                                document.dispatchEvent(new CustomEvent('xianWalletSignMsgResponse', {
+                                                    detail: { success: false, error: 'User cancelled the operation' }
+                                                }));
+                                                return; // Stop if user cancelled prompt
+                                            }
+                                            // If user entered password, passwordToUse holds it
                                         }
-                                        
+                                        // If password WAS required on startup, passwordToUse remains null,
+                                        // signaling the bridge to try the cached key.
+
                                         try {
-                                            const result = JSON.parse(XianWalletBridge.signMessage(event.detail.message, password));
+                                            // Call signMessage with the message and passwordToUse (which might be null)
+                                            window.xianDebug('Calling XianWalletBridge.signMessage. Password provided: ' + (passwordToUse !== null));
+                                            const result = JSON.parse(XianWalletBridge.signMessage(event.detail.message, passwordToUse));
                                             document.dispatchEvent(new CustomEvent('xianWalletSignMsgResponse', {
                                                 detail: result
                                             }));
