@@ -611,6 +611,94 @@ class XianNetworkService private constructor(private val context: Context) {
         return@withContext nftInfoList
     }
 
+    /**
+     * Fetches the reserve balances for the XIAN/USDC pair (pair ID 1)
+     * to calculate the current price.
+     * @return Pair<Float, Float>? representing (reserve0 (USDC), reserve1 (XIAN)), or null if fetching fails.
+     */
+    suspend fun getXianPriceInfo(): Pair<Float, Float>? = withContext(Dispatchers.IO) {
+        val graphQLEndpoint = "$rpcUrl/graphql" // Use the current RPC URL
+        // The query provided by the user
+        val query = """
+            query PairInfo {
+              allStates(filter: {key: {startsWith: "con_pairs.pairs:1:"}}) {
+                edges {
+                  node {
+                    value
+                    key
+                  }
+                }
+              }
+            }
+        """.trimIndent()
+
+        val requestBody = JSONObject().apply {
+            put("query", query)
+        }.toString()
+
+        val request = Request.Builder()
+            .url(graphQLEndpoint)
+            .post(okhttp3.RequestBody.create("application/json".toMediaTypeOrNull(), requestBody))
+            .build()
+
+        try {
+            // Check connectivity first
+            if (!checkNodeConnectivity()) {
+                 android.util.Log.e("XianNetworkService", "No connection to node, cannot fetch price info.")
+                 return@withContext null
+            }
+
+            android.util.Log.d("XianNetworkService", "Fetching XIAN price info from $graphQLEndpoint")
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                android.util.Log.e("XianNetworkService", "Failed to fetch XIAN price info: ${response.code} ${response.message}")
+                return@withContext null
+            }
+
+            val responseBody = response.body?.string() ?: "{}"
+            android.util.Log.d("XianNetworkService", "XIAN Price Info Response: $responseBody")
+            val json = JSONObject(responseBody)
+            val edges = json.optJSONObject("data")?.optJSONObject("allStates")?.optJSONArray("edges")
+
+            var reserve0: Float? = null
+            var reserve1: Float? = null
+
+            if (edges != null) {
+                for (i in 0 until edges.length()) {
+                    val node = edges.getJSONObject(i)?.optJSONObject("node")
+                    if (node != null) {
+                        val key = node.optString("key")
+                        val value = node.optString("value")
+                        when (key) {
+                            "con_pairs.pairs:1:reserve0" -> {
+                                reserve0 = value.toFloatOrNull()
+                                android.util.Log.d("XianNetworkService", "Found reserve0: $reserve0")
+                            }
+                            "con_pairs.pairs:1:reserve1" -> {
+                                reserve1 = value.toFloatOrNull()
+                                android.util.Log.d("XianNetworkService", "Found reserve1: $reserve1")
+                            }
+                        }
+                    }
+                    // Break early if both found
+                    if (reserve0 != null && reserve1 != null) break
+                }
+            }
+
+            if (reserve0 != null && reserve1 != null) {
+                return@withContext Pair(reserve0, reserve1)
+            } else {
+                android.util.Log.e("XianNetworkService", "Could not find reserve0 or reserve1 in response.")
+                return@withContext null
+            }
+
+        } catch (e: Exception) {
+            android.util.Log.e("XianNetworkService", "Error fetching XIAN price info: ${e.message}", e)
+            return@withContext null
+        }
+    }
+
+
     // --- End of new NFT functions ---
 
     

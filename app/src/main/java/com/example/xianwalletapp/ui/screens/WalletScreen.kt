@@ -17,6 +17,9 @@ import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Newspaper
 import androidx.compose.material.icons.filled.Visibility // For View icon
+import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.xianwalletapp.R
@@ -72,7 +76,9 @@ fun WalletScreen(
     var tokens by remember { mutableStateOf(walletManager.getTokenList().toList().sortedWith(compareBy<String> { it != "currency" }.thenBy { it })) }
     var tokenInfoMap by remember { mutableStateOf<Map<String, TokenInfo>>(emptyMap()) }
     var balanceMap by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
-    var isLoading by remember { mutableStateOf(true) }
+    var xianPriceInfo by remember { mutableStateOf<Pair<Float, Float>?>(null) } // State for price reserves
+    var xianPrice by remember { mutableStateOf<Float?>(null) } // State for calculated price
+    var isLoading by remember { mutableStateOf(true) } // Combined loading state
     var showAddTokenDialog by remember { mutableStateOf(false) }
     var newTokenContract by remember { mutableStateOf("") }
     var showSnackbar by remember { mutableStateOf(false) }
@@ -114,11 +120,17 @@ fun WalletScreen(
             android.util.Log.d("WalletScreen", "Loaded balance for $contract: $balance")
             newBalanceMap[contract] = balance
         }
-        
-        tokenInfoMap = newTokenInfoMap
+
+        // Fetch XIAN price info
+        xianPriceInfo = networkService.getXianPriceInfo()
+        xianPrice = xianPriceInfo?.let { (reserve0, reserve1) ->
+            if (reserve1 != 0f) reserve0 / reserve1 else 0f // Calculate price, handle division by zero
+        }
+        android.util.Log.d("WalletScreen", "Fetched XIAN Price: $xianPrice (Reserves: $xianPriceInfo)")
+
         tokenInfoMap = newTokenInfoMap
         balanceMap = newBalanceMap
-        isLoading = false
+        isLoading = false // Set loading to false after all data is fetched
     }
     
     // Check connectivity periodically
@@ -251,7 +263,7 @@ fun WalletScreen(
                     ) {
                         // Label
                         Text(
-                            text = "XIAN Balance",
+                            text = "XIAN Price", // Changed Label again as requested
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -267,15 +279,80 @@ fun WalletScreen(
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         } else {
-                            val xianBalance = balanceMap["currency"] ?: 0f
+                            // Display calculated price or placeholder
+                            val priceText = xianPrice?.let { "%.6f".format(it) } ?: "---" // Format to 6 decimals or show placeholder
                             Text(
-                                text = "%.8f".format(xianBalance), // Format to 8 decimal places
-                                style = MaterialTheme.typography.headlineSmall, // Adjusted style for better visibility
+                                text = priceText,
+                                style = MaterialTheme.typography.headlineSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                textAlign = TextAlign.Center // Center the balance text
+                                textAlign = TextAlign.Center
                             )
                         }
+                        // Removed Spacer and Row from inside the card
+                    }
+                } // End of Card
+
+                Spacer(modifier = Modifier.height(16.dp)) // Add space after the card
+
+                // Row moved outside the Card and text changed to English
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceAround, // Distribute items evenly
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Buy XIAN Option
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.clickable { /* TODO: Add Buy action */ }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ShoppingCart,
+                            contentDescription = "Buy XIAN", // Changed to English
+                            tint = MaterialTheme.colorScheme.onSurface // Adjusted tint for outside card
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Buy XIAN", // Changed to English
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurface // Adjusted color for outside card
+                        )
+                    }
+
+                    // Swap Option
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.clickable { /* TODO: Add Swap action */ }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SwapHoriz,
+                            contentDescription = "Swap", // Changed to English
+                            tint = MaterialTheme.colorScheme.onSurface // Adjusted tint for outside card
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Swap", // Changed to English
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurface // Adjusted color for outside card
+                        )
+                    }
+
+                    // Staking Option
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.clickable { /* TODO: Add Staking action */ }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AccountBalance, // Using AccountBalance for Staking
+                            contentDescription = "Staking",
+                            tint = MaterialTheme.colorScheme.onSurface // Adjusted tint for outside card
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Staking",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurface // Adjusted color for outside card
+                        )
                     }
                 }
                 
@@ -347,11 +424,14 @@ fun WalletScreen(
                                     val tokenInfo = tokenInfoMap[contract]
                                     val balance = balanceMap[contract] ?: 0f
                                     
+                                    // This block was already applied correctly in the previous step,
+                                    // but included here for context. No changes needed in this SEARCH/REPLACE.
                                     TokenItem(
-                                        contract = contract,
+                                        contract = contract, // Pass contract name
                                         name = tokenInfo?.name ?: contract,
                                         symbol = tokenInfo?.symbol ?: "",
                                         balance = balance,
+                                        xianPrice = if (contract == "currency") xianPrice else null, // Pass price only for XIAN
                                         onSendClick = {
                                             navController.navigate(
                                                 "${XianDestinations.SEND_TOKEN}?${XianNavArgs.TOKEN_CONTRACT}=$contract&${XianNavArgs.TOKEN_SYMBOL}=${tokenInfo?.symbol ?: ""}"
@@ -363,7 +443,8 @@ fun WalletScreen(
                                         onRemoveClick = {
                                             if (contract != "currency") {
                                                 walletManager.removeToken(contract)
-                                                tokens = walletManager.getTokenList().toList()
+                                                // Update tokens list immediately after removal
+                                                tokens = walletManager.getTokenList().toList().sortedWith(compareBy<String> { it != "currency" }.thenBy { it })
                                                 coroutineScope.launch {
                                                     snackbarHostState.showSnackbar("Token removed")
                                                 }
@@ -436,7 +517,6 @@ fun WalletScreen(
                             ) {
                                 items(transactionHistory) { record ->
                                     TransactionRecordItem(record = record)
-                                    Divider()
                                 }
                             }
                         }
@@ -493,10 +573,11 @@ fun WalletScreen(
 
 @Composable
 fun TokenItem(
-    contract: String,
+    contract: String, // Added contract parameter
     name: String,
     symbol: String,
     balance: Float,
+    xianPrice: Float? = null, // Added optional price parameter
     onSendClick: () -> Unit,
     onReceiveClick: () -> Unit,
     onRemoveClick: () -> Unit
@@ -564,12 +645,25 @@ fun TokenItem(
                     )
                 }
                 
-                // Token balance
-                Text(
-                    text = String.format("%.1f %s", balance, symbol),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
-                )
+                // Token balance and USD value (if applicable)
+                Column(horizontalAlignment = Alignment.End) { // Wrap in Column, align text to the end
+                    Text(
+                        text = "%.1f".format(balance), // Format balance to 1 decimal
+                        style = MaterialTheme.typography.bodyLarge, // Use consistent styling
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    // Show USD value below balance only for XIAN currency
+                    if (contract == "currency" && xianPrice != null) {
+                        val usdValue = balance * xianPrice
+                        Text(
+                            text = "$%.2f".format(usdValue), // Format as $0.00
+                            style = MaterialTheme.typography.bodyMedium, // Correct: fontSize is part of the style
+                            color = Color.Gray, // Use a less prominent color
+                            modifier = Modifier.padding(top = 2.dp) // Add a little space
+                        ) // Corrected: Removed invalid fontSize parameter
+                    }
+                }
             }
             
             Spacer(modifier = Modifier.height(16.dp))
@@ -744,27 +838,23 @@ fun TransactionRecordItem(record: LocalTransactionRecord) {
                  Text(
                     text = "Tx: ${record.txHash.take(10)}...",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f)
-                )
-                 IconButton(
-                    onClick = {
-                        clipboardManager.setText(AnnotatedString(record.txHash))
-                        coroutineScope.launch {
-                            // Consider using a SnackbarHostState defined in WalletScreen if needed
-                            // snackbarHostState.showSnackbar("Transaction ID copied")
-                            android.widget.Toast.makeText(context, "Transaction ID copied", android.widget.Toast.LENGTH_SHORT).show()
+                    color = MaterialTheme.colorScheme.primary, // Change color to indicate link
+                    textDecoration = TextDecoration.Underline, // Add underline
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable {
+                            val url = "https://explorer.xian.org/tx/${record.txHash}"
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                android.util.Log.e("WalletScreen", "Failed to open URL: $url", e)
+                                // Optionally show a toast or snackbar on failure
+                                android.widget.Toast.makeText(context, "Could not open link", android.widget.Toast.LENGTH_SHORT).show()
+                            }
                         }
-                    },
-                    modifier = Modifier.size(24.dp) // Smaller copy button
-                ) {
-                    Icon(
-                        Icons.Default.ContentCopy,
-                        contentDescription = "Copy Transaction ID",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                         modifier = Modifier.size(16.dp) // Smaller icon
-                    )
-                }
+                )
+                // IconButton removed
             }
         }
     }
