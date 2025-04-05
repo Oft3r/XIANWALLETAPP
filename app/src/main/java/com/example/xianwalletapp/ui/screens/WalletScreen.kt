@@ -4,6 +4,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.BorderStroke
+
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -26,6 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+
 import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -52,6 +56,8 @@ import kotlinx.coroutines.launch
 import androidx.compose.material.ExperimentalMaterialApi
 import com.google.accompanist.swiperefresh.SwipeRefresh
 import com.google.accompanist.swiperefresh.rememberSwipeRefreshState
+import com.example.xianwalletapp.ui.theme.XianBlue
+
 import com.example.xianwalletapp.data.LocalTransactionRecord // Added
 import com.example.xianwalletapp.data.TransactionHistoryManager // Added
 import com.example.xianwalletapp.ui.theme.XianButtonType
@@ -251,9 +257,11 @@ fun WalletScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    border = BorderStroke(
+                        width = 2.dp,
+                        brush = Brush.horizontalGradient(colors = listOf(Color.Yellow, XianBlue)) // Use XianBlue
                     )
+                    // Removed background color
                 ) {
                     Column(
                         modifier = Modifier
@@ -283,7 +291,7 @@ fun WalletScreen(
                             val priceText = xianPrice?.let { "%.6f".format(it) } ?: "---" // Format to 6 decimals or show placeholder
                             Text(
                                 text = priceText,
-                                style = MaterialTheme.typography.headlineSmall,
+                                style = MaterialTheme.typography.headlineLarge, // Increased font size further
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 textAlign = TextAlign.Center
@@ -430,6 +438,7 @@ fun WalletScreen(
                                         contract = contract, // Pass contract name
                                         name = tokenInfo?.name ?: contract,
                                         symbol = tokenInfo?.symbol ?: "",
+                                        logoUrl = tokenInfo?.logoUrl, // Pass logo URL
                                         balance = balance,
                                         xianPrice = if (contract == "currency") xianPrice else null, // Pass price only for XIAN
                                         onSendClick = {
@@ -576,6 +585,7 @@ fun TokenItem(
     contract: String, // Added contract parameter
     name: String,
     symbol: String,
+    logoUrl: String?, // Added logo URL parameter
     balance: Float,
     xianPrice: Float? = null, // Added optional price parameter
     onSendClick: () -> Unit,
@@ -599,33 +609,23 @@ fun TokenItem(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Token icon (placeholder)
-                if (symbol.equals("XIAN", ignoreCase = true)) {
-                    //Use XIAN logo for XIAN tokens
-                    Image(
-                        painter = painterResource(id = R.drawable.xian_white_logo),
-                        contentDescription = "XIAN Logo",
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
-                    )
-                } else {
-                    // Default icon for other tokens
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (symbol.isNotEmpty()) symbol.take(1) else "?",
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
+                // Token icon using AsyncImage
+                AsyncImage(
+                    model = logoUrl,
+                    contentDescription = "$name Logo",
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)), // Placeholder background
+                    contentScale = androidx.compose.ui.layout.ContentScale.Inside, // Changed from Fit to Inside
+                    // Fallback logic: Show XIAN logo for currency, or a generic icon for others
+                    error = if (contract == "currency") {
+                        painterResource(id = R.drawable.xian_logo) // Use the renamed xian_logo.jpg
+                    } else {
+                        painterResource(id = android.R.drawable.ic_menu_gallery) // Generic fallback for other tokens
+                    },
+                    placeholder = painterResource(id = R.drawable.xian_logo) // Use the renamed xian_logo.jpg
+                )
                 
                 // Token details
                 Column(
@@ -634,7 +634,8 @@ fun TokenItem(
                         .padding(start = 16.dp)
                 ) {
                     Text(
-                        text = name,
+                        // Display "XIANCurrency" specifically for the native token
+                        text = if (contract == "currency") "XIAN Currency" else name,
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
                     )

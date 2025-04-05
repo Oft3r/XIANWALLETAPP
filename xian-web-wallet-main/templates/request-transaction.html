@@ -1,0 +1,44 @@
+<h1 class="app-box-title">Transaction Request</h1>
+<p class="app-box-description">You have received a transaction request from a website.</p>
+<div id="failure-alert" class="alert alert-danger d-none">
+    <strong>This transaction will most likely fail!</strong>
+    <p>The outcome of this transaction is: <span id="failure-reason"></span></p>
+</div>
+<div class="app-box-form">
+    <div class="form-group">
+        <label for="requestTransactionContract">Contract</label>
+        <p id="requestTransactionContract"></p>
+    </div>
+    <div class="form-group">
+        <label for="requestTransactionFunction">Function</label>
+        <p id="requestTransactionFunction" style="text-overflow: ellipsis;
+    overflow: hidden;"></p>
+    </div>
+    <div class="form-group">
+        <label for="requestTransactionParams">Parameters</label>
+        <details> 
+            <summary>Show/Hide Parameters</summary>
+            <p id="requestTransactionParams" style="word-break: break-all;"></p>
+        </details>
+    </div>
+    <div class="form-group">
+        <label for="requestTransactionChainId">Chain ID</label>
+        <p id="requestTransactionChainId"></p>
+    </div>
+    <div class="form-group">
+        <label for="requestTransactionStampLimit">Transaction Fee</label>
+        <p id="stamp_line">Calculating..</p>
+        <p id="stamp_line_finished" style="display: none;"><span id="requestTransactionStampLimit"></span> Stamps (<span id="requestTransactionStampLimitXian"></span> Xian)</p>
+    </div>
+    <div class="btn-group">
+        <button class="btn btn-primary" id="request-transaction-accept">Accept</button>
+        <button class="btn btn-secondary" id="request-transaction-reject">Reject</button>
+    </div>
+</div>
+<script src="templates/page_js/request-transaction.js"></script>
+
+<style>
+    label{
+        color: #93e8e1;
+    }
+</style>

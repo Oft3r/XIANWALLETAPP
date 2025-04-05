@@ -1,0 +1,999 @@
+html{
+    height: 100%;
+    
+}
+body {
+    min-height: 100%;
+    margin: 0;
+    background-color: #fff;
+    font-family: 'Roboto Mono', sans-serif;
+    color: #202020;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-smoothing: antialiased;
+    font-weight: 500;
+}
+a{
+    color: #06e6cb;
+    text-decoration: none;
+}
+
+.btn{color: #202020;}
+
+.top-0 {
+    top: 0;
+}
+
+.toast.show {
+    display: flex;
+    opacity: 1;
+}
+
+.btn-close {
+    box-sizing: content-box;
+    width: 1em;
+    height: 1em;
+    padding: .25em .25em;
+    color: #000;
+    background: transparent url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%23000'%3e%3cpath d='M.293.293a1 1 0 011.414 0L8 6.586 14.293.293a1 1 0 111.414 1.414L9.414 8l6.293 6.293a1 1 0 01-1.414 1.414L8 9.414l-6.293 6.293a1 1 0 01-1.414-1.414L6.586 8 .293 1.707a1 1 0 010-1.414z'/%3e%3c/svg%3e") center/1em auto no-repeat;
+
+    border: 0;
+    border-radius: .25rem;
+    opacity: .5;
+    margin-left: 1rem;
+}
+
+.btn-close:hover {
+    color: #000;
+    text-decoration: none;
+    opacity: .75;
+}
+
+.btn-close:focus {
+    outline: 0;
+    box-shadow: 0 0 0 .2rem rgba(0, 123, 255, .25);
+}
+
+
+
+.governance-section {
+    display: flex;
+    flex-direction: column;
+}
+
+.governance-section p {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+}
+.governance-section-buttons button {
+    background-color: #ffffff;
+}
+
+.governance-section-flex{
+    display: flex;
+    flex-direction: column;
+}
+.title-container-governance{
+    margin-top:1rem;
+}
+.label-gov {
+    min-width: 250px; /* Adjust this value based on your longest label */
+    margin-right: 10px; /* Space between the label and the value */
+}
+
+.value-gov {
+    
+}
+
+a:hover{
+    color: #06e6cb;
+    text-decoration: underline;
+}
+.governance-sub-title{
+    font-size: 1.25rem;
+    margin-bottom: 1rem;
+    margin-top: 1rem;
+    text-decoration: underline;
+}
+.ide-icon{
+    position: absolute;
+    left: 0;
+    font-size: 1.25rem;
+    margin-bottom: 20px;
+    color:#06e6cb;
+    cursor: pointer;
+}
+.explorer-url{
+    text-overflow: ellipsis;
+    overflow: hidden;
+    display: block;
+}
+/* Positioning the dark mode toggler */
+.dark-mode-toggler {
+    position: fixed;
+    bottom: 1rem;
+    right: 1rem;
+    z-index: 1050; /* Ensures the toggler stays above most elements */
+    border: 1px solid #ced4da;
+    background: #fff;
+    color: #202020;
+}
+.dark-mode .dark-mode-toggler {
+    border: 1px solid #8a8b8e;
+    background: #202020;
+    color: #ffffff;
+}
+
+/* Dark mode specific styles */
+.dark-mode {
+    background-color: #202020; /* Dark background */
+    color: #ffffff; /* Bright text */
+}
+
+.dark-mode .app-box {
+    background-color: #202020; /* Darker background */
+    border: 1px solid #8a8b8e; /* Darker border */
+}
+
+
+.dark-mode .cm-s-default .cm-keyword { color: #CC99CD; } /* Soft purple for keywords for better distinction */
+.dark-mode .cm-s-default .cm-atom { color: #D6BF55; } /* Golden for atoms, standing out with warmth */
+.dark-mode .cm-s-default .cm-number { color: #F08D49; } /* Soft orange for numbers, easy on the eyes */
+.dark-mode .cm-s-default .cm-def { color: #6699CC; } /* Sky blue for definitions, for clarity */
+.dark-mode .cm-s-default .cm-variable,
+.dark-mode .cm-s-default .cm-punctuation,
+.dark-mode .cm-s-default .cm-property,
+.dark-mode .cm-s-default .cm-operator { color: #AAB2BF; } /* Lighter gray for variables, punctuations, properties, and operators for subtle differentiation */
+.dark-mode .cm-s-default .cm-variable-2 { color: #7EC699; } /* Soft green for second-tier variables, for variety */
+.dark-mode .cm-s-default .cm-variable-3,
+.dark-mode .cm-s-default .cm-type { color: #67D8EF; } /* Cyan for type annotations and third-tier variables, for freshness */
+.dark-mode .cm-s-default .cm-comment { color: #999; } /* Dimmed down for comments, reducing visual noise */
+.dark-mode .cm-s-default .cm-string { color: #FFD479; } /* Soft yellow for strings, for warmth and visibility */
+.dark-mode .cm-s-default .cm-string-2 { color: #FFD479; } /* Keeping string-2 the same as strings for consistency */
+.dark-mode .cm-s-default .cm-meta { color: #555; } /* Darker gray for meta, less prominent */
+.dark-mode .cm-s-default .cm-qualifier { color: #555; } /* Matching meta for qualifiers */
+.dark-mode .cm-s-default .cm-builtin { color: #30A; } /* Soft blue for built-ins, distinguishable */
+.dark-mode .cm-s-default .cm-bracket { color: #FFEE99; } /* Light yellow for brackets, subtle yet visible */
+.dark-mode .cm-s-default .cm-tag { color: #E2777A; } /* Soft red for tags, clear and distinguishable */
+.dark-mode .cm-s-default .cm-attribute { color: #E2777A; } /* Matching tags for attributes for consistency */
+.dark-mode .cm-s-default .cm-hr { color: #999; } /* Grey for horizontal rules, minimal */
+.dark-mode .cm-s-default .cm-link { color: #D6BF55; } /* Golden for links, standing out */
+.dark-mode .cm-s-default .cm-error { color: #FF3333; } /* Bright red for errors, for immediate visibility */
+
+
+.app-container {
+    height: 100%;
+    min-height: 100vh; /* Use viewport height to ensure full coverage */
+    margin: 0;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: 80px !important;
+    padding: 20px;
+}
+
+.token-icon {
+    width: 32px; /* Adjust based on your icon's size */
+    height: auto;
+}
+
+.wrap-app{
+    display: flex; max-width: 100%;width: 100%;align-self: stretch;
+}
+
+@media (max-width: 768px) {
+    .wrap-app{
+        flex-direction: column;
+    }
+    
+}
+
+@media (min-width: 768px) {
+    .token-list{
+        height: 1px;
+    }
+    .token-actions{
+        flex-direction: row;
+    }
+    .token-actions button {
+        display: flex;
+        flex-direction: row;
+        gap: 10px;
+        align-items: center;
+    }
+    .token-actions a {
+        display: flex;
+        flex-direction: row;
+        gap: 10px;
+        align-items: center;
+    }
+    .token-item {
+        display: flex;
+        flex-direction: row!important;
+    }
+    #local-activity{
+        height: 1px;
+    }
+    .governance-section-wrapper{
+        flex-direction: row;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .governance-section-buttons button {
+        width: 16rem!important;
+        max-width: 100%;
+    }
+    .governance-section-buttons-colored button {
+        width: 8rem!important;
+        max-width: 100%;
+    }
+}
+.app-logo {
+    width: 32px; /* Adjust based on your logo's size */
+    height: auto;
+}
+.governance-section-buttons-colored {
+    display: flex;
+    gap: 10px;
+}
+
+.side-nav {
+    flex-direction: column;
+    gap: 10px;
+    padding: 20px;
+    border-radius: 8px;
+    width: auto;
+    border: 1px solid #ced4da;
+    border-top-right-radius: 0px;
+    border-bottom-right-radius: 0px;
+    background-color: #fff;
+    height: auto;
+    min-width: 200px;
+}
+.side-nav-item {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+}
+
+.side-nav-item i {
+    width: 32px;
+    height: auto;
+}
+
+.dark-mode .side-nav {
+    border: 1px solid #8a8b8e;
+    background-color: #202020;
+}
+
+.app-box {
+    padding: 20px;
+    border-radius: 8px;
+    background-color: #fff;
+    width: 100%;
+    border: 1px solid #ced4da;
+    overflow: auto;
+}
+
+.app-box-title {
+    margin-bottom: 20px;
+    font-size: 1.5rem;
+    text-align: center;
+}
+
+.title-container {
+    display: flex;
+    justify-content: center; /* Center the title */
+    align-items: center; /* Align items vertically */
+    position: relative; /* Needed to position the cogwheel icon */
+}
+
+.token-title-container {
+    display: flex;
+    align-items: center; /* Align items vertically */
+    position: relative; /* Needed to position the cogwheel icon */
+    margin-top: 0px !important;
+    gap: 1rem;
+}
+
+.token-title-container > .cogwheel-icon{
+    margin-bottom: 0;
+    margin-right: 0.5rem;
+    position: relative;
+}
+
+.app-box .btn-group {
+    gap: 10px;
+    display: flex;
+    flex-direction: row;
+}
+
+@media (max-width: 768px) {
+    .app-box .btn-group {
+        flex-direction: column;
+        max-width: 100%;
+    }
+    
+.token-item div {
+    margin: 5px 0;
+}
+.token-details{width: unset!important;}
+}
+@media (min-width: 768px) {
+    button {
+        max-width: 15rem;
+    }
+    .form-control {
+        max-width:30rem;
+    }
+    .token-item{
+        gap: 2rem;
+    }
+    .remove-btn{
+        padding: 10px;
+    }
+    
+}
+
+.kwarg-group{
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.kwarg-group label{
+    margin-bottom: 0;
+}
+
+.app-box button {
+    width: 100%; /* Full-width buttons */
+}
+
+.online-status {
+    display: flex;
+    align-items: center;
+    font-size: 0.75rem;
+    gap: 10px;
+}
+
+.app-name, .app-description {
+    text-align: center;
+    width: 100%;
+    max-width: 400px;
+}
+.app-name{
+    color: unset;
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+}
+
+.app-name h2{
+    font-size: 1.25rem;
+    margin-bottom: 0;
+}
+.navbar-brand {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin-right: 0;
+}
+.online-circle {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: #28bdaa;
+}
+.toast.bg-success{
+    color: #155724 !important;
+}
+.toast a{
+    color: #06e6cb !important;
+}
+.toast.bg-danger{
+    color: #721c24!important;
+}
+.mt-1px{
+    margin-top: 1px;
+}
+.offline-circle {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: #dc3545;
+}
+.grey-circle {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: #6c757d;
+}
+.navbar {
+    background-color: #fff;
+    position: fixed;
+    top: 0;
+    width: 100%;
+    z-index: 1030; /* Ensure it stays above other content */
+    border-bottom: 1px solid #ced4da;
+}
+.dark-mode .navbar {
+    background-color: #202020;
+    border-bottom: 1px solid #8a8b8e;
+}
+
+.dark-mode .token-list {
+}
+.dark-mode .token-item {
+    border: 1px solid #8a8b8e;
+}
+.dark-mode input, .dark-mode select, .dark-mode textarea {
+    background-color: #202020;
+    color: #ffffff;
+    border: 1px solid #8a8b8e;
+}
+.dark-mode input:focus, .dark-mode select:focus, .dark-mode textarea:focus {
+    background-color: #202020;
+    color: #ffffff;
+}
+.stamp-rate{margin-top: 10px;}
+.bottom-0 {
+    bottom: 0;
+}
+
+.end-0 {
+    right: 0;
+}
+
+.cogwheel-icon {
+    position: absolute; /* Position the icon relative to the title container */
+    right: 0; /* Align it to the right */
+    /* Adjust the size and padding as needed */
+    font-size: 1.25rem;
+    margin-bottom: 20px;
+    cursor: pointer;
+    color: #06e6cb;
+}
+
+.cogwheel-icon:hover, .ide-icon:hover {
+   text-decoration: underline;
+}
+#local-activity{
+    padding-top: 20px;
+    padding-bottom: 20px;
+}
+
+#local-activity-list {
+    display: flex;
+    flex-direction: column;
+    gap: 20px; /* Adjusts the space between activity items */
+}
+
+.activity-item {
+    display: flex;
+    flex-direction: column; /* Stacks the details and actions on top of each other */
+    border-radius: 5px;
+    overflow: hidden; /* Ensures the content fits within the borders */
+    border: 1px solid #ced4da;
+}
+.dark-mode .activity-item {
+    border: 1px solid #8a8b8e;
+}
+
+.activity-details, .activity-actions {
+    padding: 15px;
+    display: flex;
+    flex-wrap: wrap; /* Allows items to wrap onto the next line on smaller screens */
+    gap: 10px; /* Adjusts spacing between details and actions */
+}
+
+.activity-details > div, .activity-actions > a {
+    flex: 1 1 200px; /* Allows flex items to grow and shrink but not smaller than 200px */
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap; /* Ensures the text is on one line and cuts off with ellipsis if too long */
+}
+
+.activity-actions {
+    justify-content: flex-end; /* Aligns actions to the right */
+    border-top: 1px solid #dee2e6; /* Adds a separator between details and actions */
+}
+
+.activity-actions a {
+    display: flex;
+    align-items: center; /* Centers the icon and text vertically */
+    gap: 5px; /* Adds space between the icon and text */
+}
+
+/* Optional: Enhance visibility for clickable actions */
+.activity-actions a:hover {
+    text-decoration: underline;
+    color: #06e6cb;
+}
+
+.wallet-tabs {
+    display: flex;
+    gap: 10px; /* Space between tabs */
+    padding-top: 20px;
+    justify-content: center; /* Aligns tabs to the center */
+}
+
+.wallet-tabs a {
+    text-decoration: none;
+    color: #06e6cb; /* Primary color for consistency */
+    padding: 10px 20px;
+    border: 1px solid transparent; /* Ensures the layout doesn't shift when border is added on hover or focus */
+    border-radius: 5px 5px 0 0; /* Rounded corners at the top */
+    transition: color 0.3s ease-in-out, background-color 0.3s ease-in-out;
+}
+
+.wallet-tabs a:hover, .wallet-tabs a:focus {
+
+}
+
+/* Active tab style */
+.wallet-tabs a.active {
+    border-color: #ced4da #ced4da transparent; /* Borders on the sides and top, transparent at the bottom */
+    
+    border-bottom: 1px solid #ced4da;
+    border-top: 0px;
+    border-left:0px;
+    border-right:0px;
+    margin-bottom: -1px; /* Aligns the active tab with the content box */
+}
+
+
+#walletAddress {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+    color: #06e6cb;
+    display: block;
+}
+
+#walletAddress:hover {
+    text-decoration: underline;
+}
+
+#yourAddressReceive {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+    color: #06e6cb;
+    display: block;
+}
+#yourAddressReceive:hover {
+    text-decoration: underline;
+}
+
+.btn-group>.btn-group:not(:last-child)>.btn, .btn-group>.btn:not(:last-child):not(.dropdown-toggle) {
+    border-top-right-radius: .25rem!important;
+    border-bottom-right-radius: .25rem!important;
+}
+
+.btn-group>.btn-group:not(:first-child)>.btn, .btn-group>.btn:not(:first-child):not(.dropdown-toggle) {
+    border-top-left-radius: .25rem!important;
+    border-bottom-left-radius: .25rem!important;
+}
+
+.token-list {
+    padding-top: 20px;
+    padding-bottom: 20px;
+}
+
+.token-item:last-child {
+    margin-bottom: 0;
+}
+
+.token-item {
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: 1px solid #dee2e6;
+    border-radius: 5px;
+    
+}
+#validator-state{
+    margin-bottom: 1rem;
+}
+.token-list-title {
+    font-size: 1.25rem;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.create-token-link{
+    position: absolute;
+    left: 0;
+    font-size: 1.25rem;
+    margin-bottom: 20px;
+    cursor: pointer;
+    color: #06e6cb;
+}
+
+.token-name span, .token-symbol span, .token-balance span {
+    font-weight: bold;
+}
+
+.token-balance{
+    display: flex;
+    align-items: center;
+}
+
+.token-details {
+    display: flex;
+    flex-direction: column;
+    margin-top: 0px !important;
+    width: 10rem;
+}
+
+.token-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-grow: 1;
+}
+
+.token-actions button {
+    background-color: #ffffff;
+    width: unset;
+}
+
+.token-actions a {
+    background-color: #ffffff;
+    width: unset;
+}
+
+.token-actions button:hover {
+    background-color: #ffffff;
+}
+
+.token-actions a:hover {
+    background-color: #ffffff;
+}
+
+.github-link {
+    text-align: center;
+    margin-top: 10px; /* Adjust spacing as needed */
+}
+
+.github-link a {
+    color: #202020; /* Dark color for light mode */
+    font-weight: bold;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px; /* Space between icon and text */
+}
+
+.github-link a:hover {
+    text-decoration: underline; /* Optional: highlight on hover */
+}
+
+.dark-mode .github-link a {
+    color: #ffffff; /* Light color for dark mode */
+}
+
+.app-box-description {
+    margin-bottom: 10px!important;
+}
+
+.dropdown-content{
+    background-color: #fff;
+    border: 1px solid #ced4da;
+}
+.dark-mode .dropdown-content{
+    background-color: #202020;
+    border: 1px solid #8a8b8e;
+}
+.governance-section-buttons{
+    display: flex;
+    justify-content: flex-end;
+}
+.token-name{overflow: hidden;
+    text-overflow: ellipsis;}
+@media screen and (max-width: 450px) {
+    
+    .btn-group
+    {
+        width: 100%!important;
+    }
+    #wallet-tokens>.title-container{
+        justify-content: space-between;
+        flex-direction: column;
+    }
+    #wallet-adv-btns{
+        flex-wrap: wrap;
+    GAP: 1rem;
+
+    }
+    .token-actions>.btn{
+        padding: .375rem .3rem;
+    }
+    .online-status{
+        font-size: 0;
+    }
+    .label-gov{
+        min-width: unset;
+    }
+    .create-token-link{
+        align-self: start;
+        position: relative;
+    }
+}
+
+
+
+.active-side-nav:before {
+    content: "";
+    display: block;
+    position: absolute;
+    height: 1.5rem;
+    width: .1875rem;
+    background: #06e6cb;
+    z-index: 10;
+    margin-left: -10px;
+}
+
+.wallet-info-card{
+    padding: 20px;
+    border-radius: 5px;
+    border: 1px solid #8a8b8e;
+    overflow: auto;
+    width: 100%;
+    max-width: fit-content;
+}
+
+.wallet-info-title{
+    position: absolute;
+    margin-top: -32.5px;
+    background: #202020;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+}
+
+.wallet-info-address{
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+}
+
+.messenger-inbox {
+    width: 30%;
+    flex-direction: column;
+    display: flex
+;
+    max-width: 300px;
+    border-top: 1px solid #8a8b8e;
+    border-left: 1px solid #8a8b8e;
+    border-bottom: 1px solid #8a8b8e;
+    border-top-left-radius: 5px;
+    border-bottom-left-radius: 5px;
+    padding: 10px;
+    overflow-y: auto;
+    height: 100%;
+    box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.messenger-inbox-header {
+    font-size: 1.25rem;
+    font-weight: bold;
+    padding-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.messenger-inbox-header h5{
+    margin-bottom: 0;
+}
+
+.messenger-inbox-body {
+    display: flex
+    ;
+        flex-direction: column;
+        gap: 10px;
+        padding-top: 10px;
+        flex-grow: 1;
+        height: 0;
+        overflow-y: auto;
+}
+.messenger-inbox-item-active {
+    background-color: #494a50;
+}
+
+.messenger-inbox-item {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 10px;
+    border-radius: 5px;
+    border: 1px solid #8a8b8e;
+    cursor: pointer;
+    transition: box-shadow 0.3s ease-in-out, background-color 0.3s ease-in-out, transform 0.3s ease-in-out;
+}
+.messenger-inbox-item-content{
+    width: 100%;
+}
+.messenger-inbox-item:hover {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+}
+
+.messenger-inbox-item-avatar img {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.messenger-inbox-item-content h3 {
+    font-size: 1rem;
+    font-weight: bold;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.messenger-inbox-item-content p {
+    font-size: 0.9rem;
+    color: #6c757d;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+
+.messenger-chat-wrapper {
+    border: 1px solid #8a8b8e;
+    border-top-right-radius: 5px;
+    border-bottom-right-radius: 5px;
+    padding: 10px;
+    display: flex
+;
+    flex: 1;
+    overflow: hidden;
+}
+
+.messenger-chat-header {
+    font-size: 1.25rem;
+    font-weight: bold;
+    text-align: center;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #8a8b8e;
+}
+
+.messenger-chat-header h5{
+    text-overflow: ellipsis;
+    overflow: hidden;
+    width: 100%;
+}
+
+.messenger-chat {
+    display: flex;
+    flex-direction: column;
+    height: 100%; /* Ensures the chat area takes the full height of its parent */
+    overflow: hidden; /* Prevent any growth beyond the container */
+    flex: 1;
+}
+
+.messenger-chat-body {
+    flex-grow: 1; /* Allow it to take available space within its container */
+    overflow-y: auto; /* Adds a scrollbar if content exceeds the height */
+    max-height: 100%; /* Prevents it from growing beyond its parent's height */
+    padding: 10px; /* Maintain consistent spacing inside */
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+    height: 0;
+}
+
+.messenger-chat-item-me {
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    gap: 10px;
+}
+.messenger-chat-item-you {
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-start;
+    gap: 10px;
+}
+
+.messenger-chat-item-avatar img {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.flex-grow-1 {
+    flex-grow: 1;
+}
+
+
+.messenger-chat-item-content {
+    max-width: 70%;
+    padding: 10px;
+    border-radius: 5px;
+    border: 1px solid #8a8b8e;
+    font-size: 0.9rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+
+.messenger-chat-item-content p {
+    margin: 0;
+}
+
+.messenger-chat-footer {
+    display: flex;
+    gap: 10px;
+    border-top: 1px solid #8a8b8e;
+    padding-top: 10px;
+}
+
+.messenger-chat-footer input {
+    flex: 1;
+    padding: 10px;
+    border-radius: 5px;
+    border: 1px solid #8a8b8e;
+    font-size: 1rem;
+    outline: none;
+    transition: border-color 0.3s ease-in-out;
+}
+
+.messenger-chat-footer input:focus {
+    border-color: #93e8e1;
+}
+
+.messenger-chat-footer button {
+    padding: 10px 20px;
+    background-color: #93e8e1;
+    color: #202020;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s ease-in-out;
+}
+.messenger-chat-footer button:focus {
+    outline: none;
+}
+
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .messenger-inbox {
+        width: 100%;
+        max-width: unset;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid #ced4da;
+    }
+
+    .messenger-chat {
+        height: auto;
+    }
+    .column-mobile{
+        flex-direction: column;
+        gap: 20px;
+    }
+    .messenger-chat-wrapper {
+        border-top-left-radius: 5px;
+        border-bottom-left-radius: 5px;
+    }
+    .messenger-inbox{
+        border-right: 1px solid #8a8b8e;
+        border-top-right-radius: 5px;
+        border-bottom-right-radius: 5px;
+    }
+}

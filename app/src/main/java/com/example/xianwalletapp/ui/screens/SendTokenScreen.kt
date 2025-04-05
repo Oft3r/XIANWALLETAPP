@@ -1,6 +1,10 @@
 package com.example.xianwalletapp.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -37,6 +41,8 @@ import kotlinx.coroutines.launch
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import org.json.JSONObject
+import com.example.xianwalletapp.ui.theme.XianBlue
+
 import com.example.xianwalletapp.data.LocalTransactionRecord // Added
 import com.example.xianwalletapp.data.TransactionHistoryManager // Added
 import com.example.xianwalletapp.ui.theme.XianButtonType
@@ -181,8 +187,10 @@ fun SendTokenScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 24.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                // Removed background color
+                border = BorderStroke(
+                    width = 2.dp,
+                    brush = Brush.horizontalGradient(colors = listOf(Color.Yellow, XianBlue)) // Use XianBlue
                 )
             ) {
                 Column(

@@ -343,93 +343,103 @@ class XianNetworkService private constructor(private val context: Context) {
     }
     
     /**
-     * Get token information for a specific contract
-     * 
+     * Helper function to fetch a variable using abci_query, similar to web wallet's getVariable
+     */
+    private suspend fun fetchVariable(contract: String, variablePath: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val baseUrl = "$rpcUrl/abci_query?path="
+            // Construct the path exactly like the web wallet: "/get/contract.variable:key"
+            val pathPart = "\"/get/$contract.$variablePath\""
+            val encodedPathPart = java.net.URLEncoder.encode(pathPart, "UTF-8")
+            val finalPathPart = encodedPathPart.replace("+", "%20") // URL Encode spaces correctly
+            val queryUrl = baseUrl + finalPathPart
+
+            logURL(queryUrl, "URL for fetchVariable ($variablePath)")
+
+            val response = client.newCall(
+                Request.Builder()
+                    .url(queryUrl)
+                    .build()
+            ).execute()
+
+            if (!response.isSuccessful) {
+                android.util.Log.w("XianNetworkService", "Failed to fetch variable $variablePath for $contract: ${response.code}")
+                return@withContext null
+            }
+
+            val responseBody = response.body?.string() ?: "{}"
+            val json = JSONObject(responseBody)
+            val base64Value = json.optJSONObject("result")?.optJSONObject("response")?.optString("value")
+
+            // Check for null or empty ("AA==") response, same as web wallet
+            if (base64Value == null || base64Value == "AA==") {
+                android.util.Log.d("XianNetworkService", "Variable $variablePath for $contract is null or empty.")
+                return@withContext null
+            }
+
+            // Decode Base64
+            return@withContext try {
+                val decodedBytes = Base64.decode(base64Value, Base64.DEFAULT)
+                String(decodedBytes)
+            } catch (e: IllegalArgumentException) {
+                android.util.Log.e("XianNetworkService", "Failed to decode Base64 for $variablePath: $base64Value", e)
+                null
+            }
+
+        } catch (e: Exception) {
+            android.util.Log.e("XianNetworkService", "Error fetching variable $variablePath for $contract: ${e.message}", e)
+            return@withContext null
+        }
+    }
+
+    /**
+     * Get token information for a specific contract using metadata queries.
+     * Replicates the logic from the xian-web-wallet.
+     *
      * @param contract The token contract address
      * @return TokenInfo object with token details
      */
-    suspend fun getTokenInfo(contract: String): TokenInfo = withContext(Dispatchers.IO) {
+     suspend fun getTokenInfo(contract: String): TokenInfo = withContext(Dispatchers.IO) {
+        // Handle native currency special case
+        if (contract == "currency") {
+            return@withContext TokenInfo(name = "Xian", symbol = "XIAN", contract = contract)
+        }
+
         try {
-            // Verificar conectividad con el nodo antes de continuar
-            val isConnected = checkNodeConnectivity()
-            if (!isConnected) {
-                android.util.Log.e("XianNetworkService", "No hay conexión con ningún nodo disponible. Abortando obtención de token info.")
-                // Use a more user-friendly fallback for currency
-                return@withContext if (contract == "currency") {
-                    TokenInfo(name = "Xian Currency", symbol = "XIAN", contract = contract)
-                } else {
-                    TokenInfo(name = contract, symbol = contract.take(3).uppercase(), contract = contract)
-                }
+            // Check node connectivity first
+            if (!checkNodeConnectivity()) {
+                android.util.Log.e("XianNetworkService", "No node connection for getTokenInfo. Returning defaults.")
+                // Return defaults using contract address if no connection
+                return@withContext TokenInfo(name = contract, symbol = contract.take(3).uppercase(), contract = contract)
             }
-            
-            // MÉTODO 1: Usar simulate_tx para obtener información del token
-            val payload = JSONObject().apply {
-                put("sender", "")
-                put("contract", contract)
-                put("function", "get_token_info")
-                put("kwargs", JSONObject())
-            }
-            
-            // Convertir payload a hex string
-            val payloadBytes = payload.toString().toByteArray()
-            val payloadHex = payloadBytes.joinToString("") { "%02x".format(it) }
-            
-            // Construir URL para simulate_tx
-            val baseUrl = "$rpcUrl/abci_query?path="
-            val pathPart = "\"/simulate_tx/$payloadHex\""
-            val encodedPathPart = java.net.URLEncoder.encode(pathPart, "UTF-8")
-            val finalPathPart = encodedPathPart.replace("+", "%20")
-            val simulateUrl = baseUrl + finalPathPart
-            
-            // Realizar la solicitud simulate_tx
-            val simulateResponse = client.newCall(
-                Request.Builder()
-                    .url(simulateUrl)
-                    .build()
-            ).execute()
-            
-            val simulateResponseBody = simulateResponse.body?.string() ?: "{}"
-            val simulateJson = JSONObject(simulateResponseBody)
-            val simulateValue = simulateJson.optJSONObject("result")?.optJSONObject("response")?.optString("value")
-            
-            if (simulateValue != null && simulateValue.isNotEmpty()) {
-                try {
-                    // Decodificar el valor Base64
-                    val simulateDecodedBytes = Base64.decode(simulateValue, Base64.DEFAULT)
-                    val simulateDecoded = String(simulateDecodedBytes)
-                    
-                    // Parsear el JSON de respuesta
-                    val decodedJson = JSONObject(simulateDecoded)
-                    if (decodedJson.has("result")) {
-                        val resultJson = JSONObject(decodedJson.getString("result"))
-                        return@withContext TokenInfo(
-                            name = resultJson.optString("name", contract),
-                            symbol = resultJson.optString("symbol", contract.take(3).uppercase()),
-                            decimals = resultJson.optInt("decimals", 8),
-                            contract = contract
-                        )
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("XianNetworkService", "Error parsing token info: ${e.message}")
-                }
-            }
-            
-            // Si no se pudo obtener la información, devolver valores por defecto más amigables
-            return@withContext if (contract == "currency") {
-                TokenInfo(name = "Xian Currency", symbol = "XIAN", contract = contract)
-            } else {
-                TokenInfo(name = contract, symbol = contract.take(3).uppercase(), contract = contract)
-            }
+
+            // Fetch metadata using the helper function
+            val tokenName = fetchVariable(contract, "metadata:token_name")
+            val tokenSymbol = fetchVariable(contract, "metadata:token_symbol")
+            val logoUrl = fetchVariable(contract, "metadata:token_logo_url")
+            // TODO: Optionally fetch decimals if needed: fetchVariable(contract, "metadata:decimals")
+
+            android.util.Log.d("XianNetworkService", "Fetched for $contract: Name=$tokenName, Symbol=$tokenSymbol, Logo=$logoUrl")
+
+            // Determine final values, using contract address as fallback ONLY if metadata is missing
+            val finalName = tokenName ?: contract
+            val finalSymbol = tokenSymbol ?: contract.take(3).uppercase()
+
+            return@withContext TokenInfo(
+                name = finalName,
+                symbol = finalSymbol,
+                contract = contract,
+                logoUrl = logoUrl // Pass the fetched logo URL
+                // decimals = fetchedDecimals ?: 8 // Use fetched decimals or default
+            )
+
         } catch (e: Exception) {
-            android.util.Log.e("XianNetworkService", "Error getting token info: ${e.message}")
-            // Si hay error, devolver valores por defecto más amigables
-            return@withContext if (contract == "currency") {
-                TokenInfo(name = "Xian Currency", symbol = "XIAN", contract = contract)
-            } else {
-                TokenInfo(name = contract, symbol = contract.take(3).uppercase(), contract = contract)
-            }
+            android.util.Log.e("XianNetworkService", "Error in getTokenInfo for $contract: ${e.message}", e)
+            // Fallback to contract address if any other error occurs
+            return@withContext TokenInfo(name = contract, symbol = contract.take(3).uppercase(), contract = contract)
         }
     }
+
 
     // --- Start of new NFT functions ---
 
