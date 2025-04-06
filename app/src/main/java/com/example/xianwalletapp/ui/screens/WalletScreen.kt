@@ -8,6 +8,9 @@ import androidx.compose.foundation.BorderStroke
 
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items // Import for LazyGridScope
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -23,6 +26,9 @@ import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material3.*
+import androidx.compose.runtime.saveable.rememberSaveable // Import rememberSaveable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle // Import for state collection
+import androidx.lifecycle.viewmodel.compose.viewModel // Import for getting ViewModel
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,6 +68,10 @@ import com.example.xianwalletapp.data.LocalTransactionRecord // Added
 import com.example.xianwalletapp.data.TransactionHistoryManager // Added
 import com.example.xianwalletapp.ui.theme.XianButtonType
 import com.example.xianwalletapp.ui.theme.xianButtonColors
+import com.example.xianwalletapp.ui.viewmodels.WalletViewModel // Import ViewModel
+import com.example.xianwalletapp.ui.viewmodels.WalletViewModelFactory // Import ViewModelFactory
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 /**
  * Main wallet screen showing token balances and actions
@@ -70,21 +80,31 @@ import com.example.xianwalletapp.ui.theme.xianButtonColors
 @Composable
 fun WalletScreen(
     navController: NavController,
-    walletManager: WalletManager,
-    networkService: XianNetworkService
+    walletManager: WalletManager, // Keep for ViewModel creation if needed, or remove if injected
+    networkService: XianNetworkService, // Keep for ViewModel creation if needed, or remove if injected
+    // Obtain ViewModel instance
+    viewModel: WalletViewModel = viewModel(
+        factory = WalletViewModelFactory(walletManager, networkService) // Assuming a simple factory for now
+    )
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val coroutineScope = rememberCoroutineScope()
-    val publicKey = walletManager.getPublicKey() ?: ""
-    
-    // State for tokens and balances
-    var tokens by remember { mutableStateOf(walletManager.getTokenList().toList().sortedWith(compareBy<String> { it != "currency" }.thenBy { it })) }
-    var tokenInfoMap by remember { mutableStateOf<Map<String, TokenInfo>>(emptyMap()) }
-    var balanceMap by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
-    var xianPriceInfo by remember { mutableStateOf<Pair<Float, Float>?>(null) } // State for price reserves
-    var xianPrice by remember { mutableStateOf<Float?>(null) } // State for calculated price
-    var isLoading by remember { mutableStateOf(true) } // Combined loading state
+
+    // --- Collect State from ViewModel ---
+    val publicKey by viewModel.publicKey
+    val tokens by viewModel.tokens.collectAsStateWithLifecycle()
+    val tokenInfoMap by viewModel.tokenInfoMap.collectAsStateWithLifecycle()
+    val balanceMap by viewModel.balanceMap.collectAsStateWithLifecycle()
+    val xianPrice by viewModel.xianPrice.collectAsStateWithLifecycle()
+    val nftList by viewModel.nftList.collectAsStateWithLifecycle()
+    val displayedNftInfo by viewModel.displayedNftInfo.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val isNodeConnected by viewModel.isNodeConnected.collectAsStateWithLifecycle()
+    val isNftLoading by viewModel.isNftLoading.collectAsStateWithLifecycle() // Collect NFT loading state
+    // val isCheckingConnection by viewModel.isCheckingConnection.collectAsStateWithLifecycle() // Optional: if needed for UI
+
+    // --- Local UI State (Dialogs, Snackbar, etc.) ---
     var showAddTokenDialog by remember { mutableStateOf(false) }
     var newTokenContract by remember { mutableStateOf("") }
     var showSnackbar by remember { mutableStateOf(false) }
@@ -92,63 +112,12 @@ fun WalletScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     
     // State for NFTs
-    var nftList by remember { mutableStateOf<List<com.example.xianwalletapp.network.NftInfo>>(emptyList()) } // Assuming NftInfo data class exists
-    var isNftLoading by remember { mutableStateOf(false) }
-    var transactionHistory by remember { mutableStateOf<List<LocalTransactionRecord>>(emptyList()) } // Added
-    var isHistoryLoading by remember { mutableStateOf(false) } // Added
-    
-    // Add a refresh trigger
-    var refreshTrigger by remember { mutableStateOf(0) }
-    
-    // Track node connectivity
-    var isNodeConnected by remember { mutableStateOf(false) }
-    var isCheckingConnection by remember { mutableStateOf(false) }
-    
-    // Load token info and balances
-    LaunchedEffect(tokens, refreshTrigger) {
-        isLoading = true
-        
-        // Check node connectivity first
-        isCheckingConnection = true
-        isNodeConnected = networkService.checkNodeConnectivity()
-        isCheckingConnection = false
-        
-        val newTokenInfoMap = mutableMapOf<String, TokenInfo>()
-        val newBalanceMap = mutableMapOf<String, Float>()
-        
-        tokens.forEach { contract ->
-            // Get token info
-            val tokenInfo = networkService.getTokenInfo(contract)
-            newTokenInfoMap[contract] = tokenInfo
-            
-            // Get token balance
-            val balance = networkService.getTokenBalance(contract, publicKey)
-            android.util.Log.d("WalletScreen", "Loaded balance for $contract: $balance")
-            newBalanceMap[contract] = balance
-        }
+    var showNftDropdown by remember { mutableStateOf(false) } // Control dropdown visibility
 
-        // Fetch XIAN price info
-        xianPriceInfo = networkService.getXianPriceInfo()
-        xianPrice = xianPriceInfo?.let { (reserve0, reserve1) ->
-            if (reserve1 != 0f) reserve0 / reserve1 else 0f // Calculate price, handle division by zero
-        }
-        android.util.Log.d("WalletScreen", "Fetched XIAN Price: $xianPrice (Reserves: $xianPriceInfo)")
-
-        tokenInfoMap = newTokenInfoMap
-        balanceMap = newBalanceMap
-        isLoading = false // Set loading to false after all data is fetched
-    }
+    // State for Local Activity
+    var transactionHistory by remember { mutableStateOf<List<LocalTransactionRecord>>(emptyList()) }
+    var isHistoryLoading by remember { mutableStateOf(false) }
     
-    // Check connectivity periodically
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(10000) // Initial delay
-        while (true) {
-            isCheckingConnection = true
-            isNodeConnected = networkService.checkNodeConnectivity()
-            isCheckingConnection = false
-            kotlinx.coroutines.delay(30000) // Check every 30 seconds
-        }
-    }
     
     
     Scaffold(
@@ -156,6 +125,64 @@ fun WalletScreen(
             TopAppBar(
                 title = { 
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        // NFT Image Preview Box (Clickable) & Dropdown
+                        Box {
+                            if (displayedNftInfo != null) {
+                                AsyncImage(
+                                    model = displayedNftInfo?.imageUrl,
+                                    contentDescription = "Selected NFT Preview",
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .clickable { showNftDropdown = true } // Make image clickable
+                                        .padding(end = 8.dp),
+                                    placeholder = painterResource(id = R.drawable.ic_launcher_foreground),
+                                    error = painterResource(id = R.drawable.ic_launcher_background)
+                                )
+                            } else if (nftList.isNotEmpty()) {
+                                // Show a placeholder if no NFT is selected but list is not empty
+                                // (e.g., if preferred NFT was removed) - Optional
+                                Box(modifier = Modifier
+                                    .size(32.dp)
+                                    .background(Color.Gray, RoundedCornerShape(4.dp))
+                                    .clickable { showNftDropdown = true }
+                                    .padding(end = 8.dp)
+                                )
+                            }
+
+                            // Dropdown Menu for NFT Selection
+                            DropdownMenu(
+                                expanded = showNftDropdown,
+                                onDismissRequest = { showNftDropdown = false }
+                            ) {
+                                nftList.forEach { nft ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                AsyncImage(
+                                                    model = nft.imageUrl,
+                                                    contentDescription = nft.name,
+                                                    modifier = Modifier
+                                                        .size(24.dp)
+                                                        .clip(RoundedCornerShape(4.dp))
+                                                        .padding(end = 8.dp),
+                                                    placeholder = painterResource(id = R.drawable.ic_launcher_foreground),
+                                                    error = painterResource(id = R.drawable.ic_launcher_background)
+                                                )
+                                                Text(text = nft.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            }
+                                        },
+                                        onClick = {
+                                            viewModel.setPreferredNft(nft) // Use ViewModel
+                                            showNftDropdown = false // Close dropdown
+                                            android.util.Log.d("WalletScreen", "Selected NFT: ${nft.contractAddress}")
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        
+                        // Original Title Text
                         Text(
                             text = "XIAN",
                             color = MaterialTheme.colorScheme.primary,
@@ -239,12 +266,7 @@ fun WalletScreen(
     ) { paddingValues ->
         SwipeRefresh(
             state = rememberSwipeRefreshState(isLoading),
-            onRefresh = {
-                coroutineScope.launch {
-                    tokens = walletManager.getTokenList().toList().sortedWith(compareBy<String> { it != "currency" }.thenBy { it })
-                    refreshTrigger += 1  // Increment refresh trigger to force data reload
-                }
-            }
+            onRefresh = { viewModel.refreshData() } // Call ViewModel refresh
         ) {
             Column(
                 modifier = Modifier
@@ -291,7 +313,7 @@ fun WalletScreen(
                             val priceText = xianPrice?.let { "%.6f".format(it) } ?: "---" // Format to 6 decimals or show placeholder
                             Text(
                                 text = priceText,
-                                style = MaterialTheme.typography.headlineLarge, // Increased font size further
+                                fontSize = 40.sp, // Set specific larger font size
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 textAlign = TextAlign.Center
@@ -312,7 +334,11 @@ fun WalletScreen(
                     // Buy XIAN Option
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.clickable { /* TODO: Add Buy action */ }
+                        modifier = Modifier.clickable {
+                            val urlToLoad = "https://dex-trade.com/spot/trading/XIANUSDT?interface=classic"
+                            val encodedUrl = URLEncoder.encode(urlToLoad, StandardCharsets.UTF_8.toString())
+                            navController.navigate("${XianDestinations.WEB_BROWSER}?url=$encodedUrl")
+                        }
                     ) {
                         Icon(
                             imageVector = Icons.Default.ShoppingCart,
@@ -330,7 +356,12 @@ fun WalletScreen(
                     // Swap Option
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.clickable { /* TODO: Add Swap action */ }
+                        modifier = Modifier.clickable {
+                            val urlToLoad = "https://snakexchange.org/"
+                            val encodedUrl = URLEncoder.encode(urlToLoad, StandardCharsets.UTF_8.toString())
+                            // Assuming WebBrowser destination takes url as a query parameter
+                            navController.navigate("${XianDestinations.WEB_BROWSER}?url=$encodedUrl")
+                        }
                     ) {
                         Icon(
                             imageVector = Icons.Default.SwapHoriz,
@@ -348,7 +379,11 @@ fun WalletScreen(
                     // Staking Option
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.clickable { /* TODO: Add Staking action */ }
+                        modifier = Modifier.clickable {
+                            val urlToLoad = "https://snakexchange.org/farms/"
+                            val encodedUrl = URLEncoder.encode(urlToLoad, StandardCharsets.UTF_8.toString())
+                            navController.navigate("${XianDestinations.WEB_BROWSER}?url=$encodedUrl")
+                        }
                     ) {
                         Icon(
                             imageVector = Icons.Default.AccountBalance, // Using AccountBalance for Staking
@@ -387,17 +422,9 @@ fun WalletScreen(
                     )
                 }
 
-                // Load NFT data when NFT tab is selected
+                // Load Local Activity data when tab is selected (NFTs are loaded earlier now)
                 LaunchedEffect(selectedTabIndex) {
-                    if (selectedTabIndex == 1 && publicKey.isNotEmpty()) { // Ensure publicKey is available
-                        isNftLoading = true
-                        nftList = networkService.getNfts(publicKey) // Call the new network function
-                        android.util.Log.d("WalletScreen", "Fetched ${nftList.size} NFTs")
-                        isNftLoading = false
-                    } else if (selectedTabIndex == 1 && publicKey.isEmpty()) {
-                         android.util.Log.w("WalletScreen", "Cannot fetch NFTs, publicKey is empty.")
-                         isNftLoading = false // Ensure loading stops if publicKey is missing
-                    } else if (selectedTabIndex == 2) {
+                     if (selectedTabIndex == 2) {
                         // Load transaction history when tab is selected
                         isHistoryLoading = true
                         val historyManager = TransactionHistoryManager(context)
@@ -451,11 +478,10 @@ fun WalletScreen(
                                         },
                                         onRemoveClick = {
                                             if (contract != "currency") {
-                                                walletManager.removeToken(contract)
-                                                // Update tokens list immediately after removal
-                                                tokens = walletManager.getTokenList().toList().sortedWith(compareBy<String> { it != "currency" }.thenBy { it })
+                                                viewModel.removeToken(contract) // Call ViewModel function
                                                 coroutineScope.launch {
-                                                    snackbarHostState.showSnackbar("Token removed")
+                                                    // Optional: Show snackbar, or let ViewModel handle feedback
+                                                    snackbarHostState.showSnackbar("Token removal initiated")
                                                 }
                                             }
                                         }
@@ -480,10 +506,13 @@ fun WalletScreen(
                                 )
                             }
                         } else {
-                            // Use LazyColumn for NFT list
-                            LazyColumn(
+                            // Use LazyVerticalGrid for NFT list
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(2), // Display 2 items per row
                                 modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(bottom = 80.dp) // Add padding for FAB
+                                contentPadding = PaddingValues(bottom = 80.dp), // Add padding for FAB
+                                horizontalArrangement = Arrangement.spacedBy(8.dp), // Add horizontal spacing
+                                verticalArrangement = Arrangement.spacedBy(8.dp) // Add vertical spacing
                             ) {
                                 items(nftList) { nft ->
                                     NftItem(
@@ -557,14 +586,14 @@ fun WalletScreen(
                 Button(
                     onClick = {
                         if (newTokenContract.isNotBlank()) {
-                            if (walletManager.addToken(newTokenContract)) {
-                                tokens = walletManager.getTokenList().toList().sortedWith(compareBy<String> { it != "currency" }.thenBy { it })
-                                coroutineScope.launch {
-                                    snackbarHostState.showSnackbar("Token added")
-                                }
+                            // Call ViewModel to handle token addition and refresh
+                            viewModel.addTokenAndRefresh(newTokenContract) // TODO: Implement in ViewModel
+                            newTokenContract = "" // Clear input field
+                            showAddTokenDialog = false // Close dialog
+                            coroutineScope.launch {
+                                // Optional: Show snackbar, or let ViewModel handle feedback
+                                snackbarHostState.showSnackbar("Token added (pending refresh)")
                             }
-                            newTokenContract = ""
-                            showAddTokenDialog = false
                         }
                     }
                 ) {
@@ -833,6 +862,7 @@ fun TransactionRecordItem(record: LocalTransactionRecord) {
             if (record.type == "Sent" && record.recipient != null) {
                 Text("To: ${record.recipient.take(8)}...${record.recipient.takeLast(6)}", fontSize = 12.sp)
             }
+            
             // TODO: Add 'From' if needed for received transactions (requires storing sender)
             Spacer(modifier = Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -860,3 +890,4 @@ fun TransactionRecordItem(record: LocalTransactionRecord) {
         }
     }
 }
+

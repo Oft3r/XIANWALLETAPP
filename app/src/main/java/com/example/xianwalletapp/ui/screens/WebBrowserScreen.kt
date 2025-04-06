@@ -3,6 +3,8 @@ package com.example.xianwalletapp.ui.screens
 import android.view.ViewGroup
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -31,10 +33,23 @@ import com.example.xianwalletapp.wallet.XianWebViewBridge
 fun WebBrowserScreen(
     navController: NavController,
     walletManager: WalletManager,
-    networkService: XianNetworkService
+    networkService: XianNetworkService,
+    initialUrl: String? = null // Argument for initial URL
 ) {
-    var url by remember { mutableStateOf("https://xian.org") }
-    var currentUrl by remember { mutableStateOf(url) }
+    // Decode the initial URL if provided, otherwise use default
+    val decodedInitialUrl = remember(initialUrl) {
+        initialUrl?.let {
+            try {
+                URLDecoder.decode(it, StandardCharsets.UTF_8.toString())
+            } catch (e: Exception) {
+                android.util.Log.e("WebBrowserScreen", "Failed to decode URL: $it", e)
+                "https://xian.org" // Fallback on decoding error
+            }
+        } ?: "https://xian.org" // Default if null
+    }
+
+    var url by remember { mutableStateOf(decodedInitialUrl) }
+    var currentUrl by remember { mutableStateOf(decodedInitialUrl) } // Initialize currentUrl as well
     var isLoading by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val webViewRef = remember { mutableStateOf<WebView?>(null) }

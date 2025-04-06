@@ -17,8 +17,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
+import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.example.xianwalletapp.crypto.XianCrypto
 import com.example.xianwalletapp.navigation.XianDestinations
 import com.example.xianwalletapp.navigation.XianNavArgs
@@ -150,8 +152,23 @@ fun XianWalletApp(walletManager: WalletManager, networkService: XianNetworkServi
             ReceiveTokenScreen(navController, walletManager)
         }
         
-        composable(XianDestinations.WEB_BROWSER) {
-            WebBrowserScreen(navController, walletManager, networkService)
+        composable(
+            route = "${XianDestinations.WEB_BROWSER}?url={url}", // Define route with optional arg
+            arguments = listOf(
+                navArgument("url") { // Define the argument
+                    type = NavType.StringType
+                    nullable = true // Make it optional
+                    defaultValue = null // Default to null if not provided
+                }
+            )
+        ) { backStackEntry ->
+            val initialUrl = backStackEntry.arguments?.getString("url") // Extract the argument
+            WebBrowserScreen(
+                navController = navController,
+                walletManager = walletManager, // Pass existing instance
+                networkService = networkService, // Pass existing instance
+                initialUrl = initialUrl // Pass the extracted URL
+            )
         }
         
         composable(XianDestinations.MESSENGER) {
