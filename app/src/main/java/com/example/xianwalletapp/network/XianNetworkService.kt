@@ -23,6 +23,9 @@ class XianNetworkService private constructor(private val context: Context) {
         // Singleton instance
         @Volatile
         private var instance: XianNetworkService? = null
+
+        // Define the XNS contract name here
+        private const val XNS_CONTRACT_NAME = "con_name_service_final"
         
         fun getInstance(context: Context): XianNetworkService {
             return instance ?: synchronized(this) {
@@ -440,6 +443,116 @@ class XianNetworkService private constructor(private val context: Context) {
             return@withContext TokenInfo(name = contract, symbol = contract.take(3).uppercase(), contract = contract)
         }
     }
+
+    // XNS_CONTRACT_NAME moved to companion object
+
+    /**
+     * Resolves an XNS name to its corresponding Xian address.
+     *
+     * @param name The XNS name to resolve (e.g., "myname").
+     * @return The Xian address (String) if found, or null otherwise.
+     */
+    suspend fun resolveXnsName(name: String): String? = withContext(Dispatchers.IO) {
+        android.util.Log.d("XianNetworkService", "Attempting to resolve XNS name '$name' via simulate_tx")
+
+        try {
+            // 1. Construct payload for simulate_tx (matching web wallet)
+            val payload = JSONObject().apply {
+                put("sender", "") // Sender can be empty for simulate
+                put("contract", XNS_CONTRACT_NAME)
+                put("function", "get_main_name_to_address")
+                put("kwargs", JSONObject().apply {
+                    put("name", name)
+                })
+            }
+            android.util.Log.v("XianNetworkService", "XNS Payload: $payload")
+
+            // 2. Convert payload to hex
+            val payloadBytes = payload.toString().toByteArray(Charsets.UTF_8)
+            val payloadHex = payloadBytes.joinToString("") { "%02x".format(it) }
+            android.util.Log.v("XianNetworkService", "XNS Payload Hex: $payloadHex")
+
+
+            // 3. Construct URL (ensure quotes are handled correctly)
+            // The path itself needs quotes, which then get URL encoded.
+            val pathWithQuotes = "\"/simulate_tx/$payloadHex\""
+            val encodedPath = java.net.URLEncoder.encode(pathWithQuotes, "UTF-8")
+            // URLEncoder might use '+' for spaces, replace with %20 if necessary, though unlikely here.
+            // It correctly encodes '"' as %22 and '/' as %2F.
+            val simulateUrl = "$rpcUrl/abci_query?path=$encodedPath"
+
+            logURL(simulateUrl, "URL for XNS simulate_tx")
+
+            // 4. Make request
+            val request = Request.Builder().url(simulateUrl).build()
+            val simulateResponse = client.newCall(request).execute()
+
+            // 5. Parse response
+            if (!simulateResponse.isSuccessful) {
+                android.util.Log.w("XianNetworkService", "Failed to simulate XNS resolution for '$name': ${simulateResponse.code} ${simulateResponse.message}")
+                simulateResponse.close() // Ensure response body is closed
+                return@withContext null
+            }
+
+            val simulateResponseBody = simulateResponse.body?.string() ?: "{}"
+            simulateResponse.close() // Ensure response body is closed
+            android.util.Log.d("XianNetworkService", "Simulate XNS response for '$name': $simulateResponseBody")
+
+            val simulateJson = JSONObject(simulateResponseBody)
+            // Check for outer 'error' field first
+             if (simulateJson.has("error")) {
+                 val errorObj = simulateJson.optJSONObject("error")
+                 val errorMessage = errorObj?.optString("data", simulateJson.optString("error")) ?: "Unknown error structure"
+                 android.util.Log.w("XianNetworkService", "XNS resolution error from node for '$name': $errorMessage")
+                 return@withContext null
+             }
+
+            val resultObj = simulateJson.optJSONObject("result")
+            val responseObj = resultObj?.optJSONObject("response")
+            val simulateValue = responseObj?.optString("value") // Base64 encoded value
+
+            if (simulateValue == null || simulateValue.isEmpty() || simulateValue == "AA==") { // AA== is Base64 for empty/null
+                android.util.Log.d("XianNetworkService", "XNS simulate response value is null or empty for '$name'.")
+                return@withContext null
+            }
+             android.util.Log.v("XianNetworkService", "XNS simulate Base64 value for '$name': $simulateValue")
+
+
+            // 6. Decode Base64 result
+            val simulateDecodedBytes = Base64.decode(simulateValue, Base64.DEFAULT)
+            // The result from simulate_tx might be JSON containing the actual result, e.g., {"result": "ADDRESS"} or just the raw address
+            val simulateDecodedRaw = String(simulateDecodedBytes, Charsets.UTF_8)
+            android.util.Log.d("XianNetworkService", "XNS simulate decoded raw for '$name': '$simulateDecodedRaw'")
+
+            // Attempt to parse as JSON first, as simulate_tx often wraps results
+            var potentialAddress: String? = null
+            try {
+                 val decodedJson = JSONObject(simulateDecodedRaw)
+                 if (decodedJson.has("result")) {
+                      potentialAddress = decodedJson.optString("result", null)
+                 }
+            } catch (e: org.json.JSONException) {
+                 // If not JSON, assume the raw decoded string is the address (or "None")
+                 potentialAddress = simulateDecodedRaw
+            }
+
+            // Clean up potential surrounding quotes (both single and double) and check validity
+            val cleanedAddress = potentialAddress?.trim()?.removeSurrounding("\"")?.removeSurrounding("'") // Remove single quotes too
+
+           if (cleanedAddress != null && cleanedAddress != "None" && cleanedAddress.length == 64) { // Basic validation
+                 android.util.Log.d("XianNetworkService", "Resolved XNS name '$name' to address: $cleanedAddress")
+                 return@withContext cleanedAddress
+            } else {
+                 android.util.Log.d("XianNetworkService", "Decoded XNS result '$cleanedAddress' is 'None' or invalid for '$name'.")
+                 return@withContext null
+            }
+
+        } catch (e: Exception) {
+            android.util.Log.e("XianNetworkService", "Error resolving XNS name '$name' via simulate_tx", e)
+            return@withContext null
+        }
+    }
+
 
     // --- Data classes for Contract Methods ---
     data class Argument(val name: String, val type: String)

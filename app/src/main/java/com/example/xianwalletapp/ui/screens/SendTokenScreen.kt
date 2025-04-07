@@ -32,12 +32,18 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalLifecycleOwner // Added for state collection
+import androidx.lifecycle.compose.collectAsStateWithLifecycle // Added for state collection
+import androidx.lifecycle.viewmodel.compose.viewModel // Added for ViewModel injection
 import androidx.navigation.NavController
-import com.example.xianwalletapp.crypto.XianCrypto
-import com.example.xianwalletapp.network.TransactionResult
-import com.example.xianwalletapp.network.XianNetworkService
-import com.example.xianwalletapp.wallet.WalletManager
+// XianCrypto import removed as it's likely unused directly here now
+import com.example.xianwalletapp.network.TransactionResult // Keep if used for result type
+import com.example.xianwalletapp.network.XianNetworkService // Keep if needed for factory
+import com.example.xianwalletapp.wallet.WalletManager // Keep if needed for factory
+import com.example.xianwalletapp.ui.viewmodels.WalletViewModel // Added
+import com.example.xianwalletapp.ui.viewmodels.WalletViewModelFactory // Added (Assuming this exists)
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay // Added for debounce
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import org.json.JSONObject
@@ -56,9 +62,13 @@ import com.example.xianwalletapp.ui.theme.xianButtonColors
 fun SendTokenScreen(
     navController: NavController,
     walletManager: WalletManager,
-    networkService: XianNetworkService,
+    // networkService: XianNetworkService, // Provided by ViewModel
     contract: String,
-    symbol: String
+    symbol: String,
+    // Inject ViewModel using the factory
+    viewModel: WalletViewModel = viewModel(
+        factory = WalletViewModelFactory(WalletManager.getInstance(LocalContext.current), XianNetworkService.getInstance(LocalContext.current))
+    )
 ) {
     val coroutineScope = rememberCoroutineScope()
     var recipientAddress by remember { mutableStateOf("") }
@@ -72,6 +82,11 @@ fun SendTokenScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current // Get context for permission check and history manager
     val transactionHistoryManager = remember { TransactionHistoryManager(context) } // Pass context variable
+
+    // Collect state from ViewModel
+    val resolvedXnsAddress by viewModel.resolvedXnsAddress.collectAsStateWithLifecycle()
+    val isXnsAddress by viewModel.isXnsAddress.collectAsStateWithLifecycle()
+    val isResolvingXns by viewModel.isResolvingXns.collectAsStateWithLifecycle()
     
     // context variable moved up
 
@@ -133,8 +148,17 @@ fun SendTokenScreen(
     var currentBalance by remember { mutableStateOf(0f) }
     val publicKey = walletManager.getPublicKey() ?: ""
     
+    // Get balance directly from ViewModel state
+    val balanceMap by viewModel.balanceMap.collectAsStateWithLifecycle()
+    // Update local balance state when the map changes for the specific contract
+    LaunchedEffect(balanceMap, contract) {
+        currentBalance = balanceMap[contract] ?: 0f // Default to 0f if not found
+    }
+    // Trigger a refresh if the balance isn't loaded (optional, depends on ViewModel logic)
     LaunchedEffect(Unit) {
-        currentBalance = networkService.getTokenBalance(contract, publicKey)
+        if (balanceMap[contract] == null) {
+             viewModel.refreshData() // Or a more specific fetch if available
+        }
     }
 
     // --- Notification Permission Handling (Android 13+) ---
@@ -159,9 +183,26 @@ fun SendTokenScreen(
         }
     }
 
+    // --- Effects ---
 
-// Code block cleaned up
-    
+    // Debounce XNS check
+    LaunchedEffect(recipientAddress) {
+        if (recipientAddress.isNotBlank()) {
+            delay(500) // Wait 500ms after last input change
+            viewModel.checkAndResolveXns(recipientAddress)
+        } else {
+            viewModel.clearXnsResolution() // Clear if input is empty
+        }
+    }
+
+    // Clear XNS state when the screen is disposed
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.clearXnsResolution()
+        }
+    }
+
+    // --- UI ---
     Scaffold(
         topBar = {
             TopAppBar(
@@ -217,8 +258,16 @@ fun SendTokenScreen(
             // Recipient address field
             OutlinedTextField(
                 value = recipientAddress,
-                onValueChange = { recipientAddress = it; errorMessage = null },
-                label = { Text("Recipient Address") },
+                onValueChange = {
+                    recipientAddress = it
+                    errorMessage = null
+                    // Trigger debounced check via LaunchedEffect watching recipientAddress
+                    // If input is cleared manually, clear XNS state immediately
+                    if (it.isBlank()) {
+                         viewModel.clearXnsResolution()
+                    }
+                },
+                label = { Text("Recipient Address or XNS Name") },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 16.dp),
@@ -232,6 +281,49 @@ fun SendTokenScreen(
                     }
                 }
             )
+
+            // XNS Resolution Status Display
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp, top = 4.dp) // Add some padding
+                    .height(24.dp), // Fixed height to prevent layout jumps
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (isResolvingXns) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Resolving XNS...", style = MaterialTheme.typography.bodySmall)
+                } else if (isXnsAddress && resolvedXnsAddress != null) {
+                    Text(
+                        "XNS Found: ",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF009688) // Teal color for success
+                    )
+                    Text(
+                        "${resolvedXnsAddress?.take(10)}...${resolvedXnsAddress?.takeLast(6)}", // Use safe calls
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF009688)
+                    )
+                }
+                // Optionally add a message if resolution failed AND the input doesn't look like a full address
+                 else if (recipientAddress.length >= 3 && // Min XNS length
+                          recipientAddress.length != 64 && // Exclude full addresses
+                          recipientAddress.matches(Regex("^[a-zA-Z0-9]+$")) && // Check if it could be XNS
+                          !isResolvingXns && // Not currently resolving
+                          !isXnsAddress) { // Resolution failed or wasn't a valid XNS
+                     Text(
+                         "XNS not found or invalid.",
+                         style = MaterialTheme.typography.bodySmall,
+                         color = MaterialTheme.colorScheme.error
+                     )
+                 }
+            }
+            // Removed extra closing parenthesis here
             
             // Amount field
             OutlinedTextField(
@@ -258,24 +350,34 @@ fun SendTokenScreen(
             // Send button
             Button(
                 onClick = {
-                    // Validate input
-                    if (recipientAddress.isBlank()) {
-                        errorMessage = "Recipient address cannot be empty"
+                    // --- Start of onClick Logic ---
+
+                    // 1. Determine final recipient address FIRST
+                    val finalRecipient = if (isXnsAddress) resolvedXnsAddress ?: recipientAddress else recipientAddress
+
+                    // 2. Validate inputs
+                    if (recipientAddress.isBlank()) { // Validate original input field
+                        errorMessage = "Recipient address or XNS name cannot be empty"
                         return@Button
                     }
-                    
+                    // Validate the determined final address format if it wasn't an XNS resolution
+                    if (!isXnsAddress && finalRecipient.length != 64) {
+                         errorMessage = "Invalid recipient address format"
+                         return@Button
+                    }
                     if (amount.isBlank() || amount.toFloatOrNull() == null || amount.toFloat() <= 0) {
                         errorMessage = "Enter a valid amount"
                         return@Button
                     }
-                    
                     if (amount.toFloat() > currentBalance) {
                         errorMessage = "Insufficient balance"
                         return@Button
                     }
-                    
-                    // Clear error
+
+                    // 3. Clear previous error
                     errorMessage = null
+
+                    // 4. Proceed with password check / transaction sending
                     
                     // Check if password is required for this action
                     // Check if password is required for this action based on startup setting & cache
@@ -288,43 +390,35 @@ fun SendTokenScreen(
                         isLoading = true
                         coroutineScope.launch {
                             try {
-                                // --- Transaction Logic (Using cachedKey) ---
-                                val simpleTransaction = JSONObject().apply {
-                                    put("contract", contract)
-                                    put("function", "transfer")
-                                    put("kwargs", JSONObject().apply {
-                                        put("to", recipientAddress)
-                                        put("amount", java.math.BigDecimal(amount))
-                                    })
-                                }
-                                android.util.Log.d("SendTokenScreen", "Creating simplified transaction (cached key): $simpleTransaction")
-                                val result = networkService.sendTransaction(
+                                // Call ViewModel's send function
+                                val result = viewModel.sendTokenTransaction( // Use the public ViewModel function
                                     contract = contract,
-                                    method = "transfer",
-                                    kwargs = simpleTransaction.getJSONObject("kwargs"),
-                                    privateKey = cachedKey, // Use the cached key
-                                    stampLimit = 500000
+                                    recipientAddress = finalRecipient, // Pass calculated recipient
+                                    amount = amount,
+                                    privateKey = cachedKey // Use cached key
+                                    // stampLimit uses default in ViewModel function
                                 )
-                                android.util.Log.d("SendTokenScreen", "Transaction result (cached key): $result")
+
+                                // Handle result
                                 if (result.success) {
-                                    transactionHash = result.txHash
+                                    transactionHash = result.txHash ?: "" // Use safe call for hash
                                     showTransactionSuccessNotification(
                                         context = context,
                                         title = "Transaction Successful",
-                                        message = "Sent $amount $symbol to ${recipientAddress.take(6)}...${recipientAddress.takeLast(4)}",
+                                        message = if (isXnsAddress) "Sent $amount $symbol to $recipientAddress (${finalRecipient.take(6)}...)" else "Sent $amount $symbol to ${finalRecipient.take(6)}...${finalRecipient.takeLast(4)}",
                                         txHash = transactionHash
                                     )
                                     val record = LocalTransactionRecord(
                                         type = "Sent",
                                         amount = amount,
                                         symbol = symbol,
-                                        recipient = recipientAddress,
+                                        recipient = finalRecipient, // Use finalRecipient
                                         txHash = transactionHash,
                                         contract = contract
                                     )
                                     transactionHistoryManager.addRecord(record)
                                     navController.popBackStack()
-                                    android.util.Log.d("SendTokenScreen", "TRANSACTION SUCCESSFUL (cached key): ${result.txHash}")
+                                    android.util.Log.d("SendTokenScreen", "TRANSACTION SUCCESSFUL (cached key): $transactionHash")
                                 } else {
                                     errorMessage = result.errors ?: "Transaction failed with unknown error"
                                     android.util.Log.e("SendTokenScreen", "Transaction failed (cached key): ${result.errors}")
@@ -383,68 +477,48 @@ fun SendTokenScreen(
                             
                             coroutineScope.launch {
                                 try {
-                                    // Get the private key using password
-                                    // Get the private key using password (this also caches it if successful)
+                                    // 1. Get the private key using password (this also caches it if successful)
                                     val privateKey = walletManager.unlockWallet(password)
                                     if (privateKey == null) {
                                         errorMessage = "Invalid password"
                                         isLoading = false
                                         return@launch
                                     }
-                                    
-                                    // SIMPLIFIED APPROACH: Directly create the transaction to send tokens
-                                    // without going through the entire web version process
-                                    
-                                    // 1. Create a simplified transaction object containing only what's necessary
-                                    val simpleTransaction = JSONObject().apply {
-                                        put("contract", contract)
-                                        put("function", "transfer")
-                                        put("kwargs", JSONObject().apply {
-                                            put("to", recipientAddress)
-                                            put("amount", java.math.BigDecimal(amount))
-                                        })
-                                    }
-                                    
-                                    android.util.Log.d("SendTokenScreen", "Creating simplified transaction: $simpleTransaction")
-                                    
-                                    // 2. Send the transaction using a simplified method that handles everything internally
-                                    val result = networkService.sendTransaction(
+
+                                    // 2. Recalculate finalRecipient here as it's not in scope from the outer Button onClick
+                                    val finalRecipientInDialog = if (isXnsAddress) resolvedXnsAddress ?: recipientAddress else recipientAddress
+                                    // Optional: Add validation for finalRecipientInDialog here if needed
+
+                                    // 3. Call ViewModel's send function
+                                    val result = viewModel.sendTokenTransaction( // Use the public ViewModel function
                                         contract = contract,
-                                        method = "transfer",
-                                        kwargs = simpleTransaction.getJSONObject("kwargs"),
-                                        privateKey = privateKey,
-                                        stampLimit = 500000  // Significantly increased to cover larger transactions
+                                        recipientAddress = finalRecipientInDialog, // Use recalculated recipient
+                                        amount = amount,
+                                        privateKey = privateKey
+                                        // stampLimit uses default in ViewModel function
                                     )
-                                    
-                                    // 3. Handle the result as before
-                                    android.util.Log.d("SendTokenScreen", "Transaction result: $result")
-                                    
+
+                                    // 4. Handle the result
                                     if (result.success) {
-                                        // Show success
-                                        transactionHash = result.txHash
-                                        // Show notification instead of dialog
+                                        transactionHash = result.txHash ?: "" // Use safe call for hash
                                         showTransactionSuccessNotification(
                                             context = context,
                                             title = "Transaction Successful",
-                                            message = "Sent $amount $symbol to ${recipientAddress.take(6)}...${recipientAddress.takeLast(4)}",
+                                            message = if (isXnsAddress) "Sent $amount $symbol to $recipientAddress (${finalRecipientInDialog.take(6)}...)" else "Sent $amount $symbol to ${finalRecipientInDialog.take(6)}...${finalRecipientInDialog.takeLast(4)}",
                                             txHash = transactionHash
                                         )
-
-                                        // Save transaction to local history
                                         val record = LocalTransactionRecord(
                                             type = "Sent",
                                             amount = amount,
                                             symbol = symbol,
-                                            recipient = recipientAddress,
+                                            recipient = finalRecipientInDialog, // Use recalculated recipient
                                             txHash = transactionHash,
                                             contract = contract
                                         )
                                         transactionHistoryManager.addRecord(record)
-
-                                        navController.popBackStack() // Navigate back after showing notification
-                                        android.util.Log.d("SendTokenScreen", "TRANSACTION SUCCESSFUL: ${result.txHash}")
+                                        navController.popBackStack()
+                                        android.util.Log.d("SendTokenScreen", "TRANSACTION SUCCESSFUL: $transactionHash")
                                     } else {
-                                        // Mostrar error
                                         errorMessage = result.errors ?: "Transaction failed with unknown error"
                                         android.util.Log.e("SendTokenScreen", "Transaction failed: ${result.errors}")
                                     }

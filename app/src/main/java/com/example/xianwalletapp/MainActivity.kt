@@ -145,7 +145,8 @@ fun XianWalletApp(walletManager: WalletManager, networkService: XianNetworkServi
         ) { backStackEntry ->
             val contract = backStackEntry.arguments?.getString(XianNavArgs.TOKEN_CONTRACT) ?: "currency"
             val symbol = backStackEntry.arguments?.getString(XianNavArgs.TOKEN_SYMBOL) ?: "XIAN"
-            SendTokenScreen(navController, walletManager, networkService, contract, symbol)
+            // Pass only the required arguments; viewModel is injected within the screen
+            SendTokenScreen(navController, walletManager, contract, symbol)
         }
         
         composable(XianDestinations.RECEIVE_TOKEN) {

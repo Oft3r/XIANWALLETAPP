@@ -9,11 +9,14 @@ import com.example.xianwalletapp.network.NftInfo
 import com.example.xianwalletapp.network.TokenInfo
 import com.example.xianwalletapp.network.XianNetworkService
 import com.example.xianwalletapp.wallet.WalletManager
+import com.example.xianwalletapp.network.TransactionResult // Added import
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import org.json.JSONObject // Added import
+import java.math.BigDecimal // Added import
 
 // Define default empty states
 private val EMPTY_TOKEN_INFO_MAP: Map<String, TokenInfo> = emptyMap()
@@ -61,6 +64,15 @@ class WalletViewModel(
 
     private val _isCheckingConnection = MutableStateFlow(false)
     val isCheckingConnection: StateFlow<Boolean> = _isCheckingConnection.asStateFlow()
+
+    private val _resolvedXnsAddress = MutableStateFlow<String?>(null)
+    val resolvedXnsAddress: StateFlow<String?> = _resolvedXnsAddress.asStateFlow()
+
+    private val _isXnsAddress = MutableStateFlow(false) // True if input is valid XNS and resolved
+    val isXnsAddress: StateFlow<Boolean> = _isXnsAddress.asStateFlow()
+
+    private val _isResolvingXns = MutableStateFlow(false)
+    val isResolvingXns: StateFlow<Boolean> = _isResolvingXns.asStateFlow()
 
     // Flag to prevent initial load if data already exists (e.g., ViewModel survived)
     private var hasLoadedInitialData = false
@@ -116,6 +128,116 @@ class WalletViewModel(
         }
     }
 
+    /**
+     * Checks if the input string could be an XNS name and attempts to resolve it.
+     * Updates isXnsAddress and resolvedXnsAddress states.
+     * Uses basic validation similar to the web wallet.
+     */
+    fun checkAndResolveXns(recipientInput: String) {
+        // Reset state first
+        _isXnsAddress.value = false
+        _resolvedXnsAddress.value = null
+        _isResolvingXns.value = false // Ensure loading is false initially
+
+        // Basic validation (similar to web wallet)
+        if (recipientInput.isBlank() || recipientInput.length < 3 || recipientInput.length > 64 || !recipientInput.matches(Regex("^[a-zA-Z0-9]+$"))) {
+            Log.d("WalletViewModel", "Input '$recipientInput' is not a valid XNS name format.")
+            return // Not a valid XNS format
+        }
+
+        // Looks like a potential XNS name, try to resolve
+        viewModelScope.launch {
+            _isResolvingXns.value = true
+            try {
+                val resolved = networkService.resolveXnsName(recipientInput)
+                if (resolved != null) {
+                    Log.d("WalletViewModel", "XNS '$recipientInput' resolved to: $resolved")
+                    _resolvedXnsAddress.value = resolved
+                    _isXnsAddress.value = true // Mark as successfully resolved XNS
+                } else {
+                    Log.d("WalletViewModel", "XNS '$recipientInput' could not be resolved.")
+                    // Keep isXnsAddress false and resolvedXnsAddress null
+                }
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error resolving XNS name '$recipientInput'", e)
+                // Ensure state is reset on error
+                 _isXnsAddress.value = false
+                 _resolvedXnsAddress.value = null
+            } finally {
+                _isResolvingXns.value = false
+            }
+        }
+    }
+
+    /**
+     * Resets the XNS resolution state, typically when the input field is cleared or screen changes.
+     */
+     fun clearXnsResolution() {
+         _resolvedXnsAddress.value = null
+         _isXnsAddress.value = false
+         _isResolvingXns.value = false
+     }
+
+    // --- Transaction Sending Logic ---
+
+    // State for transaction result
+    private val _transactionResult = MutableStateFlow<TransactionResult?>(null) // Correct initialization with null
+    val transactionResult: StateFlow<TransactionResult?> = _transactionResult.asStateFlow()
+
+    private val _isSendingTransaction = MutableStateFlow(false)
+    val isSendingTransaction: StateFlow<Boolean> = _isSendingTransaction.asStateFlow()
+
+    /**
+     * Sends a token transfer transaction.
+     * Handles nonce fetching, signing, and broadcasting.
+     * Updates transactionResult and isSendingTransaction states.
+     *
+     * @param contract Contract address of the token.
+     * @param recipientAddress The final recipient address (potentially resolved XNS).
+     * @param amount The amount to send (as String to avoid precision issues before conversion).
+     * @param privateKey The unlocked private key for signing.
+     * @return The TransactionResult.
+     */
+    suspend fun sendTokenTransaction(
+        contract: String,
+        recipientAddress: String,
+        amount: String,
+        privateKey: ByteArray,
+        stampLimit: Int = 500000 // Default stamp limit
+    ): TransactionResult {
+        _isSendingTransaction.value = true
+        _transactionResult.value = null // Clear previous result
+
+        return try {
+            // Use the existing sendTransaction method in networkService
+            val result = networkService.sendTransaction(
+                contract = contract,
+                method = "transfer",
+                kwargs = JSONObject().apply { // Use imported JSONObject
+                    put("to", recipientAddress)
+                    // Convert amount string to BigDecimal for accuracy
+                    put("amount", BigDecimal(amount)) // Use imported BigDecimal
+                },
+                privateKey = privateKey,
+                stampLimit = stampLimit
+            )
+            _transactionResult.value = result // Update state with the result
+            Log.d("WalletViewModel", "sendTokenTransaction result: $result")
+            result // Return the result
+        } catch (e: Exception) {
+            Log.e("WalletViewModel", "Error in sendTokenTransaction", e)
+            val errorResult = TransactionResult(success = false, errors = e.message ?: "Unknown error during transaction") // Use imported TransactionResult
+            _transactionResult.value = errorResult
+            errorResult // Return error result
+        } finally {
+            _isSendingTransaction.value = false
+        }
+    }
+
+     /** Clears the transaction result state, e.g., after navigating away or showing a message. */
+     fun clearTransactionResult() {
+         _transactionResult.value = null
+     }
 
     // --- Private Data Loading Logic ---
 
@@ -230,4 +352,4 @@ class WalletViewModel(
             }
         }
     }
-}
+} // End of WalletViewModel class
