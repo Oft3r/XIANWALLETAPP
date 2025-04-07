@@ -1,9 +1,12 @@
 package com.example.xianwalletapp.ui.screens
 
 import androidx.compose.foundation.layout.*
+import android.content.Intent
+import android.net.Uri
 // Keep necessary imports
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.platform.LocalContext // Import LocalContext
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Security
@@ -44,11 +47,14 @@ fun SettingsScreen(
     coroutineScope: CoroutineScope // Add coroutineScope parameter
 ) {
     var showSnakeGame by remember { mutableStateOf(false) } // State to control game visibility
+    var showAboutXian by remember { mutableStateOf(false) } // State to control About Xian visibility
+    val context = LocalContext.current // Get context here
     
     Scaffold(
         topBar = {
-            // Only show TopAppBar if not showing the game, or let SnakeGameScreen handle its own
-            if (!showSnakeGame) {
+            // Only show TopAppBar if not showing the game or the about screen
+            // Let SnakeGameScreen and AboutXianScreen handle their own TopAppBars if needed (or adjust AboutXianScreen later)
+            if (!showSnakeGame && !showAboutXian) {
                 TopAppBar(
                     title = { Text("Settings") },
                     navigationIcon = {
@@ -62,10 +68,16 @@ fun SettingsScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
-        if (showSnakeGame) {
-            // Show Snake Game
-            SnakeGameScreen(onBack = { showSnakeGame = false }) // Pass lambda to hide game
-        } else {
+        when {
+            showAboutXian -> {
+                // Show About Xian Screen (will be modified to accept onBack)
+                AboutXianScreen(onBack = { showAboutXian = false })
+            }
+            showSnakeGame -> {
+                // Show Snake Game
+                SnakeGameScreen(onBack = { showSnakeGame = false }) // Pass lambda to hide game
+            }
+            else -> {
             // Show Settings Menu
             Column(
                 modifier = Modifier
@@ -101,8 +113,27 @@ fun SettingsScreen(
 SettingsMenuItem(
     title = "XIAN WALLET APP News",
     icon = Icons.Default.Send, // Changed icon to Send (placeholder for Telegram)
-    onClick = { /* TODO: Implement navigation or action */ }
+    onClick = {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/xianwapp"))
+        try { // Add try-catch block for safety
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            // Optionally handle the exception, e.g., show a Snackbar
+            coroutineScope.launch { // Use the provided coroutineScope
+                snackbarHostState.showSnackbar("Could not open link. Is Telegram installed?")
+            }
+        }
+    }
 )
+
+                SettingsMenuItem(
+                    title = "About XIAN Blockchain",
+                    icon = Icons.Default.Info, // Using Info icon
+                    onClick = {
+                        showAboutXian = true // Show the About screen conditionally
+                    }
+                )
+
 
 SettingsMenuItem(
     title = "Rate Us",
@@ -123,8 +154,9 @@ Image(
 Spacer(modifier = Modifier.height(16.dp)) // Add some padding at the very bottom
 
                 // TODO: Add other settings categories if needed
-            }
-        }
+            } // End of main settings Column
+            } // End of else block
+        } // End of when block
         // Dialogs are now handled within their respective sub-screens (SecuritySettingsScreen, NetworkSettingsScreen)
     }
 }

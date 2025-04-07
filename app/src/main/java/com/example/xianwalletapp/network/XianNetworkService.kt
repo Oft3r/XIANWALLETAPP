@@ -13,7 +13,7 @@ import org.json.JSONObject
 import java.math.BigDecimal
 import com.example.xianwalletapp.crypto.XianCrypto
 import com.example.xianwalletapp.wallet.WalletManager
-
+import com.google.gson.reflect.TypeToken // Needed for parsing list of arguments
 /**
  * Service class for interacting with the Xian Network
  * Handles all network calls to the Xian RPC endpoints
@@ -80,7 +80,7 @@ class XianNetworkService private constructor(private val context: Context) {
     // Variable para ayudar a depurar problemas de URL
     private fun logURL(url: String, message: String) {
         android.util.Log.d("XianNetworkService", "$message: $url")
-        // También mostrar bytes para depuración
+        // Also show bytes for debugging
         val bytes = url.toByteArray()
         val hexString = bytes.joinToString("") { "%02x".format(it) }
         android.util.Log.d("XianNetworkService", "URL bytes: $hexString")
@@ -95,7 +95,7 @@ class XianNetworkService private constructor(private val context: Context) {
         
         for (nodeUrl in nodeUrls) {
             try {
-                android.util.Log.d("XianNetworkService", "Probando conexión al nodo: $nodeUrl")
+                android.util.Log.d("XianNetworkService", "Testing connection to node: $nodeUrl")
                 
                 val response = client.newCall(
                     Request.Builder()
@@ -109,7 +109,7 @@ class XianNetworkService private constructor(private val context: Context) {
                     nodeFound = true
                     break
                 } else {
-                    android.util.Log.d("XianNetworkService", "El nodo $nodeUrl respondió con código: ${response.code}")
+                    android.util.Log.d("XianNetworkService", "Node $nodeUrl responded with code: ${response.code}")
                 }
             } catch (e: Exception) {
                 android.util.Log.e("XianNetworkService", "Error al conectar con el nodo $nodeUrl: ${e.message}")
@@ -133,7 +133,7 @@ class XianNetworkService private constructor(private val context: Context) {
             ).execute()
             
             val isConnected = response.isSuccessful
-            android.util.Log.d("XianNetworkService", "Conexión con el nodo $rpcUrl: $isConnected, código: ${response.code}")
+            android.util.Log.d("XianNetworkService", "Connection with node $rpcUrl: $isConnected, code: ${response.code}")
             
             if (isConnected) {
                 return@withContext true
@@ -191,18 +191,18 @@ class XianNetworkService private constructor(private val context: Context) {
             // Verificar conectividad con el nodo antes de continuar
             val isConnected = checkNodeConnectivity()
             if (!isConnected) {
-                android.util.Log.e("XianNetworkService", "No hay conexión con ningún nodo disponible. Abortando obtención de balance.")
+                android.util.Log.e("XianNetworkService", "No connection to any available node. Aborting balance retrieval.")
                 return@withContext 0f
             }
             
             android.util.Log.d("XianNetworkService", "Usando nodo: $rpcUrl para obtener balance")
             
-            // En Xian, la dirección y la clave pública son lo mismo
+            // In Xian, the address and the public key are the same
             val address = publicKey
             android.util.Log.d("XianNetworkService", "Getting balance for contract: $contract, address: $address")
             
-            // MÉTODO 1: Usar simulate_tx con la función balance_of
-            // Crear payload exactamente como en la versión web
+            // METHOD 1: Use simulate_tx with the balance_of function
+            // Create payload exactly as in the web version
             val payload = JSONObject().apply {
                 put("sender", address)
                 put("contract", contract)
@@ -212,12 +212,12 @@ class XianNetworkService private constructor(private val context: Context) {
                 })
             }
             
-            // Convertir payload a hex string exactamente como en la versión web
+            // Convert payload to hex string exactly as in the web version
             val payloadBytes = payload.toString().toByteArray()
             val payloadHex = payloadBytes.joinToString("") { "%02x".format(it) }
             
-            // Es crucial usar exactamente el mismo formato de URL que en la versión web
-            // En la versión web, las URLs se construyen así:
+            // It's crucial to use exactly the same URL format as in the web version
+            // In the web version, URLs are constructed like this:
             // fetch(RPC + '/abci_query?path="/simulate_tx/' + hex + '"')
             val unescapedUrl = "$rpcUrl/abci_query?path=\"/simulate_tx/$payloadHex\""
             // Usamos java.net.URLEncoder para asegurarnos de que las comillas dobles se codifiquen correctamente
@@ -253,16 +253,17 @@ class XianNetworkService private constructor(private val context: Context) {
                     val simulateDecoded = String(simulateDecodedBytes)
                     android.util.Log.d("XianNetworkService", "Simulate decoded: $simulateDecoded")
                     
-                    // Verificar valor decodificado siguiendo la lógica exacta de la versión web
-                    if (simulateDecoded != "ée" && simulateDecoded != "AA==" && simulateDecoded != null && simulateDecoded.isNotEmpty() && simulateDecoded != "null") {
+                    // Verify decoded value following the exact logic of the web version
+                    // Redundant null check removed for simulateDecoded as isNotEmpty() implies not null
+                    if (simulateDecoded != "ée" && simulateDecoded != "AA==" && simulateDecoded.isNotEmpty() && simulateDecoded != "null") {
                         try {
-                            // En la versión web, se extrae directamente el campo "result" del JSON
+                            // In the web version, the "result" field is extracted directly from the JSON
                             val decodedJson = JSONObject(simulateDecoded)
                             if (decodedJson.has("result")) {
                                 val result = decodedJson.getString("result")
                                 android.util.Log.d("XianNetworkService", "Result from JSON: $result")
                                 
-                                // Usar BigDecimal para evitar problemas de precisión con números decimales
+                                // Use BigDecimal to avoid precision issues with decimal numbers
                                 val parsedBalance = try {
                                     java.math.BigDecimal(result)
                                 } catch (e: Exception) {
@@ -284,10 +285,10 @@ class XianNetworkService private constructor(private val context: Context) {
                 }
             }
             
-            // MÉTODO 2 (FALLBACK): Usar getVariable como en la versión web
+            // METHOD 2 (FALLBACK): Use getVariable as in the web version
             android.util.Log.d("XianNetworkService", "Using getVariable fallback method")
             
-            // Construir la URL para getVariable exactamente como en la versión web
+            // Build the URL for getVariable exactly as in the web version
             val unescapedVarUrl = "$rpcUrl/abci_query?path=\"/get/$contract.balances:$address\""
             val varPathPart = "\"/get/$contract.balances:$address\""
             val encodedVarPathPart = java.net.URLEncoder.encode(varPathPart, "UTF-8")
@@ -310,7 +311,7 @@ class XianNetworkService private constructor(private val context: Context) {
             val variableValue = variableJson.optJSONObject("result")?.optJSONObject("response")?.optString("value")
             android.util.Log.d("XianNetworkService", "Variable value (Base64): $variableValue")
             
-            // Verificar si el valor es nulo o AA== (vacío) como en la versión web
+            // Check if the value is null or AA== (empty) as in the web version
             if (variableValue == null || variableValue == "AA==") {
                 return@withContext 0f
             }
@@ -321,7 +322,7 @@ class XianNetworkService private constructor(private val context: Context) {
                 val variableDecoded = String(variableDecodedBytes)
                 android.util.Log.d("XianNetworkService", "Variable decoded: $variableDecoded")
                 
-                // Intentar parsear el valor como número
+                // Try to parse the value as a number
                 val parsedBalance = try {
                     java.math.BigDecimal(variableDecoded)
                 } catch (e: Exception) {
@@ -440,6 +441,116 @@ class XianNetworkService private constructor(private val context: Context) {
         }
     }
 
+    // --- Data classes for Contract Methods ---
+    data class Argument(val name: String, val type: String)
+    // Wrapper class to match the actual JSON structure: {"methods": [...]}
+    data class MethodsWrapper(val methods: List<ContractMethod>?)
+    data class ContractMethod(val name: String, val arguments: List<Argument>) // Reverted to non-nullable
+
+    /**
+     * Fetches the methods and their arguments for a given smart contract.
+     *
+     * @param contractName The name of the contract to query.
+     * @return A list of ContractMethod objects, or null if the contract is not found or an error occurs.
+     */
+    suspend fun getContractMethods(contractName: String): List<ContractMethod>? = withContext(Dispatchers.IO) {
+        if (!checkNodeConnectivity()) {
+            android.util.Log.e("XianNetworkService", "No node connection for getContractMethods.")
+            return@withContext null
+        }
+
+        // Construct the URL exactly like the JavaScript version: RPC + '/abci_query?path="/contract_methods/' + contract + '"'
+        // Let OkHttp handle the necessary encoding of the base URL and parameter value, but keep the quotes literal.
+        val queryUrl = "$rpcUrl/abci_query?path=\"/contract_methods/$contractName\""
+        logURL(queryUrl, "URL for getContractMethods (REST)")
+
+        val request = Request.Builder().url(queryUrl).build()
+
+        try {
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                android.util.Log.w("XianNetworkService", "Failed to fetch methods for $contractName: ${response.code} ${response.message}")
+                // Assuming 404 or similar might indicate contract not found, but the endpoint might just return empty/null value instead.
+                // Let the parsing logic handle potential null values.
+                // If the response code indicates a server error (5xx), log it more severely.
+                if (response.code >= 500) {
+                     android.util.Log.e("XianNetworkService", "Server error (${response.code}) fetching methods for $contractName")
+                }
+                // Return null for any unsuccessful response for now.
+                return@withContext null
+            }
+
+            val responseBody = response.body?.string() ?: "{}"
+            android.util.Log.v("XianNetworkService", "RAW Contract Methods Response for $contractName: $responseBody") // Verbose log for raw response
+
+            // --- JSON Parsing Logic ---
+            // Assuming the response structure is similar to other abci_query calls:
+            // { "result": { "response": { "value": "BASE64_ENCODED_JSON_ARRAY" } } }
+            val json = JSONObject(responseBody)
+            val base64Value = json.optJSONObject("result")?.optJSONObject("response")?.optString("value")
+            android.util.Log.v("XianNetworkService", "Extracted Base64 value for $contractName: $base64Value")
+
+            if (base64Value == null || base64Value.isEmpty() || base64Value == "AA==") {
+                 android.util.Log.w("XianNetworkService", "No methods found or empty response for contract '$contractName'.")
+                 // This could mean the contract exists but has no methods, or doesn't exist.
+                 // Returning empty list might be better than null if the contract *might* exist.
+                 // Let's return null to match the "not found or error" behaviour described in the function doc.
+                 return@withContext null
+            }
+
+            // Decode Base64
+            android.util.Log.d("XianNetworkService", "Attempting Base64 decode for $contractName...")
+            val decodedJsonString: String = try {
+                 val decodedBytes = Base64.decode(base64Value, Base64.DEFAULT)
+                 String(decodedBytes, Charsets.UTF_8).also {
+                     android.util.Log.v("XianNetworkService", "Successfully decoded Base64 for $contractName.")
+                 }
+            } catch (e: IllegalArgumentException) {
+                 android.util.Log.e("XianNetworkService", "BASE64 DECODING FAILED for $contractName. Base64 value was: '$base64Value'", e)
+                 return@withContext null
+            }
+
+            android.util.Log.i("XianNetworkService", "Attempting to parse GSON for $contractName. Decoded JSON: '$decodedJsonString'")
+
+            // Parse the decoded JSON string using the wrapper class
+            try {
+                val wrapper: MethodsWrapper = gson.fromJson(decodedJsonString, MethodsWrapper::class.java)
+
+                // Extract the list, handling potential nulls
+                val methodsList = wrapper.methods?.mapNotNull { method ->
+                    // Ensure name is present and arguments list defaults to empty if null
+                    // method.name null check is redundant if parsing directly into ContractMethod with non-nullable name
+                    // Keeping the mapping structure for safety in case of unexpected JSON variations
+                    if (method.name != null) { // Keep check for robustness during mapping
+                         ContractMethod(
+                             name = method.name,
+                             arguments = method.arguments ?: emptyList()
+                         )
+                    } else {
+                        android.util.Log.w("XianNetworkService", "Skipping method with null name in response for $contractName")
+                        null
+                    }
+                } ?: emptyList() // If wrapper.methods itself is null, return empty list
+
+
+                android.util.Log.i("XianNetworkService", "GSON PARSING SUCCESS for $contractName. Found ${methodsList.size} methods.")
+                return@withContext methodsList // Return the extracted & validated list
+
+            } catch (e: com.google.gson.JsonSyntaxException) {
+                 android.util.Log.e("XianNetworkService", "GSON JSON SYNTAX ERROR parsing methods wrapper for $contractName. Decoded JSON was: '$decodedJsonString'", e)
+                 return@withContext null // Return null specifically on parsing error
+            } catch (e: Exception) {
+                 // Catch other potential exceptions during parsing/mapping
+                 android.util.Log.e("XianNetworkService", "GSON GENERIC ERROR parsing methods for $contractName. Decoded JSON was: '$decodedJsonString'", e)
+                 return@withContext null
+            }
+
+        } catch (e: Exception) {
+            // Catch exceptions from the network call or initial JSON parsing
+            android.util.Log.e("XianNetworkService", "OUTER CATCH: Error fetching or processing contract methods for $contractName: ${e.message}", e)
+            return@withContext null // Return null on any other error
+        }
+    }
 
     // --- Start of new NFT functions ---
 
@@ -473,7 +584,7 @@ class XianNetworkService private constructor(private val context: Context) {
 
         val request = Request.Builder()
             .url(graphQLEndpoint)
-            .post(okhttp3.RequestBody.create("application/json".toMediaTypeOrNull(), requestBody))
+            .post(okhttp3.RequestBody.create("application/json".toMediaTypeOrNull(), requestBody)) // Reverted to deprecated create call to fix build
             .build()
 
         try {
@@ -539,7 +650,7 @@ class XianNetworkService private constructor(private val context: Context) {
 
         val request = Request.Builder()
             .url(graphQLEndpoint)
-            .post(okhttp3.RequestBody.create("application/json".toMediaTypeOrNull(), requestBody))
+            .post(okhttp3.RequestBody.create("application/json".toMediaTypeOrNull(), requestBody)) // Reverted to deprecated create call to fix build
             .build()
 
         try {
@@ -648,7 +759,7 @@ class XianNetworkService private constructor(private val context: Context) {
 
         val request = Request.Builder()
             .url(graphQLEndpoint)
-            .post(okhttp3.RequestBody.create("application/json".toMediaTypeOrNull(), requestBody))
+            .post(okhttp3.RequestBody.create("application/json".toMediaTypeOrNull(), requestBody)) // Reverted to deprecated create call to fix build
             .build()
 
         try {
@@ -723,7 +834,7 @@ class XianNetworkService private constructor(private val context: Context) {
             // Verificar conectividad con el nodo antes de continuar
             val isConnected = checkNodeConnectivity()
             if (!isConnected) {
-                android.util.Log.e("XianNetworkService", "No hay conexión con ningún nodo disponible. Abortando broadcast de transacción.")
+                android.util.Log.e("XianNetworkService", "No connection to any available node. Aborting transaction broadcast.")
                 return@withContext Pair(false, "")
             }
             
@@ -735,20 +846,20 @@ class XianNetworkService private constructor(private val context: Context) {
                 android.util.Log.d("XianNetworkService", "Transaction: $signedTransaction")
             }
             
-            // CLAVE: Construir URL para broadcast_tx_sync exactamente como en la versión web
-            // Las comillas dobles dentro de la URL son críticas pero pueden causar problemas
-            // con okhttp si no se manejan correctamente
+            // KEY: Build URL for broadcast_tx_sync exactly as in the web version
+            // Double quotes within the URL are critical but can cause issues
+            // with okhttp if not handled correctly
             
             // Creamos la URL base sin las comillas adicionales
             val baseUrl = "$rpcUrl/broadcast_tx_sync?tx="
             
-            // Agregamos las comillas dobles alrededor de la transacción hex de forma manual
+            // Manually add double quotes around the hex transaction
             val fullUrl = baseUrl + "\"" + signedTransaction + "\""
             
             android.util.Log.d("XianNetworkService", "Broadcasting to URL: $fullUrl")
             
-            // Realizar la solicitud usando la URL completa, permitiendo que OkHttp
-            // haga su propia codificación URL
+            // Make the request using the full URL, allowing OkHttp
+            // to do its own URL encoding
             val request = Request.Builder()
                 .url(fullUrl)
                 .build()
@@ -760,15 +871,15 @@ class XianNetworkService private constructor(private val context: Context) {
             
             val json = JSONObject(responseBody)
             
-            // Análisis mejorado de la respuesta
+            // Improved response analysis
             if (json.has("error")) {
-                // Hay un error explícito en la respuesta
+                // There is an explicit error in the response
                 val errorJson = json.getJSONObject("error")
                 val errorMsg = errorJson.optString("message", "Unknown error")
                 android.util.Log.e("XianNetworkService", "Transaction error from node: $errorMsg")
                 return@withContext Pair(false, "")
             } else if (json.has("result")) {
-                // Hay un resultado - verificar el código
+                // There is a result - verify the code
                 val resultJson = json.getJSONObject("result")
                 val hash = resultJson.optString("hash", "")
                 val code = resultJson.optInt("code", -1)
@@ -777,17 +888,17 @@ class XianNetworkService private constructor(private val context: Context) {
                 android.util.Log.d("XianNetworkService", "Transaction result - hash: $hash, code: $code")
                 
                 if (code == 0) {
-                    // Código 0 indica éxito total
+                    // Code 0 indicates total success
                     android.util.Log.d("XianNetworkService", "Transaction successful!")
                     return@withContext Pair(true, hash)
                 } else {
-                    // Cualquier otro código indica error
+                    // Any other code indicates an error
                     val log = resultJson.optString("log", "Unknown error")
                     android.util.Log.e("XianNetworkService", "Transaction failed with code $code: $log")
                     return@withContext Pair(false, hash)
                 }
             } else {
-                // No hay error ni resultado - algo inesperado ocurrió
+                // No error or result - something unexpected happened
                 android.util.Log.e("XianNetworkService", "Unexpected response format: $responseBody")
                 return@withContext Pair(false, "")
             }
@@ -808,7 +919,7 @@ class XianNetworkService private constructor(private val context: Context) {
             // Verificar conectividad con el nodo antes de continuar
             val isConnected = checkNodeConnectivity()
             if (!isConnected) {
-                android.util.Log.e("XianNetworkService", "No hay conexión con ningún nodo disponible. Abortando obtención de resultados de transacción.")
+                android.util.Log.e("XianNetworkService", "No connection to any available node. Aborting transaction result retrieval.")
                 return@withContext "{\"error\":\"No connection to node\"}"
             }
             
@@ -846,7 +957,7 @@ class XianNetworkService private constructor(private val context: Context) {
             // Verify connectivity with the node before continuing
             val isConnected = checkNodeConnectivity()
             if (!isConnected) {
-                android.util.Log.e("XianNetworkService", "No hay conexión con ningún nodo disponible. Abortando obtención de chain ID.")
+                android.util.Log.e("XianNetworkService", "No connection to any available node. Aborting chain ID retrieval.")
                 return@withContext "xian"
             }
             
@@ -885,8 +996,8 @@ class XianNetworkService private constructor(private val context: Context) {
             // Verificar conectividad con el nodo antes de continuar
             val isConnected = checkNodeConnectivity()
             if (!isConnected) {
-                android.util.Log.e("XianNetworkService", "No hay conexión con ningún nodo disponible. Abortando estimación de stamps.")
-                return@withContext 200000 // Valor por defecto más alto (antes 100000)
+                android.util.Log.e("XianNetworkService", "No connection to any available node. Aborting stamp estimation.")
+                return@withContext 200000 // Higher default value (was 100000)
             }
             
             // Assume 'transaction' is the SIGNED transaction JSON object
@@ -912,7 +1023,7 @@ class XianNetworkService private constructor(private val context: Context) {
             ).execute()
             
             val responseBody = response.body?.string() ?: "{}"
-            android.util.Log.d("XianNetworkService", "Respuesta de estimación: $responseBody")
+            android.util.Log.d("XianNetworkService", "Estimation response: $responseBody")
             
             val json = JSONObject(responseBody)
             val value = json.optJSONObject("result")?.optJSONObject("response")?.optString("value")
@@ -927,7 +1038,7 @@ class XianNetworkService private constructor(private val context: Context) {
                 val stampsUsed = resultJson.optInt("stamps_used", 0)
                 val success = resultJson.optInt("status", -1) == 0
                 
-                android.util.Log.d("XianNetworkService", "Stamps estimados (sin margen): $stampsUsed, éxito: $success")
+                android.util.Log.d("XianNetworkService", "Estimated stamps (no margin): $stampsUsed, success: $success")
                 
                 // Use the exact estimated value, like in the Prueb version
                 // Remove the 30% margin
@@ -936,14 +1047,129 @@ class XianNetworkService private constructor(private val context: Context) {
                 // Return the exact estimated value if successful and positive
                 return@withContext if (success && stampsUsed > 0) stampsUsed else 200000 // Fallback if status is not 0 or stampsUsed is 0/negative
             } else {
-                android.util.Log.e("XianNetworkService", "No se pudo estimar stamps, usando valor por defecto")
-                return@withContext 200000 // Valor por defecto más alto (antes 100000)
+                android.util.Log.e("XianNetworkService", "Could not estimate stamps, using default value")
+                return@withContext 200000 // Higher default value (was 100000)
             }
         } catch (e: Exception) {
-            android.util.Log.e("XianNetworkService", "Error estimando stamps: ${e.message}", e)
-            return@withContext 200000 // Valor por defecto más alto (antes 100000)
+            android.util.Log.e("XianNetworkService", "Error estimating stamps: ${e.message}", e)
+            return@withContext 200000 // Higher default value (was 100000)
         }
     }
+
+    /**
+     * Estimates the stamp cost for a potential transaction without broadcasting it.
+     * This constructs the transaction, signs it, and sends it to the estimation endpoint.
+     *
+     * @param contract The target contract name.
+     * @param method The target method name within the contract.
+     * @param kwargs The arguments for the method as a JSONObject.
+     * @param publicKey The public key of the sender.
+     * @param privateKey The private key of the sender (used for signing the estimation tx).
+     * @return The estimated stamp cost as a Long, or null if estimation fails or wallet is locked.
+     */
+    suspend fun estimateTransactionFee(
+        contract: String,
+        method: String,
+        kwargs: JSONObject,
+        publicKey: String,
+        privateKey: ByteArray // Require private key for signing
+    ): Long? = withContext(Dispatchers.IO) {
+
+        try {
+            if (!checkNodeConnectivity()) {
+                 android.util.Log.e("XianNetworkService", "No node connection for estimateTransactionFee.")
+                 return@withContext null
+            }
+
+            val chainId = getChainID() // Fetch current chain ID
+            val nonce = getNonce(publicKey) // Fetch next nonce
+
+            // 1. Construct the Transaction Payload
+            val transactionPayload = JSONObject().apply {
+                put("chain_id", chainId)
+                put("contract", contract)
+                put("function", method)
+                put("kwargs", kwargs)
+                // Stamps supplied for estimation - use a reasonably high value
+                // The actual value doesn't matter much for estimation itself,
+                // as the node calculates based on execution, but it needs to be present.
+                put("stamps_supplied", 100000)
+                put("nonce", nonce)
+                put("sender", publicKey) // Sender is derived from public key
+            }
+
+            val transaction = JSONObject().apply {
+                put("payload", transactionPayload)
+                put("metadata", JSONObject().put("signature", "")) // Placeholder for signature
+            }
+             android.util.Log.d("XianNetworkService", "Estimating Tx: ${transaction.toString(2)}")
+
+
+            // 2. Sign the Transaction (using the existing helper)
+            val signedTx = signTransaction(transaction, privateKey)
+             android.util.Log.d("XianNetworkService", "Signed Tx for Estimation: ${signedTx.toString(2)}")
+
+
+            // 3. Estimate Stamps (using the existing helper)
+            // estimateStamps returns Int, convert to Long?
+            val estimatedStampsInt = estimateStamps(signedTx)
+
+            if (estimatedStampsInt <= 0) {
+                 android.util.Log.w("XianNetworkService", "estimateStamps returned non-positive value: $estimatedStampsInt for tx: ${signedTx.toString(2)}")
+                 return@withContext null // Indicate estimation failure
+            }
+
+            return@withContext estimatedStampsInt.toLong()
+
+        } catch (e: Exception) {
+            android.util.Log.e("XianNetworkService", "Error during estimateTransactionFee: ${e.message}", e)
+            return@withContext null
+        }
+    }
+
+    /**
+     * Estimates the stamps required for submitting a new contract.
+     *
+     * @param contractName The name of the contract to be submitted.
+     * @param contractCode The Python code of the contract.
+     * @param publicKey The public key of the sender.
+     * @param privateKey The private key of the sender (used for signing the estimation transaction).
+     * @return The estimated number of stamps required, or 0 if estimation fails.
+     */
+    suspend fun estimateContractSubmissionFee(
+        contractName: String,
+        contractCode: String,
+        publicKey: String,
+        privateKey: ByteArray
+    ): Int = withContext(Dispatchers.IO) {
+        try {
+            val chainId = getChainID()
+            val nonce = getNonce(publicKey)
+
+            // Construct payload for submission
+            val payload = mapOf(
+                "chain_id" to chainId,
+                "contract" to "submission",
+                "function" to "submit_contract",
+                "kwargs" to mapOf(
+                    "name" to contractName,
+                    "code" to contractCode
+                ),
+                "stamps_supplied" to 200000 // Use a high value for estimation
+            )
+
+            // Sign the transaction for estimation
+            val signedTxJson = XianCrypto.signTransaction(payload, privateKey, publicKey, nonce)
+
+            // Call the existing estimateStamps function
+            return@withContext estimateStamps(signedTxJson)
+
+        } catch (e: Exception) {
+            android.util.Log.e("XianNetworkService", "Error estimating contract submission fee: ${e.message}", e)
+            return@withContext 0 // Return 0 on error
+        }
+    }
+
 
     /**
      * Send a transaction to the Xian blockchain
@@ -964,10 +1190,10 @@ class XianNetworkService private constructor(private val context: Context) {
         stampLimit: Int = 0
     ): TransactionResult = withContext(Dispatchers.IO) {
         try {
-            // PASO 1: Verificar conexión y obtener clave pública
+            // STEP 1: Verify connection and get public key
             val isConnected = checkNodeConnectivity()
             if (!isConnected) {
-                android.util.Log.e("XianNetworkService", "No hay conexión con ningún nodo disponible")
+                android.util.Log.e("XianNetworkService", "No connection to any available node")
                 return@withContext TransactionResult(
                     txHash = "", 
                     success = false, 
@@ -975,10 +1201,10 @@ class XianNetworkService private constructor(private val context: Context) {
                 )
             }
             
-            // Obtener la clave pública
+            // Get the public key
             val keyPair = XianCrypto.getInstance().createKeyPairFromSeed(privateKey)
             val publicKey = XianCrypto.getInstance().toHexString(keyPair.second)
-            android.util.Log.d("XianNetworkService", "Usando clave pública: $publicKey")
+            android.util.Log.d("XianNetworkService", "Using public key: $publicKey")
             
             // PASO 2: Verificar balance
             val balance = getTokenBalance("currency", publicKey)
@@ -989,8 +1215,8 @@ class XianNetworkService private constructor(private val context: Context) {
             val chainId = getChainID()
             android.util.Log.d("XianNetworkService", "Obtenido - nonce: $nonce, chainId: $chainId")
             
-            // PASO 4: Construir payload de transacción para estimación
-            // Usamos un valor inicial de stamps para la estimación
+            // STEP 4: Build transaction payload for estimation
+            // Use an initial stamp value for estimation
             val initialStampLimit = if (stampLimit > 0) stampLimit else 100000
             
             val estimationPayload = JSONObject().apply {
@@ -1003,10 +1229,10 @@ class XianNetworkService private constructor(private val context: Context) {
                 put("stamps_supplied", initialStampLimit)
             }
             
-            // PASO 5: Ordenar las claves alfabéticamente para firma determinista
+            // STEP 5: Sort keys alphabetically for deterministic signature
             val orderedEstimationPayload = sortJsonObject(estimationPayload)
             
-            // PASO 6: Crear transacción para estimación
+            // STEP 6: Create transaction for estimation
             val estimationTx = JSONObject().apply {
                 put("payload", orderedEstimationPayload)
                 put("metadata", JSONObject().apply {
@@ -1014,7 +1240,7 @@ class XianNetworkService private constructor(private val context: Context) {
                 })
             }
             
-            // PASO 7: Firmar la transacción de estimación
+            // STEP 7: Sign the estimation transaction
             val signedEstimationTx = signTransaction(estimationTx, privateKey)
             
             // PASO 8: Estimar los stamps necesarios
@@ -1034,16 +1260,16 @@ class XianNetworkService private constructor(private val context: Context) {
 
             android.util.Log.d("XianNetworkService", "Using final stamp limit based on estimation/default: $finalStampLimit")
             
-            // Estimación aproximada de XIAN requeridos basado en stamps
+            // Approximate estimation of required XIAN based on stamps
             val stampRate = getStampRate()
             android.util.Log.d("XianNetworkService", "Tasa de stamps obtenida: $stampRate stamps/XIAN")
             
-            // Calcular el costo en XIAN con precisión de BigDecimal
+            // Calculate the cost in XIAN with BigDecimal precision
             val stampsBigDecimal = BigDecimal.valueOf(finalStampLimit.toLong())
             val rateBigDecimal = BigDecimal.valueOf(stampRate.toDouble())
             
-            // Cálculo correcto: stamps ÷ (stamps/XIAN) = XIAN
-            // Verificar que la tasa no sea cero para evitar error de división
+            // Correct calculation: stamps ÷ (stamps/XIAN) = XIAN
+            // Verify that the rate is not zero to avoid division error
             val estimatedXianCostBD = if (rateBigDecimal.compareTo(BigDecimal.ZERO) > 0) {
                 stampsBigDecimal.divide(rateBigDecimal, 8, java.math.RoundingMode.HALF_UP)
             } else {
@@ -1054,15 +1280,15 @@ class XianNetworkService private constructor(private val context: Context) {
             
             // Verificar que el costo estimado sea razonable
             val finalEstimatedCost = when {
-                estimatedXianCost <= 0.0f -> 0.1f // Valor mínimo si el cálculo falla
+                estimatedXianCost <= 0.0f -> 0.1f // Minimum value if calculation fails
                 estimatedXianCost > 10.0f -> 
-                    // Si la comisión es extraordinariamente alta, limitarla y advertir
+                    // If the fee is extraordinarily high, limit it and warn
                     if (contract == "currency" && method == "transfer") {
-                        android.util.Log.w("XianNetworkService", "¡Comisión excesivamente alta! Reduciendo de $estimatedXianCost a 0.5 XIAN")
-                        0.5f // Para transferencias normales, esto es más que suficiente
+                        android.util.Log.w("XianNetworkService", "Excessively high fee! Reducing from $estimatedXianCost to 0.5 XIAN")
+                        0.5f // For normal transfers, this is more than enough
                     } else {
-                        // Para otras operaciones más complejas, permitir hasta 5.0 XIAN
-                        android.util.Log.w("XianNetworkService", "¡Comisión alta! Reduciendo de $estimatedXianCost a 5.0 XIAN")
+                        // For other more complex operations, allow up to 5.0 XIAN
+                        android.util.Log.w("XianNetworkService", "High fee! Reducing from $estimatedXianCost to 5.0 XIAN")
                         5.0f
                     }
                 else -> estimatedXianCost
@@ -1077,11 +1303,11 @@ class XianNetworkService private constructor(private val context: Context) {
                 return@withContext TransactionResult(
                     txHash = "", 
                     success = false, 
-                    errors = "Saldo insuficiente ($balance XIAN). Necesitas aproximadamente $finalEstimatedCost XIAN para cubrir las comisiones de esta transacción."
+                    errors = "Insufficient balance ($balance XIAN). You need approximately $finalEstimatedCost XIAN to cover the fees for this transaction."
                 )
             }
             
-            // PASO 9: Construir payload de transacción final con los stamps estimados
+            // STEP 9: Build final transaction payload with estimated stamps
             val txPayload = JSONObject().apply {
                 put("chain_id", chainId)
                 put("sender", publicKey)
@@ -1092,7 +1318,7 @@ class XianNetworkService private constructor(private val context: Context) {
                 put("stamps_supplied", finalStampLimit)
             }
             
-            // PASO 10: Ordenar las claves alfabéticamente para firma determinista
+            // STEP 10: Sort keys alphabetically for deterministic signature
             val orderedPayload = sortJsonObject(txPayload)
             android.util.Log.d("XianNetworkService", "Payload ordenado: $orderedPayload")
             
@@ -1105,7 +1331,7 @@ class XianNetworkService private constructor(private val context: Context) {
             )
             android.util.Log.d("XianNetworkService", "Firma generada: $signature")
             
-            // PASO 12: Construir transacción completa
+            // STEP 12: Build complete transaction
             val fullTx = JSONObject().apply {
                 put("payload", orderedPayload)
                 put("metadata", JSONObject().apply {
@@ -1117,7 +1343,7 @@ class XianNetworkService private constructor(private val context: Context) {
             val txString = fullTx.toString()
             val txBytes = txString.toByteArray(Charsets.UTF_8)
             val txHex = XianCrypto.getInstance().toHexString(txBytes)
-            android.util.Log.d("XianNetworkService", "Transacción hex (primeros 50 caracteres): ${txHex.take(50)}...")
+            android.util.Log.d("XianNetworkService", "Hex transaction (first 50 characters): ${txHex.take(50)}...")
             
             // PASO 14: Broadcast a la red
             val baseUrl = "$rpcUrl/broadcast_tx_sync?tx="
@@ -1135,7 +1361,7 @@ class XianNetworkService private constructor(private val context: Context) {
             // PASO 15: Analizar respuesta
             val responseJson = JSONObject(responseBody)
             
-            // Verificar si hay un error explícito
+            // Check if there is an explicit error
             if (responseJson.has("error")) {
                 val errorMsg = responseJson.getJSONObject("error").optString("message", "Unknown error")
                 android.util.Log.e("XianNetworkService", "Error en respuesta: $errorMsg")
@@ -1152,24 +1378,24 @@ class XianNetworkService private constructor(private val context: Context) {
                 val hash = resultJson.optString("hash", "")
                 val code = resultJson.optInt("code", -1)
                 
-                android.util.Log.d("XianNetworkService", "Código de respuesta: $code, Hash: $hash")
+                android.util.Log.d("XianNetworkService", "Response code: $code, Hash: $hash")
                 
-                // Código 0 es éxito
+                // Code 0 is success
                 if (code == 0) {
                     return@withContext TransactionResult(
                         txHash = hash,
                         success = true
                     )
                 } else {
-                    // Cualquier otro código es error
+                    // Any other code is an error
                     val log = resultJson.optString("log", "Unknown error")
-                    android.util.Log.e("XianNetworkService", "Error de transacción con código $code: $log")
+                    android.util.Log.e("XianNetworkService", "Transaction error with code $code: $log")
                     
-                    // Mejorar el mensaje de error para hacerlo más claro
+                    // Improve the error message to make it clearer
                     val userFriendlyError = if (log.contains("too few stamps")) {
-                        "Error de transacción: Stamps insuficientes. Por favor intenta nuevamente con una cantidad más pequeña o contacta al soporte."
+                        "Transaction error: Insufficient stamps. Please try again with a smaller amount or contact support."
                     } else {
-                        "Error de transacción: $log"
+                        "Transaction error: $log"
                     }
                     
                     return@withContext TransactionResult(
@@ -1180,8 +1406,8 @@ class XianNetworkService private constructor(private val context: Context) {
                 }
             }
             
-            // Si no hay error ni resultado, algo raro pasó
-            android.util.Log.e("XianNetworkService", "Respuesta inesperada: $responseBody")
+            // If there's no error or result, something strange happened
+            android.util.Log.e("XianNetworkService", "Unexpected response: $responseBody")
             return@withContext TransactionResult(
                 txHash = "",
                 success = false,
@@ -1189,7 +1415,7 @@ class XianNetworkService private constructor(private val context: Context) {
             )
             
         } catch (e: Exception) {
-            android.util.Log.e("XianNetworkService", "Excepción en sendTransaction: ${e.message}", e)
+            android.util.Log.e("XianNetworkService", "Exception in sendTransaction: ${e.message}", e)
             return@withContext TransactionResult(
                 txHash = "",
                 success = false,
@@ -1207,8 +1433,8 @@ class XianNetworkService private constructor(private val context: Context) {
             // Verificar conectividad con el nodo antes de continuar
             val isConnected = checkNodeConnectivity()
             if (!isConnected) {
-                android.util.Log.e("XianNetworkService", "No hay conexión con ningún nodo disponible. Usando tasa por defecto.")
-                return@withContext 10000.0f // Valor por defecto más razonable (antes 20000.0f)
+                android.util.Log.e("XianNetworkService", "No connection to any available node. Using default rate.")
+                return@withContext 10000.0f // More reasonable default value (was 20000.0f)
             }
             
             // Construir URL para obtener la tasa de stamps
@@ -1233,23 +1459,23 @@ class XianNetworkService private constructor(private val context: Context) {
                 android.util.Log.d("XianNetworkService", "Valor de tasa de stamps decodificado: $decoded")
                 
                 try {
-                    // Intentar convertir a doble precisión para evitar problemas con notación científica
+                    // Try converting to double precision to avoid problems with scientific notation
                     val stampRateValue = decoded.toDoubleOrNull()
                     
                     if (stampRateValue != null) {
-                        // La tasa es stamps por XIAN, así que debería ser un valor como 100,000
-                        // Si es anormalmente bajo (como 0.0001), podría estar invertido
+                        // The rate is stamps per XIAN, so it should be a value like 100,000
+                        // If it's abnormally low (like 0.0001), it might be inverted
                         val stampRate = if (stampRateValue < 1.0) {
-                            // Si es extremadamente bajo, asumir que está invertido (XIAN por stamp)
-                            // y corregirlo (convertir a stamps por XIAN)
+                            // If it's extremely low, assume it's inverted (XIAN per stamp)
+                            // and correct it (convert to stamps per XIAN)
                             android.util.Log.d("XianNetworkService", "Corrigiendo tasa invertida: $stampRateValue")
                             (1.0 / stampRateValue).toFloat()
                         } else {
-                            // Parece razonable, usar como está
+                            // Seems reasonable, use as is
                             stampRateValue.toFloat()
                         }
                         
-                        // Verificar que la tasa esté en un rango razonable para evitar costos excesivos
+                        // Verify the rate is within a reasonable range to avoid excessive costs
                         val finalRate = when {
                             stampRate < 1000.0f -> 10000.0f // Demasiado bajo, usar valor por defecto
                             stampRate > 1000000.0f -> 100000.0f // Demasiado alto, limitar
@@ -1259,20 +1485,20 @@ class XianNetworkService private constructor(private val context: Context) {
                         android.util.Log.d("XianNetworkService", "Tasa de stamps FINAL: $finalRate stamps/XIAN")
                         return@withContext finalRate
                     } else {
-                        android.util.Log.e("XianNetworkService", "No se pudo convertir a número: $decoded")
-                        return@withContext 10000.0f // Usar valor por defecto
+                        android.util.Log.e("XianNetworkService", "Could not convert to number: $decoded")
+                        return@withContext 10000.0f // Use default value
                     }
                 } catch (e: Exception) {
                     android.util.Log.e("XianNetworkService", "Error procesando tasa de stamps: ${e.message}")
                     return@withContext 10000.0f // Valor por defecto en caso de error
                 }
             } else {
-                android.util.Log.e("XianNetworkService", "No se pudo obtener la tasa de stamps, usando valor por defecto")
-                return@withContext 10000.0f // Más razonable (antes 20000.0f)
+                android.util.Log.e("XianNetworkService", "Could not get stamp rate, using default value")
+                return@withContext 10000.0f // More reasonable (was 20000.0f)
             }
         } catch (e: Exception) {
-            android.util.Log.e("XianNetworkService", "Error obteniendo tasa de stamps: ${e.message}", e)
-            return@withContext 10000.0f // Más razonable (antes 20000.0f)
+            android.util.Log.e("XianNetworkService", "Error getting stamp rate: ${e.message}", e)
+            return@withContext 10000.0f // More reasonable (was 20000.0f)
         }
     }
     
@@ -1306,12 +1532,12 @@ class XianNetworkService private constructor(private val context: Context) {
      */
     suspend fun signTransaction(transaction: JSONObject, privateKey: ByteArray): JSONObject = withContext(Dispatchers.IO) {
         try {
-            // Obtener la clave pública desde el wallet manager
-            val publicKey = walletManager.getPublicKey() ?: throw Exception("No se pudo obtener la clave pública")
+            // Get the public key from the wallet manager
+            val publicKey = walletManager.getPublicKey() ?: throw Exception("Could not get public key")
             
             // Obtener el nonce
             val nonce = getNonce(publicKey)
-            android.util.Log.d("XianNetworkService", "Nonce para la transacción: $nonce")
+            android.util.Log.d("XianNetworkService", "Nonce for the transaction: $nonce")
             
             // Clonar el payload para no modificar el original
             val payload = JSONObject(transaction.getJSONObject("payload").toString())
@@ -1322,11 +1548,11 @@ class XianNetworkService private constructor(private val context: Context) {
             
             android.util.Log.d("XianNetworkService", "Payload con nonce y sender: $payload")
             
-            // Ordenar las claves en el payload (para generar una firma determinista)
-            // CLAVE: Usar un enfoque más cuidadoso para ordenar las claves
+            // Sort the keys in the payload (to generate a deterministic signature)
+            // KEY: Use a more careful approach to sort the keys
             val orderedPayload = JSONObject()
             
-            // Obtener todas las claves y ordenarlas alfabéticamente
+            // Get all keys and sort them alphabetically
             val keys = ArrayList<String>()
             val iterator = payload.keys()
             while (iterator.hasNext()) {
@@ -1345,10 +1571,10 @@ class XianNetworkService private constructor(private val context: Context) {
             val serializedTransaction = orderedPayload.toString()
             android.util.Log.d("XianNetworkService", "Payload serializado: $serializedTransaction")
             
-            // Convertir a bytes usando UTF-8, igual que en la versión web
+            // Convert to bytes using UTF-8, same as in the web version
             val transactionBytes = serializedTransaction.toByteArray(Charsets.UTF_8)
             
-            // Combinar la clave privada y la clave pública como en la versión web
+            // Combine the private key and public key as in the web version
             val combinedKey = ByteArray(64)
             System.arraycopy(privateKey, 0, combinedKey, 0, 32)
             System.arraycopy(XianCrypto.getInstance().fromHexString(publicKey), 0, combinedKey, 32, 32)
@@ -1364,18 +1590,18 @@ class XianNetworkService private constructor(private val context: Context) {
             val signatureHex = XianCrypto.getInstance().toHexString(signature)
             android.util.Log.d("XianNetworkService", "Firma generada: $signatureHex")
             
-            // Crear un nuevo objeto de transacción con el payload ordenado
+            // Create a new transaction object with the sorted payload
             val signedTransaction = JSONObject()
             signedTransaction.put("payload", orderedPayload)
             signedTransaction.put("metadata", JSONObject().apply {
                 put("signature", signatureHex)
             })
             
-            android.util.Log.d("XianNetworkService", "Transacción firmada final: $signedTransaction")
+            android.util.Log.d("XianNetworkService", "Final signed transaction: $signedTransaction")
             
             return@withContext signedTransaction
         } catch (e: Exception) {
-            android.util.Log.e("XianNetworkService", "Error firmando transacción: ${e.message}", e)
+            android.util.Log.e("XianNetworkService", "Error signing transaction: ${e.message}", e)
             throw e
         }
     }

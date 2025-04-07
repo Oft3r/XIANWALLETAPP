@@ -1,5 +1,6 @@
 package com.example.xianwalletapp.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
@@ -75,7 +76,16 @@ fun ReceiveTokenScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 32.dp),
+                    .padding(bottom = 16.dp) // Reduced bottom padding
+                    .clickable { // Added clickable modifier for sharing
+                        val sendIntent = Intent().apply {
+                            action = Intent.ACTION_SEND
+                            putExtra(Intent.EXTRA_TEXT, "My Xian Network wallet address: $publicKey")
+                            type = "text/plain"
+                        }
+                        val shareIntent = Intent.createChooser(sendIntent, "Share wallet address")
+                        context.startActivity(shareIntent)
+                    },
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )
@@ -126,47 +136,28 @@ fun ReceiveTokenScreen(
             )
             
             // Action buttons
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                // Copy button
-                Button(
-                    onClick = {
-                        clipboardManager.setText(AnnotatedString(publicKey))
-                        kotlinx.coroutines.MainScope().launch {
-                            snackbarHostState.showSnackbar("Address copied to clipboard")
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 16.dp),
-                    colors = xianButtonColors(XianButtonType.SECONDARY)
-                ) {
-                    Text("Copy Address")
-                }
-                
-                // Share button
-                Button(
-                    onClick = {
-                        val sendIntent = Intent().apply {
-                            action = Intent.ACTION_SEND
-                            putExtra(Intent.EXTRA_TEXT, "My Xian Network wallet address: $publicKey")
-                            type = "text/plain"
-                        }
-                        val shareIntent = Intent.createChooser(sendIntent, "Share wallet address")
-                        context.startActivity(shareIntent)
+            // Copy button (now takes full width)
+            Button(
+                onClick = {
+                    clipboardManager.setText(AnnotatedString(publicKey))
+                    kotlinx.coroutines.MainScope().launch {
+                        snackbarHostState.showSnackbar("Address copied to clipboard")
                     }
-                ) {
-                    Icon(
-                        Icons.Default.Share,
-                        contentDescription = "Share",
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Share")
-                }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 16.dp), // Keep vertical padding
+                colors = xianButtonColors(XianButtonType.SECONDARY)
+            ) {
+                Icon(
+                    Icons.Default.ContentCopy, // Using ContentCopy icon for clarity
+                    contentDescription = "Copy Address",
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Copy Address")
             }
+            // Removed Share button as Card is now clickable for sharing
         }
     }
 }

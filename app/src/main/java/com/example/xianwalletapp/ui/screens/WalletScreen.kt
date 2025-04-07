@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Visibility // For View icon
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.Build // Import for Build icon
 import androidx.compose.material3.*
 import androidx.compose.runtime.saveable.rememberSaveable // Import rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle // Import for state collection
@@ -251,9 +252,9 @@ fun WalletScreen(
                 )
                 NavigationBarItem(
                     selected = false,
-                    onClick = { navController.navigate(XianDestinations.MESSENGER) },
-                    icon = { Icon(Icons.Default.Send, contentDescription = "Messenger") },
-                    label = { Text("Messenger") }
+                    onClick = { navController.navigate(XianDestinations.ADVANCED) },
+                    icon = { Icon(Icons.Filled.Build, contentDescription = "Advanced") }, // Changed icon to Filled.Build (wrench)
+                    label = { Text("Advanced") }
                 )
                 NavigationBarItem(
                     selected = false,

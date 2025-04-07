@@ -171,8 +171,8 @@ fun XianWalletApp(walletManager: WalletManager, networkService: XianNetworkServi
             )
         }
         
-        composable(XianDestinations.MESSENGER) {
-            MessengerScreen(navController, walletManager, networkService)
+        composable(XianDestinations.ADVANCED) {
+            AdvancedScreen(navController, walletManager, networkService)
         }
         
         composable(XianDestinations.NEWS) {

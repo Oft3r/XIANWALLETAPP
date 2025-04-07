@@ -7,6 +7,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.example.xianwalletapp.ui.screens.WebBrowserScreen // Import the screen
+import com.example.xianwalletapp.ui.screens.AdvancedScreen // Import the new screen
+// AboutXianScreen import removed as it's no longer navigated to directly
 // SnakeGameScreen import removed
 import com.example.xianwalletapp.wallet.WalletManager // Assuming you need these
 import com.example.xianwalletapp.network.XianNetworkService // Assuming you need these
@@ -22,12 +24,13 @@ object XianDestinations {
     const val SEND_TOKEN = "send_token"
     const val RECEIVE_TOKEN = "receive_token"
     const val WEB_BROWSER = "web_browser"
-    const val MESSENGER = "messenger"
+    const val ADVANCED = "advanced"
     const val NEWS = "news"
     const val SETTINGS = "settings"
     const val PASSWORD_VERIFICATION = "password_verification"
     const val SETTINGS_SECURITY = "settings_security"
     const val SETTINGS_NETWORK = "settings_network"
+    // SETTINGS_ABOUT_XIAN destination removed
     // SNAKE_GAME destination removed
 
 }
@@ -113,9 +116,9 @@ fun XianNavGraph(
             )
         }
 
-        // Messenger screen
-        composable(XianDestinations.MESSENGER) {
-            // TODO: Implement messenger screen
+        // Advanced screen (formerly Messenger)
+        composable(XianDestinations.ADVANCED) {
+            AdvancedScreen(navController, walletManager, networkService)
         }
 
         // News screen
@@ -131,6 +134,8 @@ fun XianNavGraph(
             // If SettingsScreen itself needs to be defined here, it would look like:
             // SettingsScreen(navController = navController, /* other required params */)
         }
+
+        // About Xian composable block removed as it's now shown conditionally within SettingsScreen
 
         // Snake Game composable block removed
     }

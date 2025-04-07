@@ -297,7 +297,7 @@ fun SendTokenScreen(
                                         put("amount", java.math.BigDecimal(amount))
                                     })
                                 }
-                                android.util.Log.d("SendTokenScreen", "Creando transacción simplificada (cached key): $simpleTransaction")
+                                android.util.Log.d("SendTokenScreen", "Creating simplified transaction (cached key): $simpleTransaction")
                                 val result = networkService.sendTransaction(
                                     contract = contract,
                                     method = "transfer",
@@ -305,7 +305,7 @@ fun SendTokenScreen(
                                     privateKey = cachedKey, // Use the cached key
                                     stampLimit = 500000
                                 )
-                                android.util.Log.d("SendTokenScreen", "Resultado de transacción (cached key): $result")
+                                android.util.Log.d("SendTokenScreen", "Transaction result (cached key): $result")
                                 if (result.success) {
                                     transactionHash = result.txHash
                                     showTransactionSuccessNotification(
@@ -392,10 +392,10 @@ fun SendTokenScreen(
                                         return@launch
                                     }
                                     
-                                    // ENFOQUE SIMPLIFICADO: Crear directamente la transacción para enviar tokens
-                                    // sin pasar por todo el proceso de la versión web
+                                    // SIMPLIFIED APPROACH: Directly create the transaction to send tokens
+                                    // without going through the entire web version process
                                     
-                                    // 1. Crear un objeto de transacción simplificado que contiene solo lo necesario
+                                    // 1. Create a simplified transaction object containing only what's necessary
                                     val simpleTransaction = JSONObject().apply {
                                         put("contract", contract)
                                         put("function", "transfer")
@@ -405,22 +405,22 @@ fun SendTokenScreen(
                                         })
                                     }
                                     
-                                    android.util.Log.d("SendTokenScreen", "Creando transacción simplificada: $simpleTransaction")
+                                    android.util.Log.d("SendTokenScreen", "Creating simplified transaction: $simpleTransaction")
                                     
-                                    // 2. Enviar la transacción usando un método simplificado que maneja todo internamente
+                                    // 2. Send the transaction using a simplified method that handles everything internally
                                     val result = networkService.sendTransaction(
                                         contract = contract,
                                         method = "transfer",
                                         kwargs = simpleTransaction.getJSONObject("kwargs"),
                                         privateKey = privateKey,
-                                        stampLimit = 500000  // Aumentado significativamente para cubrir transacciones más grandes
+                                        stampLimit = 500000  // Significantly increased to cover larger transactions
                                     )
                                     
-                                    // 3. Manejar el resultado como antes
-                                    android.util.Log.d("SendTokenScreen", "Resultado de transacción: $result")
+                                    // 3. Handle the result as before
+                                    android.util.Log.d("SendTokenScreen", "Transaction result: $result")
                                     
                                     if (result.success) {
-                                        // Mostrar éxito
+                                        // Show success
                                         transactionHash = result.txHash
                                         // Show notification instead of dialog
                                         showTransactionSuccessNotification(

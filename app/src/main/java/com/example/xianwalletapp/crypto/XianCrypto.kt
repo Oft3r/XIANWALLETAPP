@@ -1,12 +1,17 @@
 package com.example.xianwalletapp.crypto
 
 import android.util.Base64
+import com.google.gson.Gson
+import com.google.gson.GsonBuilder
+import com.google.gson.reflect.TypeToken
 import org.bouncycastle.crypto.generators.Ed25519KeyPairGenerator
 import org.bouncycastle.crypto.params.Ed25519KeyGenerationParameters
 import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
 import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.crypto.signers.Ed25519Signer
 import org.bouncycastle.jce.provider.BouncyCastleProvider
+import org.json.JSONObject
+import org.json.JSONArray
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
 import java.security.Security
@@ -135,12 +140,12 @@ class XianCrypto {
      * This implementation follows exactly the same process as in xian.js
      */
     fun signTransaction(transactionJson: String, privateKey: ByteArray, publicKey: String): String {
-        // Log para depuración
-        android.util.Log.d("XianCrypto", "Firmando transacción: $transactionJson")
+        // Log for debugging
+        android.util.Log.d("XianCrypto", "Signing transaction: $transactionJson")
         
         try {
-            // IMPORTANTE: En xian.js, el orden exacto de los bytes es crítico
-            // Convertimos el mensaje a bytes usando UTF-8 explícitamente
+            // IMPORTANT: In xian.js, the exact byte order is critical
+            // Convert the message to bytes using UTF-8 explicitly
             val messageBytes = transactionJson.toByteArray(Charsets.UTF_8)
             
             // DEBUG: Ver los primeros bytes del mensaje
@@ -151,8 +156,8 @@ class XianCrypto {
             val messageHex = toHexString(messageBytes)
             android.util.Log.d("XianCrypto", "Mensaje en hex: ${messageHex.take(50)}...")
             
-            // Combinar la clave privada y pública como se hace en la versión web
-            // En xian.js: combinedKey.set(privateKey); combinedKey.set(fromHexString(transaction.payload.sender), 32);
+            // Combine the private and public key as done in the web version
+            // In xian.js: combinedKey.set(privateKey); combinedKey.set(fromHexString(transaction.payload.sender), 32);
             val combinedKey = ByteArray(64)
             System.arraycopy(privateKey, 0, combinedKey, 0, 32)
             System.arraycopy(fromHexString(publicKey), 0, combinedKey, 32, 32)
@@ -167,13 +172,13 @@ class XianCrypto {
             // Convertir a formato hexadecimal
             val signatureHex = toHexString(signature)
             
-            // Log para depuración
-            android.util.Log.d("XianCrypto", "Firma generada (hex): $signatureHex")
+            // Log for debugging
+            android.util.Log.d("XianCrypto", "Signature generated (hex): $signatureHex")
             android.util.Log.d("XianCrypto", "Longitud de firma: ${signatureHex.length}")
             
             return signatureHex
         } catch (e: Exception) {
-            android.util.Log.e("XianCrypto", "Error al firmar transacción", e)
+            android.util.Log.e("XianCrypto", "Error signing transaction", e)
             throw e
         }
     }
@@ -196,29 +201,80 @@ class XianCrypto {
         // Singleton instance
         @Volatile
         private var instance: XianCrypto? = null
-        
+
         fun getInstance(): XianCrypto {
             return instance ?: synchronized(this) {
                 instance ?: XianCrypto().also { instance = it }
             }
         }
-        
+
+        // Helper to sort JSONObjects for consistent signing
+        private fun sortJsonObject(jsonObj: JSONObject): JSONObject {
+            val sortedJson = JSONObject()
+            val keys = jsonObj.keys().asSequence().sorted().toList()
+            keys.forEach { key ->
+                when (val value = jsonObj.get(key)) {
+                    is JSONObject -> sortedJson.put(key, sortJsonObject(value))
+                    is JSONArray -> sortedJson.put(key, sortJsonArray(value))
+                    else -> sortedJson.put(key, value)
+                }
+            }
+            return sortedJson
+        }
+
+        // Helper to sort JSONArrays for consistent signing
+        private fun sortJsonArray(jsonArr: JSONArray): JSONArray {
+            val sortedList = mutableListOf<Any>()
+            for (i in 0 until jsonArr.length()) {
+                when (val item = jsonArr.get(i)) {
+                    is JSONObject -> sortedList.add(sortJsonObject(item))
+                    is JSONArray -> sortedList.add(sortJsonArray(item))
+                    else -> sortedList.add(item)
+                }
+            }
+            // Note: Sorting arrays might depend on specific requirements.
+            // If array elements need specific sorting logic, implement it here.
+            // For now, we just rebuild the array with potentially sorted nested objects.
+            return JSONArray(sortedList)
+        }
+
+
         /**
-         * Static method to sign a transaction with a private key and nonce
-         * Used for direct access from other classes
+         * Static method to sign a transaction payload and return the full signed transaction object.
+         *
+         * @param payload The transaction payload as a Map.
+         * @param privateKey The user's private key bytes.
+         * @param publicKey The user's public key hex string.
+         * @param nonce The nonce for the transaction.
+         * @return The complete signed transaction as a JSONObject.
          */
-        fun signTransaction(transactionJson: String, privateKey: ByteArray, publicKey: String, nonce: Int): String {
-            // Add nonce to the transaction payload
-            // This is just a simple implementation - you might need to adjust it based on your exact requirements
+        fun signTransaction(payload: Map<String, Any?>, privateKey: ByteArray, publicKey: String, nonce: Int): JSONObject {
             val xianCrypto = getInstance()
-            
-            // For simplicity, we assume the transactionJson is a valid JSON string
-            // In a real implementation, you might want to add more validation and proper JSON handling
-            val transactionWithNonce = transactionJson.trimEnd('}') + 
-                ", \"nonce\": $nonce, \"sender\": \"$publicKey\"}"
-            
-            // Sign the transaction
-            return xianCrypto.signTransaction(transactionWithNonce, privateKey, publicKey)
+            val gson = GsonBuilder().disableHtmlEscaping().create() // Use Gson for reliable Map to JSON
+
+            // Create JSONObject from payload Map, add nonce and sender
+            val payloadJsonObj = JSONObject(gson.toJson(payload))
+            payloadJsonObj.put("nonce", nonce)
+            payloadJsonObj.put("sender", publicKey)
+
+            // Sort the payload JSON for consistent signing
+            val sortedPayloadJsonObj = sortJsonObject(payloadJsonObj)
+            val sortedPayloadString = sortedPayloadJsonObj.toString()
+
+            android.util.Log.d("XianCrypto", "Signing payload string: $sortedPayloadString")
+
+            // Sign the sorted payload string
+            val signatureHex = xianCrypto.signTransaction(sortedPayloadString, privateKey, publicKey)
+
+            // Construct the final signed transaction JSONObject
+            val signedTransaction = JSONObject()
+            signedTransaction.put("payload", sortedPayloadJsonObj) // Use the sorted payload object
+            signedTransaction.put("metadata", JSONObject().apply {
+                put("signature", signatureHex)
+            })
+
+            android.util.Log.d("XianCrypto", "Final Signed TX: ${signedTransaction.toString()}")
+            return signedTransaction
         }
     }
 }

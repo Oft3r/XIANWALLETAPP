@@ -241,12 +241,12 @@ class XianWebViewBridge(private val walletManager: WalletManager, private val ne
                 
                 val txResult = runBlocking<com.example.xianwalletapp.network.TransactionResult> {
                     try {
-                        // Verificar el saldo antes de enviar la transacción
+                        // Verify balance before sending the transaction
                         val publicKey = walletManager.getPublicKey() ?: ""
                         val balance = networkService.getTokenBalance("currency", publicKey)
                         
                         if (balance <= 0.0f) {
-                            // Error específico de saldo insuficiente
+                            // Specific insufficient balance error
                             return@runBlocking com.example.xianwalletapp.network.TransactionResult(
                                 txHash = "", 
                                 success = false, 
@@ -254,10 +254,10 @@ class XianWebViewBridge(private val walletManager: WalletManager, private val ne
                             )
                         }
                         
-                        // Enviar la transacción si hay saldo
+                        // Send the transaction if there is balance
                         networkService.sendTransaction(contract, method, kwargsJson, privateKey, stampLimit)
                     } catch (e: Exception) {
-                        // Capturar cualquier error durante la transacción
+                        // Catch any error during the transaction
                         Log.e(TAG, "Transaction failed", e)
                         com.example.xianwalletapp.network.TransactionResult(
                             txHash = "", 
@@ -285,7 +285,7 @@ class XianWebViewBridge(private val walletManager: WalletManager, private val ne
                     // Always show error in dialog now
                     errorMessageView.text = getHumanReadableError(errorMsg)
                     errorMessageView.visibility = View.VISIBLE
-                    // También enviar el error al WebView para que la dApp pueda manejarlo
+                    // Also send the error to the WebView so the dApp can handle it
                     sendTransactionFailureResponse(errorMsg)
                 }
             }
@@ -296,7 +296,7 @@ class XianWebViewBridge(private val walletManager: WalletManager, private val ne
             // Always show error in dialog now
             errorMessageView.text = errorMsg
             errorMessageView.visibility = View.VISIBLE
-            // También enviar el error al WebView
+            // Also send the error to the WebView
             sendTransactionFailureResponse(e.message ?: "Unknown error")
         }
     }
