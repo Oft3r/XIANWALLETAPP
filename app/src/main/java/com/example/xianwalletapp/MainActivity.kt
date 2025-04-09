@@ -1,7 +1,7 @@
 package com.example.xianwalletapp
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,7 +30,7 @@ import com.example.xianwalletapp.ui.theme.XIANWALLETAPPTheme
 import com.example.xianwalletapp.wallet.WalletManager
 import kotlinx.coroutines.delay
 
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() { // Changed inheritance
     private lateinit var walletManager: WalletManager
     private lateinit var networkService: XianNetworkService
     

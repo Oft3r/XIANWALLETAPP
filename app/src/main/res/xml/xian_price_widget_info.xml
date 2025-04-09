@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="40dp"
+    android:updatePeriodMillis="1800000"
+    android:previewImage="@drawable/xw"
+    android:initialLayout="@layout/xian_price_widget"
+    android:description="@string/xian_price_widget_description"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen">
+    <!-- Update every 30 minutes -->
+    <!-- Use existing drawable as placeholder preview -->
+    <!-- Description defined in strings.xml -->
+</appwidget-provider>

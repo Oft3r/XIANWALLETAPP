@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+
+    <!-- Background color (slightly dark grey) -->
+    <solid android:color="#FF2D2D2D" />
+    &lt;!-- Using XianDarkSurface color --&gt;
+
+    <!-- Rounded corners -->
+    <corners android:radius="8dp" />
+
+    <!-- Gradient Stroke -->
+    <stroke
+        android:width="2dp">
+        <gradient
+            android:startColor="#FFFFC107"
+            android:endColor="#FF1E88E5"
+            android:angle="0" />
+        &lt;!-- XianYellow --&gt;
+        &lt;!-- XianBlue --&gt;
+        &lt;!-- Horizontal gradient (left to right) --&gt;
+    </stroke>
+
+</shape>

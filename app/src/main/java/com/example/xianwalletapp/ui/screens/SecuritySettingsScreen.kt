@@ -3,6 +3,7 @@ package com.example.xianwalletapp.ui.screens
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Delete
@@ -11,6 +12,11 @@ import androidx.compose.material.icons.filled.FileDownload
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
 import java.io.IOException
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -41,11 +47,16 @@ fun SecuritySettingsScreen(
 ) {
     var showDeleteWalletDialog by remember { mutableStateOf(false) }
     var showBackupDialog by remember { mutableStateOf(false) }
-    var password by remember { mutableStateOf("") }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var password by remember { mutableStateOf("") } // For backup dialog
+    var errorMessage by remember { mutableStateOf<String?>(null) } // For backup dialog
     var requirePasswordOnStartup by remember { mutableStateOf(walletManager.getRequirePassword()) }
-    val clipboardManager = LocalClipboardManager.current
+    var biometricEnabled by remember { mutableStateOf(walletManager.isBiometricEnabled()) }
     val context = LocalContext.current
+    val biometricManager = BiometricManager.from(context)
+    val canUseBiometrics = remember { biometricManager.canAuthenticate(BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS }
+    val clipboardManager = LocalClipboardManager.current
+    var showEnableBiometricPasswordDialog by remember { mutableStateOf(false) }
+    var passwordToEnableBiometrics by remember { mutableStateOf("") } // Temp storage for password during enable flow
 
     Scaffold(
         topBar = {
@@ -58,7 +69,7 @@ fun SecuritySettingsScreen(
                 }
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) } // Use the passed snackbarHostState
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -102,6 +113,65 @@ fun SecuritySettingsScreen(
                 )
             }
 
+
+            // Biometric unlock toggle (only show if available)
+            if (canUseBiometrics) {
+                Divider(modifier = Modifier.padding(vertical = 8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Fingerprint,
+                        contentDescription = "Biometric Unlock",
+                        modifier = Modifier.padding(end = 16.dp)
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Enable Biometric Unlock",
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Use fingerprint or face unlock when available",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = biometricEnabled,
+                        onCheckedChange = { isChecked ->
+                            if (isChecked) { // User wants to enable
+                                // Show password dialog first
+                                showEnableBiometricPasswordDialog = true
+                                // Don't set biometricEnabled = true yet, wait for full process
+                            } else {
+                                // Disabling biometrics
+                                try {
+                                    walletManager.disableBiometric()
+                                    biometricEnabled = false // Update state only after successful disable
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("Biometric unlock disabled")
+                                    }
+                                } catch (e: Exception) {
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("Error disabling biometrics: ${e.message}")
+                                    }
+                                    // Keep the toggle visually enabled if disabling fails
+                                    // Revert the state change visually if disable fails
+                                    // This requires recomposition, which Switch should trigger
+                                    // We might need to force recomposition if it doesn't update automatically
+                                    // For now, just log and show snackbar. The state 'biometricEnabled'
+                                    // should ideally be updated based on walletManager.isBiometricEnabled()
+                                    // after the operation attempt. Let's keep it simple for now.
+                                    // biometricEnabled = true // Re-setting might cause issues if recomposition is tricky
+                                }
+                            }
+                        }
+                    )
+                }
+            }
             Divider(modifier = Modifier.padding(vertical = 8.dp))
 
             // Backup private key button
@@ -334,6 +404,138 @@ fun SecuritySettingsScreen(
                         }
                     ) {
                         Text(if (passwordVerified) "Done" else "Cancel")
+                    }
+                }
+            )
+        }
+
+
+        // --- Biometric Prompt Setup (for enabling) ---
+        val activity = LocalContext.current as FragmentActivity
+        val executor = ContextCompat.getMainExecutor(context)
+        val biometricPromptEnable = BiometricPrompt(activity, executor,
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    super.onAuthenticationError(errorCode, errString)
+                    coroutineScope.launch {
+                        snackbarHostState.showSnackbar("Biometric prompt error: $errString")
+                    }
+                    // Reset switch if prompt fails during enable process
+                    biometricEnabled = false
+                    passwordToEnableBiometrics = "" // Clear password
+                }
+
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    super.onAuthenticationSucceeded(result)
+                    result.cryptoObject?.cipher?.let { cipher ->
+                        // Use the authorized cipher to finalize enabling
+                        if (walletManager.finalizeBiometricEnable(passwordToEnableBiometrics, cipher)) {
+                            biometricEnabled = true // Explicitly set state on success
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar("Biometric unlock enabled successfully.")
+                            }
+                        } else {
+                            biometricEnabled = false // Reset switch on finalization failure
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar("Failed to finalize biometric setup.")
+                            }
+                        }
+                    } ?: run {
+                         biometricEnabled = false // Reset switch if crypto object is null
+                         coroutineScope.launch {
+                            snackbarHostState.showSnackbar("Biometric error: Crypto object missing.")
+                        }
+                    }
+                     passwordToEnableBiometrics = "" // Clear password after use
+                }
+
+                override fun onAuthenticationFailed() {
+                    super.onAuthenticationFailed()
+                     coroutineScope.launch {
+                        snackbarHostState.showSnackbar("Biometric authentication failed.")
+                    }
+                    // Reset switch if prompt fails
+                    biometricEnabled = false
+                    passwordToEnableBiometrics = "" // Clear password
+                }
+            })
+
+        val promptInfoEnable = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Confirm Biometric Setup")
+            .setSubtitle("Authenticate to finish enabling biometric unlock")
+            .setNegativeButtonText("Cancel")
+            .setConfirmationRequired(false) // Can be true if you want explicit confirmation
+            .build()
+
+
+        // Enable Biometric - Step 1: Password Dialog
+        if (showEnableBiometricPasswordDialog) {
+            var enablePassword by remember { mutableStateOf("") }
+            var enableError by remember { mutableStateOf<String?>(null) }
+
+            AlertDialog(
+                onDismissRequest = {
+                    showEnableBiometricPasswordDialog = false
+                    biometricEnabled = false // Reset toggle if dialog is cancelled
+                 },
+                title = { Text("Verify Password") },
+                text = {
+                    Column {
+                        Text("Enter your current wallet password to proceed with enabling biometric unlock.")
+                        Spacer(modifier = Modifier.height(16.dp))
+                        OutlinedTextField(
+                            value = enablePassword,
+                            onValueChange = { enablePassword = it; enableError = null },
+                            label = { Text("Password") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        if (enableError != null) {
+                            Text(
+                                text = enableError!!,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            // 1. Verify password
+                            val checkKey = walletManager.getPrivateKey(enablePassword)
+                            if (checkKey != null) {
+                                // Password correct - Proceed to Step 2: Biometric Prompt
+                                walletManager.clearPrivateKeyCache() // Clear cache after verification
+                                passwordToEnableBiometrics = enablePassword // Store password temporarily
+                                showEnableBiometricPasswordDialog = false // Close password dialog
+
+                                // Prepare cipher and show biometric prompt
+                                val cipher = walletManager.prepareBiometricEncryption()
+                                if (cipher != null) {
+                                     biometricPromptEnable.authenticate(promptInfoEnable, BiometricPrompt.CryptoObject(cipher))
+                                } else {
+                                    coroutineScope.launch { snackbarHostState.showSnackbar("Error preparing biometric setup.") }
+                                    biometricEnabled = false // Reset toggle if preparation fails
+                                    passwordToEnableBiometrics = "" // Clear password
+                                }
+
+                            } else {
+                                // Password incorrect
+                                enableError = "Invalid password"
+                            }
+                        }
+                    ) {
+                        Text("Verify")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        showEnableBiometricPasswordDialog = false
+                        biometricEnabled = false // Reset toggle if dialog is cancelled
+                    }) {
+                        Text("Cancel")
                     }
                 }
             )

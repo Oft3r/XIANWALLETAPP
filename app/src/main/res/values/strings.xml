@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Xian Wallet App</string>
+    <string name="xian_price_widget_description">Displays the current XIAN price.</string>
 </resources>

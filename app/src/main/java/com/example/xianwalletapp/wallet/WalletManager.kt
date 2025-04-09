@@ -4,6 +4,14 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.IvParameterSpec
 import com.example.xianwalletapp.crypto.XianCrypto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -28,6 +36,11 @@ class WalletManager private constructor(context: Context) {
         private const val KEY_EXPLORER_URL = "explorer_url"
         private const val KEY_REQUIRE_PASSWORD = "require_password"
         private const val KEY_PREFERRED_NFT_CONTRACT = "preferred_nft_contract" // Correctly placed constant
+        private const val KEY_BIOMETRIC_ENABLED = "biometric_enabled"
+        private const val KEY_BIOMETRIC_ENCRYPTED_PRIVATE_KEY = "biometric_encrypted_private_key" // Renamed
+        private const val KEY_BIOMETRIC_PRIVATE_KEY_IV = "biometric_private_key_iv" // Renamed
+        private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        private const val BIOMETRIC_KEY_ALIAS = "xian_biometric_key"
 
         // Default token
         private const val DEFAULT_TOKEN = "currency"
@@ -287,6 +300,199 @@ class WalletManager private constructor(context: Context) {
         android.util.Log.d("WalletManager", "setRequirePassword saving value: $enabled") // Add logging
         prefs.edit().putBoolean(KEY_REQUIRE_PASSWORD, enabled).apply()
     }
+
+
+    /**
+     * Check if biometric unlock is enabled
+     */
+    fun isBiometricEnabled(): Boolean {
+        return prefs.getBoolean(KEY_BIOMETRIC_ENABLED, false)
+    }
+
+    /**
+     * Set biometric unlock preference
+     */
+    fun setBiometricEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BIOMETRIC_ENABLED, enabled).apply()
+    }
+
+    // --- Biometric Keystore Methods ---
+
+    /**
+     * Generates the biometric key if needed and returns a Cipher for encryption.
+     * This cipher requires biometric authentication before it can be used successfully.
+     */
+    fun prepareBiometricEncryption(): Cipher? {
+        android.util.Log.d("WalletManager", "Preparing biometric encryption cipher.")
+        try {
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
+            keyStore.load(null)
+
+            // Generate key if it doesn't exist
+            if (!keyStore.containsAlias(BIOMETRIC_KEY_ALIAS)) {
+                val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+                val keyGenParameterSpec = KeyGenParameterSpec.Builder(
+                    BIOMETRIC_KEY_ALIAS,
+                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+                )
+                    .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
+                    .setUserAuthenticationRequired(true)
+                    .setInvalidatedByBiometricEnrollment(true)
+                    // Optional: Set auth validity duration if needed, e.g., 10 seconds
+                    // .setUserAuthenticationValidityDurationSeconds(10)
+                    .build()
+                keyGenerator.init(keyGenParameterSpec)
+                keyGenerator.generateKey()
+                android.util.Log.d("WalletManager", "Generated new biometric key for encryption preparation.")
+            } else {
+                 android.util.Log.d("WalletManager", "Biometric key already exists for encryption preparation.")
+            }
+
+            val secretKey = keyStore.getKey(BIOMETRIC_KEY_ALIAS, null) as SecretKey
+            val cipher = Cipher.getInstance("${KeyProperties.KEY_ALGORITHM_AES}/${KeyProperties.BLOCK_MODE_CBC}/${KeyProperties.ENCRYPTION_PADDING_PKCS7}")
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey) // Initialize for encryption
+            android.util.Log.d("WalletManager", "Successfully initialized biometric cipher for encryption.")
+            return cipher
+        } catch (e: Exception) {
+            android.util.Log.e("WalletManager", "Error preparing biometric encryption cipher (${e.javaClass.simpleName})", e)
+            return null
+        }
+    }
+
+     /**
+      * Finalizes enabling biometrics after password verification and successful biometric auth for encryption.
+      * Encrypts the private key with the authorized cipher and stores it.
+      */
+    fun finalizeBiometricEnable(password: String, cipher: Cipher): Boolean {
+         android.util.Log.d("WalletManager", "Finalizing biometric enable.")
+         // 1. Verify password again to get private key bytes (ensure it wasn't tampered with)
+         val decryptedPrivateKeyBytes = unlockWallet(password)
+         if (decryptedPrivateKeyBytes == null) {
+             android.util.Log.e("WalletManager", "Finalize Biometric: Invalid password provided during finalization.")
+             clearPrivateKeyCache() // Clear cache even on failure here
+             return false
+         }
+         clearPrivateKeyCache() // Clear cache immediately after getting bytes
+
+         try {
+             // 2. Encrypt the private key using the BIOMETRIC-AUTHORIZED cipher
+             val iv = cipher.iv // Get IV from the cipher used in the prompt
+             val encryptedPrivateKeyBytes = cipher.doFinal(decryptedPrivateKeyBytes)
+             android.util.Log.d("WalletManager", "Encrypted private key with AUTHORIZED biometric cipher.")
+
+             // 3. Store the biometric-encrypted private key and its IV
+             prefs.edit()
+                 .putString(KEY_BIOMETRIC_ENCRYPTED_PRIVATE_KEY, Base64.encodeToString(encryptedPrivateKeyBytes, Base64.DEFAULT))
+                 .putString(KEY_BIOMETRIC_PRIVATE_KEY_IV, Base64.encodeToString(iv, Base64.DEFAULT))
+                 .putBoolean(KEY_BIOMETRIC_ENABLED, true)
+                 .apply()
+
+             android.util.Log.d("WalletManager", "Biometric unlock finalized and enabled.")
+             return true
+         } catch (e: Exception) {
+             // This could include IllegalBlockSizeException if auth timed out between prompt and this call
+             android.util.Log.e("WalletManager", "Error finalizing biometric enable (${e.javaClass.simpleName})", e)
+             // Attempt to clean up
+             disableBiometric()
+             return false
+         }
+    }
+
+
+    /**
+     * Disables biometric unlock by removing the encrypted key data and the Keystore key.
+     */
+    fun disableBiometric() {
+        try {
+            prefs.edit()
+                .remove(KEY_BIOMETRIC_ENCRYPTED_PRIVATE_KEY) // Remove biometric key data
+                .remove(KEY_BIOMETRIC_PRIVATE_KEY_IV)
+                .putBoolean(KEY_BIOMETRIC_ENABLED, false)
+                .apply()
+
+            // Delete the Keystore key
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
+            keyStore.load(null)
+            if (keyStore.containsAlias(BIOMETRIC_KEY_ALIAS)) {
+                keyStore.deleteEntry(BIOMETRIC_KEY_ALIAS)
+                android.util.Log.d("WalletManager", "Biometric Keystore key deleted.")
+            }
+            android.util.Log.d("WalletManager", "Biometric unlock disabled.")
+        } catch (e: Exception) {
+            android.util.Log.e("WalletManager", "Error disabling biometric unlock", e)
+            // Still set flag to false even if key deletion fails
+            prefs.edit().putBoolean(KEY_BIOMETRIC_ENABLED, false).apply()
+            throw e // Re-throw for the UI to handle
+        }
+    }
+
+    /**
+     * Gets a Cipher instance initialized for decryption using the biometric-bound key.
+     * Returns null if the key or IV is not found.
+     */
+    fun getBiometricCipherForDecryption(): Cipher? {
+        android.util.Log.d("WalletManager", "Attempting to get biometric cipher for decryption.")
+        try {
+            // Retrieve the IV used for the biometric encryption
+            val ivString = prefs.getString(KEY_BIOMETRIC_PRIVATE_KEY_IV, null)
+            if (ivString == null) {
+                android.util.Log.e("WalletManager", "Biometric IV not found in prefs.")
+                return null
+            }
+            val iv = Base64.decode(ivString, Base64.DEFAULT)
+
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
+            keyStore.load(null)
+
+            // Get the secret key bound to biometrics
+            val secretKey = keyStore.getKey(BIOMETRIC_KEY_ALIAS, null) as? SecretKey
+            if (secretKey == null) {
+                 android.util.Log.e("WalletManager", "Biometric key alias '$BIOMETRIC_KEY_ALIAS' not found in Keystore.")
+                 // Attempt to clean up inconsistent state
+                 disableBiometric()
+                 return null
+            }
+
+            // Initialize the cipher for DECRYPTION
+            val cipher = Cipher.getInstance("${KeyProperties.KEY_ALGORITHM_AES}/${KeyProperties.BLOCK_MODE_CBC}/${KeyProperties.ENCRYPTION_PADDING_PKCS7}")
+            cipher.init(Cipher.DECRYPT_MODE, secretKey, IvParameterSpec(iv))
+            android.util.Log.d("WalletManager", "Successfully initialized biometric cipher for decryption.")
+            return cipher
+        } catch (e: Exception) {
+            android.util.Log.e("WalletManager", "Error getting biometric cipher (${e.javaClass.simpleName})", e)
+            return null
+        }
+    }
+
+    /**
+     * Unlocks the wallet using a Cipher obtained after successful biometric authentication.
+     */
+    fun unlockWalletWithBiometricCipher(cipher: Cipher): Boolean {
+         android.util.Log.d("WalletManager", "Attempting to unlock wallet with biometric cipher.")
+        try {
+            // Retrieve the biometric-encrypted PRIVATE KEY
+            val encryptedPrivateKeyString = prefs.getString(KEY_BIOMETRIC_ENCRYPTED_PRIVATE_KEY, null)
+            if (encryptedPrivateKeyString == null) {
+                 android.util.Log.e("WalletManager", "Biometric encrypted private key not found in prefs.")
+                 return false
+            }
+            val encryptedPrivateKeyBytes = Base64.decode(encryptedPrivateKeyString, Base64.DEFAULT)
+
+            // Decrypt the private key using the cipher from successful biometric auth
+            val decryptedPrivateKeyBytes = cipher.doFinal(encryptedPrivateKeyBytes)
+
+            // Cache the decrypted private key
+            cachedPrivateKey = decryptedPrivateKeyBytes
+            android.util.Log.d("WalletManager", "Private key unlocked and cached via biometrics.")
+            return true // Successfully decrypted and cached
+        } catch (e: Exception) {
+            // This could be UserNotAuthenticatedException if auth timed out, or other crypto errors
+            android.util.Log.e("WalletManager", "Error unlocking wallet with biometric cipher (${e.javaClass.simpleName})", e)
+            return false
+        }
+    }
+
 
     /**
      * Set the preferred NFT contract address to display in the header
