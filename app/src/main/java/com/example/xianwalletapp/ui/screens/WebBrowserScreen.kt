@@ -2,6 +2,8 @@ package com.example.xianwalletapp.ui.screens
 
 import android.view.ViewGroup
 import android.webkit.WebView
+import android.webkit.JsPromptResult
+import android.webkit.WebChromeClient
 import android.webkit.WebViewClient
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
@@ -12,6 +14,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +57,9 @@ fun WebBrowserScreen(
     var isLoading by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val webViewRef = remember { mutableStateOf<WebView?>(null) }
+    // State for managing the custom JS prompt dialog
+    var showJsPromptDialog by remember { mutableStateOf(false) }
+    var jsPromptRequest by remember { mutableStateOf<JsPromptRequest?>(null) }
     
     Scaffold(
         topBar = {
@@ -292,6 +299,25 @@ fun WebBrowserScreen(
                                 evaluateJavascript(jsCode, null)
                             }
                         }
+                        // Set WebChromeClient to handle JS alerts, confirms, prompts
+                        webChromeClient = object : WebChromeClient() {
+                            override fun onJsPrompt(
+                                view: WebView?,
+                                url: String?,
+                                message: String?,
+                                defaultValue: String?,
+                                result: JsPromptResult?
+                            ): Boolean {
+                                if (result != null) {
+                                    jsPromptRequest = JsPromptRequest(message ?: "", defaultValue ?: "", result)
+                                    showJsPromptDialog = true
+                                    return true // Indicate we're handling the prompt
+                                }
+                                return super.onJsPrompt(view, url, message, defaultValue, result)
+                            }
+                            // You can override onJsAlert and onJsConfirm here too if needed
+                        }
+
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
                         
@@ -311,6 +337,50 @@ fun WebBrowserScreen(
                 modifier = Modifier.fillMaxSize()
             )
             
+            // Custom JS Prompt Dialog
+            if (showJsPromptDialog && jsPromptRequest != null) {
+                var promptInput by remember { mutableStateOf(jsPromptRequest!!.defaultValue) }
+
+                AlertDialog(
+                    onDismissRequest = {
+                        // Handle dismiss as cancel
+                        jsPromptRequest?.result?.cancel()
+                        showJsPromptDialog = false
+                        jsPromptRequest = null
+                    },
+                    title = { Text(jsPromptRequest!!.message) },
+                    text = {
+                        TextField(
+                            value = promptInput,
+                            onValueChange = { promptInput = it },
+                            label = { Text("Value") }
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                jsPromptRequest?.result?.confirm(promptInput)
+                                showJsPromptDialog = false
+                                jsPromptRequest = null
+                            }
+                        ) {
+                            Text("OK")
+                        }
+                    },
+                    dismissButton = {
+                        Button(
+                            onClick = {
+                                jsPromptRequest?.result?.cancel()
+                                showJsPromptDialog = false
+                                jsPromptRequest = null
+                            }
+                        ) {
+                            Text("Cancel")
+                        }
+                    }
+                )
+            }
+
             // Loading indicator
             if (isLoading) {
                 LinearProgressIndicator(
@@ -320,3 +390,10 @@ fun WebBrowserScreen(
         }
     }
 }
+
+// Helper data class to hold prompt request details
+data class JsPromptRequest(
+    val message: String,
+    val defaultValue: String,
+    val result: JsPromptResult
+)
