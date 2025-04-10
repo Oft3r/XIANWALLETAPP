@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -57,6 +58,7 @@ fun SecuritySettingsScreen(
     val clipboardManager = LocalClipboardManager.current
     var showEnableBiometricPasswordDialog by remember { mutableStateOf(false) }
     var passwordToEnableBiometrics by remember { mutableStateOf("") } // Temp storage for password during enable flow
+    var showPasswordRequiredDialog by remember { mutableStateOf(false) } // Dialog for biometric prerequisite
 
     Scaffold(
         topBar = {
@@ -143,9 +145,15 @@ fun SecuritySettingsScreen(
                         checked = biometricEnabled,
                         onCheckedChange = { isChecked ->
                             if (isChecked) { // User wants to enable
-                                // Show password dialog first
-                                showEnableBiometricPasswordDialog = true
-                                // Don't set biometricEnabled = true yet, wait for full process
+                                if (requirePasswordOnStartup) {
+                                    // Password requirement is met, proceed with enabling biometrics
+                                    showEnableBiometricPasswordDialog = true
+                                    // Don't set biometricEnabled = true yet, wait for full process
+                                } else {
+                                    // Password requirement NOT met, show prerequisite dialog
+                                    showPasswordRequiredDialog = true
+                                    // Keep the switch visually off by not changing biometricEnabled state here
+                                }
                             } else {
                                 // Disabling biometrics
                                 try {
@@ -218,7 +226,15 @@ fun SecuritySettingsScreen(
                 confirmButton = {
                     Button(
                         onClick = {
-                            walletManager.deleteWallet()
+                            val activePublicKey = walletManager.getActiveWalletPublicKey()
+                            if (activePublicKey != null) {
+                                walletManager.deleteWallet(publicKeyToDelete = activePublicKey)
+                            } else {
+                                // Handle error: Cannot delete if no active wallet is found (should not happen here)
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("Error: Could not identify wallet to delete.")
+                                }
+                            }
                             showDeleteWalletDialog = false
                             // Navigate back to welcome screen
                             navController.navigate(XianDestinations.WELCOME) {
@@ -411,54 +427,50 @@ fun SecuritySettingsScreen(
 
 
         // --- Biometric Prompt Setup (for enabling) ---
-        val activity = LocalContext.current as FragmentActivity
+        val view = LocalView.current
+        val activity = remember(view) { view.context as? FragmentActivity }
         val executor = ContextCompat.getMainExecutor(context)
-        val biometricPromptEnable = BiometricPrompt(activity, executor,
-            object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    super.onAuthenticationError(errorCode, errString)
-                    coroutineScope.launch {
-                        snackbarHostState.showSnackbar("Biometric prompt error: $errString")
-                    }
-                    // Reset switch if prompt fails during enable process
-                    biometricEnabled = false
-                    passwordToEnableBiometrics = "" // Clear password
-                }
-
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    super.onAuthenticationSucceeded(result)
-                    result.cryptoObject?.cipher?.let { cipher ->
-                        // Use the authorized cipher to finalize enabling
-                        if (walletManager.finalizeBiometricEnable(passwordToEnableBiometrics, cipher)) {
-                            biometricEnabled = true // Explicitly set state on success
+        // Initialize BiometricPrompt only if activity is available
+        // Initialize BiometricPrompt only if activity is available
+        val biometricPromptEnable = remember(activity, executor) {
+            activity?.let { act -> // Only create prompt if activity is not null
+                BiometricPrompt(act, executor,
+                    object : BiometricPrompt.AuthenticationCallback() {
+                        override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                            super.onAuthenticationError(errorCode, errString)
                             coroutineScope.launch {
-                                snackbarHostState.showSnackbar("Biometric unlock enabled successfully.")
+                                snackbarHostState.showSnackbar("Biometric prompt error: $errString")
                             }
-                        } else {
-                            biometricEnabled = false // Reset switch on finalization failure
-                            coroutineScope.launch {
-                                snackbarHostState.showSnackbar("Failed to finalize biometric setup.")
-                            }
+                            biometricEnabled = false // Reset state
+                            passwordToEnableBiometrics = ""
                         }
-                    } ?: run {
-                         biometricEnabled = false // Reset switch if crypto object is null
-                         coroutineScope.launch {
-                            snackbarHostState.showSnackbar("Biometric error: Crypto object missing.")
-                        }
-                    }
-                     passwordToEnableBiometrics = "" // Clear password after use
-                }
 
-                override fun onAuthenticationFailed() {
-                    super.onAuthenticationFailed()
-                     coroutineScope.launch {
-                        snackbarHostState.showSnackbar("Biometric authentication failed.")
-                    }
-                    // Reset switch if prompt fails
-                    biometricEnabled = false
-                    passwordToEnableBiometrics = "" // Clear password
-                }
-            })
+                        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                            super.onAuthenticationSucceeded(result)
+                            result.cryptoObject?.cipher?.let { cipher ->
+                                if (walletManager.finalizeBiometricEnable(passwordToEnableBiometrics, cipher)) {
+                                    biometricEnabled = true
+                                    coroutineScope.launch { snackbarHostState.showSnackbar("Biometric unlock enabled successfully.") }
+                                } else {
+                                    biometricEnabled = false
+                                    coroutineScope.launch { snackbarHostState.showSnackbar("Failed to finalize biometric setup.") }
+                                }
+                            } ?: run {
+                                 biometricEnabled = false
+                                 coroutineScope.launch { snackbarHostState.showSnackbar("Biometric error: Crypto object missing.") }
+                            }
+                            passwordToEnableBiometrics = ""
+                        }
+
+                        override fun onAuthenticationFailed() {
+                            super.onAuthenticationFailed()
+                            coroutineScope.launch { snackbarHostState.showSnackbar("Biometric authentication failed.") }
+                            biometricEnabled = false // Reset state
+                            passwordToEnableBiometrics = ""
+                        }
+                    })
+            } // Returns null if activity is null
+        }
 
         val promptInfoEnable = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Confirm Biometric Setup")
@@ -505,6 +517,8 @@ fun SecuritySettingsScreen(
                         onClick = {
                             // 1. Verify password
                             val checkKey = walletManager.getPrivateKey(enablePassword)
+
+
                             if (checkKey != null) {
                                 // Password correct - Proceed to Step 2: Biometric Prompt
                                 walletManager.clearPrivateKeyCache() // Clear cache after verification
@@ -513,11 +527,12 @@ fun SecuritySettingsScreen(
 
                                 // Prepare cipher and show biometric prompt
                                 val cipher = walletManager.prepareBiometricEncryption()
-                                if (cipher != null) {
-                                     biometricPromptEnable.authenticate(promptInfoEnable, BiometricPrompt.CryptoObject(cipher))
+                                // Ensure prompt is not null before authenticating
+                                if (cipher != null && biometricPromptEnable != null) {
+                                    biometricPromptEnable.authenticate(promptInfoEnable, BiometricPrompt.CryptoObject(cipher))
                                 } else {
-                                    coroutineScope.launch { snackbarHostState.showSnackbar("Error preparing biometric setup.") }
-                                    biometricEnabled = false // Reset toggle if preparation fails
+                                    coroutineScope.launch { snackbarHostState.showSnackbar("Error preparing biometric setup or prompt unavailable.") }
+                                    biometricEnabled = false // Reset toggle if preparation fails or prompt is null
                                     passwordToEnableBiometrics = "" // Clear password
                                 }
 
@@ -540,5 +555,20 @@ fun SecuritySettingsScreen(
                 }
             )
         }
+
+        // Dialog to inform user password requirement is needed for biometrics
+        if (showPasswordRequiredDialog) {
+            AlertDialog(
+                onDismissRequest = { showPasswordRequiredDialog = false },
+                title = { Text("Password Required") },
+                text = { Text("You must enable 'Require Password on Startup' before enabling biometric unlock.") },
+                confirmButton = {
+                    TextButton(onClick = { showPasswordRequiredDialog = false }) {
+                        Text("OK")
+                    }
+                }
+            )
+        }
+
     }
 }

@@ -740,7 +740,7 @@ class XianNetworkService private constructor(private val context: Context) {
      * Fetches the metadata for a specific NFT key.
      * Corresponds to the second GraphQL query in the web version.
      */
-    private suspend fun getNftMetadata(nftKey: String): Pair<String?, String?> = withContext(Dispatchers.IO) {
+    internal suspend fun getNftMetadata(nftKey: String): Pair<String?, String?> = withContext(Dispatchers.IO) {
         val graphQLEndpoint = "$rpcUrl/graphql"
         // Note: The web version uses specific indices (9 for name, 3 for description).
         // This might be fragile. A more robust approach would be to filter by key suffix if possible.

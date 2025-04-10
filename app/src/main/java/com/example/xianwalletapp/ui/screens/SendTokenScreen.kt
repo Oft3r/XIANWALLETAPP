@@ -5,6 +5,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
+import android.util.Log
+
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -42,6 +44,7 @@ import com.example.xianwalletapp.network.XianNetworkService // Keep if needed fo
 import com.example.xianwalletapp.wallet.WalletManager // Keep if needed for factory
 import com.example.xianwalletapp.ui.viewmodels.WalletViewModel // Added
 import com.example.xianwalletapp.ui.viewmodels.WalletViewModelFactory // Added (Assuming this exists)
+import com.example.xianwalletapp.ui.viewmodels.FeeEstimationState // Added for fee state
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay // Added for debounce
 import com.journeyapps.barcodescanner.ScanContract
@@ -82,12 +85,17 @@ fun SendTokenScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current // Get context for permission check and history manager
     val transactionHistoryManager = remember { TransactionHistoryManager(context) } // Pass context variable
+    var showConfirmationDialog by remember { mutableStateOf(false) }
+    var confirmationDetails by remember { mutableStateOf<Triple<String, String, String>?>(null) } // recipient, amount, fee
 
     // Collect state from ViewModel
     val resolvedXnsAddress by viewModel.resolvedXnsAddress.collectAsStateWithLifecycle()
     val isXnsAddress by viewModel.isXnsAddress.collectAsStateWithLifecycle()
     val isResolvingXns by viewModel.isResolvingXns.collectAsStateWithLifecycle()
-    
+    val estimatedFeeState by viewModel.estimatedFeeState.collectAsStateWithLifecycle() // Observe fee state
+    var isEstimatingFee by remember { mutableStateOf(false) } // Local loading state for button
+    var isPasswordDialogForTx by remember { mutableStateOf(false) } // Track if password dialog is for this specific TX flow
+
     // context variable moved up
 
     // Launcher for QR Scanner Activity
@@ -199,6 +207,35 @@ fun SendTokenScreen(
     DisposableEffect(Unit) {
         onDispose {
             viewModel.clearXnsResolution()
+        }
+    }
+
+    // --- Effect to handle Fee Estimation Result ---
+    LaunchedEffect(estimatedFeeState) {
+        when (val state = estimatedFeeState) {
+            is FeeEstimationState.Success -> {
+                confirmationDetails?.let { details ->
+                    confirmationDetails = Triple(details.first, details.second, state.fee) // Update fee in details
+                    showConfirmationDialog = true
+                }
+                isEstimatingFee = false
+                viewModel.clearFeeEstimationState() // Reset state after handling
+            }
+            // Removed FeeEstimationState.RequiresUnlock handling, as UI checks lock state first
+            is FeeEstimationState.Failure -> {
+                confirmationDetails?.let { details ->
+                    confirmationDetails = Triple(details.first, details.second, "Estimation Failed") // Show error
+                    showConfirmationDialog = true
+                }
+                isEstimatingFee = false
+                viewModel.clearFeeEstimationState()
+            }
+            is FeeEstimationState.Loading -> {
+                isEstimatingFee = true // Update local loading state
+            }
+            is FeeEstimationState.Idle -> {
+                isEstimatingFee = false // Ensure loading is false when idle
+            }
         }
     }
 
@@ -377,7 +414,30 @@ fun SendTokenScreen(
                     // 3. Clear previous error
                     errorMessage = null
 
-                    // 4. Proceed with password check / transaction sending
+                    // 4. Check if the private key is ACTUALLY available in memory
+                    val isKeyAvailable = walletManager.getUnlockedPrivateKey() != null
+                    // Store details needed for potential password unlock AND fee estimation/confirmation
+                    confirmationDetails = Triple(finalRecipient, amount, "") // Fee is empty initially
+
+                    if (!isKeyAvailable) {
+                        // Key is NOT available (regardless of setting), need password.
+                        android.util.Log.d("SendTokenScreen", "Wallet key not cached, showing password dialog.")
+                        isPasswordDialogForTx = true
+                        password = ""
+                        showPasswordDialog = true
+                    } else {
+                        // Key IS available, proceed directly to fee estimation.
+                        // Confirmation dialog will be shown by LaunchedEffect.
+                        android.util.Log.d("SendTokenScreen", "Wallet key available, requesting fee estimation.")
+                        confirmationDetails = Triple(finalRecipient, amount, "Estimating...") // Update status
+                        viewModel.requestFeeEstimation(
+                            contract = contract,
+                            recipientAddress = finalRecipient,
+                            amount = amount
+                        )
+                    }
+                    // --- Logic below moved to Confirmation Dialog's Confirm button ---
+                    /*
                     
                     // Check if password is required for this action
                     // Check if password is required for this action based on startup setting & cache
@@ -435,19 +495,122 @@ fun SendTokenScreen(
                         // If password NOT required on startup, OR if key isn't cached (e.g., startup failed?),
                         // show the password dialog to get the password.
                         android.util.Log.d("SendTokenScreen", "Showing password dialog (requireStartup=$requirePasswordOnStartup, cachedKeyIsNull=${cachedKey == null}).")
-                        showPasswordDialog = true
+                        // showPasswordDialog = true // Moved to confirmation dialog
                     }
+                    */
                 },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 16.dp),
                 colors = xianButtonColors(XianButtonType.PRIMARY),
-                enabled = !isLoading
+                enabled = !isLoading && !isResolvingXns && !isEstimatingFee // Disable while loading, resolving, or estimating
             ) {
-                Text("Send Tokens")
+                Text("Review Transaction") // Changed button text
             }
         }
-        
+        // --- Confirmation Dialog ---
+        if (showConfirmationDialog && confirmationDetails != null) {
+            AlertDialog(
+                onDismissRequest = {
+                    showConfirmationDialog = false
+                    viewModel.clearFeeEstimationState() // Also clear state on dismiss
+                },
+                title = { Text("Confirm Transaction") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Please review the details before confirming:")
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Recipient: ${confirmationDetails!!.first.let { if (it.length > 20) "${it.take(10)}...${it.takeLast(6)}" else it }}") // Show shortened address if long
+                        Text("Amount: ${confirmationDetails!!.second} $symbol")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Estimated Fee: ${confirmationDetails!!.third}")
+                            if (isEstimatingFee) { // Show spinner if fee is still loading within dialog (edge case)
+                                Spacer(Modifier.width(8.dp))
+                                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showConfirmationDialog = false // Dismiss confirmation dialog
+                            viewModel.clearFeeEstimationState() // Clear state on confirm too
+                            val (recipientToSend, amountToSend, _) = confirmationDetails!! // Destructure details
+
+                            // --- Start: Logic moved from original button's onClick ---
+                            // Wallet is guaranteed to be unlocked here (either was already, or password was just entered)
+                            val unlockedPrivateKey = walletManager.getUnlockedPrivateKey()
+
+                            if (unlockedPrivateKey == null) {
+                                // This shouldn't happen in the new flow, but handle defensively
+                                errorMessage = "Wallet key unavailable. Please try again."
+                                Log.e("SendTokenScreen", "Confirm & Send clicked but private key is null unexpectedly.")
+                                return@Button
+                            }
+
+                            // Proceed to send the transaction
+                            isLoading = true
+                            coroutineScope.launch {
+                                try {
+                                    val result = viewModel.sendTokenTransaction(
+                                        contract = contract,
+                                        recipientAddress = recipientToSend,
+                                        amount = amountToSend,
+                                        privateKey = unlockedPrivateKey // Use the available key
+                                    )
+                                    // Handle result
+                                    if (result.success) {
+                                        transactionHash = result.txHash ?: ""
+                                        showTransactionSuccessNotification(
+                                            context = context,
+                                            title = "Transaction Successful",
+                                            message = "Sent $amountToSend $symbol to ${recipientToSend.take(6)}...${recipientToSend.takeLast(4)}",
+                                            txHash = transactionHash
+                                        )
+                                        val record = LocalTransactionRecord(
+                                            type = "Sent",
+                                            amount = amountToSend,
+                                            symbol = symbol,
+                                            recipient = recipientToSend,
+                                            txHash = transactionHash,
+                                            contract = contract
+                                        )
+                                        transactionHistoryManager.addRecord(record)
+                                        navController.popBackStack()
+                                        Log.d("SendTokenScreen", "TRANSACTION SUCCESSFUL: $transactionHash")
+                                    } else {
+                                        errorMessage = result.errors ?: "Transaction failed with unknown error"
+                                        Log.e("SendTokenScreen", "Transaction failed: ${result.errors}")
+                                    }
+                                } catch (e: Exception) {
+                                    errorMessage = "Error during transaction: ${e.message}"
+                                    Log.e("SendTokenScreen", "Exception during transaction", e)
+                                } finally {
+                                    isLoading = false
+                                }
+                            }
+                            // --- End: Logic moved from original button's onClick ---
+                        },
+                        colors = xianButtonColors(XianButtonType.PRIMARY),
+                        // Disable confirm if fee estimation failed
+                        enabled = !isLoading && confirmationDetails?.third != "Estimation Failed"
+                    ) {
+                        Text("Confirm & Send")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        showConfirmationDialog = false
+                        viewModel.clearFeeEstimationState() // Clear state on cancel
+                    }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        // --- Password Dialog ---
         // Password dialog
         if (showPasswordDialog) {
             AlertDialog(
@@ -471,73 +634,70 @@ fun SendTokenScreen(
                 confirmButton = {
                     Button(
                         onClick = {
-                            // Process transaction
-                            showPasswordDialog = false
-                            isLoading = true
-                            
+                            // This onClick is for the Password Dialog's confirm button
+                            if (!isPasswordDialogForTx) {
+                                // Should not happen if dialog is only shown for TX flow
+                                showPasswordDialog = false
+                                return@Button
+                            }
+
+                            isLoading = true // Show loading indicator while unlocking
+                            errorMessage = null // Clear previous errors
                             coroutineScope.launch {
+                                var unlockedKey: ByteArray? = null
                                 try {
-                                    // 1. Get the private key using password (this also caches it if successful)
-                                    val privateKey = walletManager.unlockWallet(password)
-                                    if (privateKey == null) {
+                                    // 1. Attempt to unlock wallet
+                                    unlockedKey = walletManager.unlockWallet(password)
+                                    if (unlockedKey == null) {
                                         errorMessage = "Invalid password"
+                                        // Keep password dialog open, stop loading
                                         isLoading = false
-                                        return@launch
+                                        return@launch // Exit coroutine on invalid password
                                     }
 
-                                    // 2. Recalculate finalRecipient here as it's not in scope from the outer Button onClick
-                                    val finalRecipientInDialog = if (isXnsAddress) resolvedXnsAddress ?: recipientAddress else recipientAddress
-                                    // Optional: Add validation for finalRecipientInDialog here if needed
+                                    // 2. Wallet unlocked successfully! Dismiss password dialog.
+                                    showPasswordDialog = false
+                                    isPasswordDialogForTx = false // Reset flag
 
-                                    // 3. Call ViewModel's send function
-                                    val result = viewModel.sendTokenTransaction( // Use the public ViewModel function
+                                    // 3. Get recipient/amount from stored details
+                                    val (recipient, amountVal, _) = confirmationDetails ?: run {
+                                        errorMessage = "Confirmation details missing after unlock. Please try again."
+                                        isLoading = false // Stop loading
+                                        return@launch // Exit coroutine if details are missing
+                                    }
+
+                                    // 4. Now trigger fee estimation (wallet is unlocked)
+                                    Log.d("SendTokenScreen", "Password correct, wallet unlocked. Requesting fee estimation.")
+                                    confirmationDetails = Triple(recipient, amountVal, "Estimating...") // Update status
+                                    viewModel.requestFeeEstimation(
                                         contract = contract,
-                                        recipientAddress = finalRecipientInDialog, // Use recalculated recipient
-                                        amount = amount,
-                                        privateKey = privateKey
-                                        // stampLimit uses default in ViewModel function
+                                        recipientAddress = recipient,
+                                        amount = amountVal
                                     )
+                                    // LaunchedEffect will handle showing the *Confirmation* Dialog
 
-                                    // 4. Handle the result
-                                    if (result.success) {
-                                        transactionHash = result.txHash ?: "" // Use safe call for hash
-                                        showTransactionSuccessNotification(
-                                            context = context,
-                                            title = "Transaction Successful",
-                                            message = if (isXnsAddress) "Sent $amount $symbol to $recipientAddress (${finalRecipientInDialog.take(6)}...)" else "Sent $amount $symbol to ${finalRecipientInDialog.take(6)}...${finalRecipientInDialog.takeLast(4)}",
-                                            txHash = transactionHash
-                                        )
-                                        val record = LocalTransactionRecord(
-                                            type = "Sent",
-                                            amount = amount,
-                                            symbol = symbol,
-                                            recipient = finalRecipientInDialog, // Use recalculated recipient
-                                            txHash = transactionHash,
-                                            contract = contract
-                                        )
-                                        transactionHistoryManager.addRecord(record)
-                                        navController.popBackStack()
-                                        android.util.Log.d("SendTokenScreen", "TRANSACTION SUCCESSFUL: $transactionHash")
-                                    } else {
-                                        errorMessage = result.errors ?: "Transaction failed with unknown error"
-                                        android.util.Log.e("SendTokenScreen", "Transaction failed: ${result.errors}")
-                                    }
                                 } catch (e: Exception) {
-                                    errorMessage = "Error during transaction: ${e.message}"
-                                    android.util.Log.e("SendTokenScreen", "Exception during transaction", e)
+                                    errorMessage = "Error during unlock: ${e.message}"
+                                    Log.e("SendTokenScreen", "Exception after password entry", e)
+                                    showPasswordDialog = false // Dismiss on other errors
+                                    isPasswordDialogForTx = false
                                 } finally {
+                                    // Stop loading indicator *after* unlock attempt & fee request
                                     isLoading = false
                                 }
                             }
                         },
                         colors = xianButtonColors(XianButtonType.SECONDARY),
-                        enabled = password.isNotEmpty()
+                        enabled = password.isNotEmpty() && !isLoading // Disable while loading
                     ) {
                         Text("Confirm")
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showPasswordDialog = false }) {
+                    TextButton(onClick = {
+                        showPasswordDialog = false
+                        isPasswordDialogForTx = false // Reset flag on cancel
+                    }) {
                         Text("Cancel")
                     }
                 }

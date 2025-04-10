@@ -17,11 +17,22 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.json.JSONObject // Added import
 import java.math.BigDecimal // Added import
+import java.text.NumberFormat // For fee formatting
+import java.util.Locale // For fee formatting
 
 // Define default empty states
 private val EMPTY_TOKEN_INFO_MAP: Map<String, TokenInfo> = emptyMap()
 private val EMPTY_BALANCE_MAP: Map<String, Float> = emptyMap()
 private val EMPTY_NFT_LIST: List<NftInfo> = emptyList()
+
+// --- Fee Estimation State ---
+sealed class FeeEstimationState {
+    object Idle : FeeEstimationState()
+    object Loading : FeeEstimationState()
+    data class Success(val fee: String) : FeeEstimationState()
+    // object RequiresUnlock : FeeEstimationState() // Removed: UI checks lock state before calling estimate
+    object Failure : FeeEstimationState() // Network or other error
+}
 
 class WalletViewModel(
     private val walletManager: WalletManager,
@@ -74,11 +85,48 @@ class WalletViewModel(
     private val _isResolvingXns = MutableStateFlow(false)
     val isResolvingXns: StateFlow<Boolean> = _isResolvingXns.asStateFlow()
 
+    // --- Fee Estimation State Flow ---
+    private val _estimatedFeeState = MutableStateFlow<FeeEstimationState>(FeeEstimationState.Idle)
+    val estimatedFeeState: StateFlow<FeeEstimationState> = _estimatedFeeState.asStateFlow()
+    private var currentStampRate: Float? = null // Cache stamp rate
+
     // Flag to prevent initial load if data already exists (e.g., ViewModel survived)
     private var hasLoadedInitialData = false
 
     init {
-        // Initial data load trigger
+        // Observe the active wallet public key flow from WalletManager
+        // Ensure the initial public key state is set correctly
+        _publicKey.value = walletManager.getActiveWalletPublicKey() ?: ""
+
+        // Observe the active wallet public key flow for CHANGES
+        viewModelScope.launch {
+            var isInitialValue = true // Flag to skip reaction to the very first emission if needed
+            walletManager.activeWalletPublicKeyFlow.collect { activeKey ->
+                Log.d("WalletViewModel", "Observed active key change: $activeKey (isInitialValue: $isInitialValue)")
+
+                // Only react to changes *after* the initial state is processed
+                if (!isInitialValue) {
+                    if (activeKey != null && activeKey != _publicKey.value) {
+                        _publicKey.value = activeKey // Update the ViewModel's public key state
+                        hasLoadedInitialData = false // Reset flag to force reload for the new wallet
+                        loadData(force = true) // Trigger data load for the new active wallet
+                    } else if (activeKey == null && _publicKey.value.isNotEmpty()) {
+                        // Handle case where all wallets might be deleted
+                        Log.w("WalletViewModel", "Active wallet key became null.")
+                        _publicKey.value = ""
+                        _tokens.value = emptyList()
+                        _tokenInfoMap.value = EMPTY_TOKEN_INFO_MAP
+                        _balanceMap.value = EMPTY_BALANCE_MAP
+                        _nftList.value = EMPTY_NFT_LIST
+                        _displayedNftInfo.value = null
+                        _isLoading.value = false
+                        _isNftLoading.value = false
+                    }
+                }
+                isInitialValue = false // Mark initial value as processed
+            }
+        }
+        // Trigger initial data load explicitly after setting up observer
         loadDataIfNotLoaded()
         // Start periodic connectivity check
         startConnectivityChecks()
@@ -239,6 +287,97 @@ class WalletViewModel(
          _transactionResult.value = null
      }
 
+    /**
+     * Resets the fee estimation state back to Idle.
+     * Call this after the UI has consumed the fee estimation result.
+     */
+    fun clearFeeEstimationState() {
+        _estimatedFeeState.value = FeeEstimationState.Idle
+    }
+
+    /**
+     * Requests the estimation of transaction fees (stamps).
+     * Updates the estimatedFeeState flow.
+     */
+    fun requestFeeEstimation(contract: String, recipientAddress: String, amount: String) {
+        viewModelScope.launch {
+            _estimatedFeeState.value = FeeEstimationState.Loading
+            val senderPublicKey = _publicKey.value
+            if (senderPublicKey.isBlank()) {
+                Log.e("WalletViewModel", "Cannot estimate fee: Sender public key is blank.")
+                _estimatedFeeState.value = FeeEstimationState.Failure
+                return@launch
+            }
+
+            // Attempt to get unlocked private key - UI should check this *before* calling.
+            // If called while locked, estimateTransactionFee will likely fail during signing.
+            val privateKey = walletManager.getUnlockedPrivateKey() ?: run {
+                 Log.e("WalletViewModel", "requestFeeEstimation called but wallet is locked. This shouldn't happen with correct UI flow.")
+                 _estimatedFeeState.value = FeeEstimationState.Failure // Treat as failure if called incorrectly
+                 return@launch
+            }
+
+            try {
+                // Construct kwargs
+                val kwargs = JSONObject().apply {
+                    put("to", recipientAddress)
+                    put("amount", BigDecimal(amount)) // Use BigDecimal for accuracy
+                }
+
+                // Estimate stamps
+                val estimatedStamps = networkService.estimateTransactionFee(
+                    contract = contract,
+                    method = "transfer",
+                    kwargs = kwargs,
+                    publicKey = senderPublicKey,
+                    privateKey = privateKey
+                )
+
+                if (estimatedStamps == null || estimatedStamps <= 0) {
+                    Log.e("WalletViewModel", "Fee estimation failed or returned invalid value: $estimatedStamps")
+                    _estimatedFeeState.value = FeeEstimationState.Failure
+                    return@launch
+                }
+
+                // Get stamp rate (use cached value if available)
+                val rate = currentStampRate ?: try {
+                    networkService.getStampRate().also { currentStampRate = it }
+                } catch (e: Exception) {
+                    Log.e("WalletViewModel", "Failed to get stamp rate for fee calculation", e)
+                    _estimatedFeeState.value = FeeEstimationState.Failure
+                    return@launch
+                }
+
+                if (rate <= 0f) {
+                     Log.e("WalletViewModel", "Invalid stamp rate received: $rate")
+                     _estimatedFeeState.value = FeeEstimationState.Failure
+                     return@launch
+                }
+
+                // Calculate fee in XIAN (internal value)
+                val feeInXianInternal = estimatedStamps.toBigDecimal() * rate.toBigDecimal()
+
+                // Divide by 10000 ONLY for display formatting
+                val feeForDisplay = feeInXianInternal.divide(BigDecimal(1000000)) // Changed divisor to 1,000,000
+
+                // Format the fee for display (e.g., with 4 decimal places)
+                val numberFormat = NumberFormat.getNumberInstance(Locale.US).apply {
+                    maximumFractionDigits = 4 // Adjust precision as needed
+                    minimumFractionDigits = 2 // Show at least 2 decimals
+                }
+                val formattedFee = "${numberFormat.format(feeForDisplay)} XIAN"
+
+                Log.d("WalletViewModel", "Fee estimation success: Stamps=$estimatedStamps, Rate=$rate, Fee=$formattedFee")
+                _estimatedFeeState.value = FeeEstimationState.Success(formattedFee)
+
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error during fee estimation request", e)
+                _estimatedFeeState.value = FeeEstimationState.Failure
+            }
+        }
+    }
+
+    // --- Private Data Loading Logic ---
     // --- Private Data Loading Logic ---
 
     private fun loadDataIfNotLoaded() {
@@ -262,6 +401,10 @@ class WalletViewModel(
         }
 
         viewModelScope.launch {
+            // Ensure we always fetch the token list for the *current* active wallet
+            _tokens.value = walletManager.getTokenList().toList().sortedWith(compareBy<String> { it != "currency" }.thenBy { it })
+            Log.d("WalletViewModel", "loadData: Updated token list for active wallet ${_publicKey.value}: ${_tokens.value}")
+
             Log.d("WalletViewModel", "Starting data fetch (force=$force)")
 
             _isLoading.value = true
@@ -332,6 +475,15 @@ class WalletViewModel(
                 Log.d("WalletViewModel", "Updated displayed NFT: ${newDisplayedNft?.contractAddress}")
             }
 
+
+            // Fetch initial stamp rate during data load
+            try {
+                 currentStampRate = networkService.getStampRate()
+                 Log.d("WalletViewModel", "Fetched initial stamp rate: $currentStampRate")
+            } catch (e: Exception) {
+                 Log.e("WalletViewModel", "Failed to fetch initial stamp rate", e)
+                 currentStampRate = null // Ensure it's null if fetch fails
+            }
 
             _isLoading.value = false
             _isNftLoading.value = false

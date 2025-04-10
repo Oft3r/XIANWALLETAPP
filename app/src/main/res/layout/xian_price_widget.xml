@@ -1,14 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/widget_layout"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/widget_root_layout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:gravity="center"
-    android:padding="16dp"
+    android:padding="8dp"
     android:background="@drawable/widget_gradient_border">
-    &lt;!-- Added ID for potential future use --&gt;
+    &lt;!-- Attributes for FrameLayout --&gt;
+    &lt;!-- Reduced padding for FrameLayout --&gt;
     &lt;!-- Apply gradient border --&gt;
+
+    &lt;!-- Nested LinearLayout for main content --&gt;
+    <LinearLayout
+        android:id="@+id/widget_content_layout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="8dp">
+        &lt;!-- Padding inside content area --&gt;
 
     <TextView
         android:id="@+id/widget_title"
@@ -27,4 +37,19 @@
         android:textSize="18sp"
         android:textStyle="bold" />
 
-</LinearLayout>
+    </LinearLayout>
+    &lt;!-- End of content LinearLayout --&gt;
+
+    &lt;!-- Refresh Button --&gt;
+    <ImageView
+        android:id="@+id/widget_refresh_button"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="4dp"
+        android:src="@android:drawable/ic_popup_sync"
+        android:contentDescription="Refresh Price"
+        android:tint="@android:color/white"
+        tools:ignore="UseAppTint" />
+
+</FrameLayout>

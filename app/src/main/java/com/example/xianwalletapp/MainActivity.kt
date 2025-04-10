@@ -181,12 +181,20 @@ fun XianWalletApp(walletManager: WalletManager, networkService: XianNetworkServi
         }
         
         composable(XianDestinations.SETTINGS) {
+            // SettingsScreen now collects active wallet state directly from WalletManager
+            // No need to pass walletAddress or preferredNftContract as parameters anymore
+            // val walletAddress = walletManager.getActiveWalletPublicKey() // No longer needed here
+            // val preferredNftContract = walletManager.getPreferredNftContract() // No longer needed here
+            // android.util.Log.d("MainActivity", "Navigating to SettingsScreen")
+
             SettingsScreen(
                 navController = navController,
                 walletManager = walletManager,
                 networkService = networkService,
                 snackbarHostState = snackbarHostState, // Pass hoisted state
                 coroutineScope = coroutineScope // Pass hoisted scope
+                // Removed preferredNftContract parameter
+                // Removed walletAddress parameter
             )
         }
 

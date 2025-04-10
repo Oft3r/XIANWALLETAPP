@@ -1,7 +1,10 @@
 package com.example.xianwalletapp.ui.screens
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -36,11 +39,13 @@ fun WelcomeScreen(navController: NavController) {
         ) {
             // Logo
             Image(
-                painter = painterResource(id = R.drawable.xian_white_logo),
+                painter = painterResource(id = R.drawable.xwallet),
                 contentDescription = "Xian Logo",
                 modifier = Modifier
-                    .size(120.dp)
-                    .padding(bottom = 24.dp)
+                    .size(130.dp)
+                    .padding(bottom = 0.5.dp)
+                    .clip(CircleShape)
+                    .border(width = 8.dp, color = MaterialTheme.colorScheme.inverseOnSurface, shape = CircleShape)
             )
             
             // Title
