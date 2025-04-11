@@ -358,7 +358,7 @@ class WalletViewModel(
                 val feeInXianInternal = estimatedStamps.toBigDecimal() * rate.toBigDecimal()
 
                 // Divide by 10000 ONLY for display formatting
-                val feeForDisplay = feeInXianInternal.divide(BigDecimal(1000000)) // Changed divisor to 1,000,000
+                val feeForDisplay = feeInXianInternal.divide(BigDecimal(10000)) // Changed divisor back to 10,000
 
                 // Format the fee for display (e.g., with 4 decimal places)
                 val numberFormat = NumberFormat.getNumberInstance(Locale.US).apply {
