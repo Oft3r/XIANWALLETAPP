@@ -2,24 +2,39 @@ package com.example.xianwalletapp.wallet
 
 import android.app.AlertDialog
 import android.content.Context
+import android.widget.Button
 import android.util.Log
 import android.view.LayoutInflater
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.widget.EditText
 import android.widget.TextView
+import kotlinx.coroutines.runBlocking
+import java.util.Locale
 import android.view.View
 import com.example.xianwalletapp.R
 import com.example.xianwalletapp.crypto.XianCrypto
 import com.example.xianwalletapp.network.XianNetworkService
-import kotlinx.coroutines.runBlocking
+// kotlinx.coroutines.runBlocking is already imported below, remove duplicate if present
 import org.json.JSONObject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+
+// Callback interface for requesting authentication from the UI layer
+interface AuthRequestListener {
+    fun requestAuth(txDetailsJson: String, onSuccess: (txDetailsJson: String) -> Unit, onFailure: () -> Unit)
+}
 
 /**
  * JavaScript interface for WebView to communicate with the Xian Wallet
  * This class acts as a bridge between web dApps and the Android wallet
  */
-class XianWebViewBridge(private val walletManager: WalletManager, private val networkService: XianNetworkService) {
+class XianWebViewBridge(
+    private val walletManager: WalletManager,
+    private val networkService: XianNetworkService,
+    private val authRequestListener: AuthRequestListener // Add listener parameter
+) {
     
     private val TAG = "XianWebViewBridge"
     private var webView: WebView? = null
@@ -74,31 +89,62 @@ class XianWebViewBridge(private val walletManager: WalletManager, private val ne
     @JavascriptInterface
     fun showTransactionApprovalDialog(txDetailsJson: String) {
         Log.d(TAG, "showTransactionApprovalDialog called from JavaScript: $txDetailsJson")
-        
-        try {
+
+        // Check if authentication is required before showing the dialog
+        val needsAuth = !walletManager.getRequirePassword() || walletManager.getUnlockedPrivateKey() == null
+        Log.d(TAG, "Needs authentication before showing dialog? $needsAuth")
+
+        if (needsAuth) {
+            // Request authentication from the UI layer via the callback
+            authRequestListener.requestAuth(
+                txDetailsJson = txDetailsJson,
+                onSuccess = { authenticatedTxDetailsJson ->
+                    // Auth successful, proceed to show the dialog on the UI thread
+                    Log.d(TAG, "Authentication successful, proceeding to show dialog.")
+                    proceedToShowDialog(authenticatedTxDetailsJson)
+                },
+                onFailure = {
+                    // Auth failed or was cancelled
+                    Log.w(TAG, "Authentication failed or cancelled by user.")
+                    sendTransactionFailureResponse("Authentication required and was cancelled or failed")
+                }
+            )
+        } else {
+            // Already authenticated, proceed directly
+            Log.d(TAG, "Already authenticated, proceeding directly to show dialog.")
+            proceedToShowDialog(txDetailsJson)
+        }
+    }
+
+    // Helper function to parse details and show the dialog (called after auth check)
+    private fun proceedToShowDialog(txDetailsJson: String) {
+         try {
             val txDetails = JSONObject(txDetailsJson)
             val contract = txDetails.getString("contract")
             val method = txDetails.getString("method")
             val kwargs = txDetails.getString("kwargs")
-            val stampLimit = txDetails.optInt("stampLimit", 0)
-            
+            val initialStampLimit = txDetails.optDouble("stampLimit", 0.0) // Read as Double
+
             // We need to run this on the UI thread since we're showing a dialog
             webView?.post {
                 val context = webView?.context
                 if (context != null) {
-                    showNativeTransactionDialog(context, contract, method, kwargs, stampLimit)
+                    // Call the actual dialog display function (we'll rename/refactor this next)
+                    displayTransactionDialog(context, contract, method, kwargs, initialStampLimit)
                 } else {
-                    // If context is null, we can't show a dialog, so we send a failure response
-                    sendTransactionFailureResponse("Cannot show transaction dialog")
+                    // If context is null, we can't show a dialog, send failure response
+                    Log.e(TAG, "Cannot show transaction dialog: WebView context is null.")
+                    sendTransactionFailureResponse("Cannot show transaction dialog (Internal error)")
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error parsing transaction details", e)
+            Log.e(TAG, "Error parsing transaction details after auth check", e)
             sendTransactionFailureResponse("Invalid transaction details: ${e.message}")
         }
     }
     
-    private fun showNativeTransactionDialog(context: Context, contract: String, method: String, kwargs: String, stampLimit: Int) {
+    // Renamed function, now assumes pre-authentication
+    private fun displayTransactionDialog(context: Context, contract: String, method: String, kwargs: String, initialStampLimit: Double) { // Assumes pre-authentication
         val builder = AlertDialog.Builder(context)
         builder.setTitle("Transaction Request")
         
@@ -110,39 +156,99 @@ class XianWebViewBridge(private val walletManager: WalletManager, private val ne
         view.findViewById<TextView>(R.id.tv_contract).text = contract
         view.findViewById<TextView>(R.id.tv_method).text = method
         view.findViewById<TextView>(R.id.tv_params).text = kwargs
-        view.findViewById<TextView>(R.id.tv_stamp_limit).text = stampLimit.toString()
+        // Display initial stamp limit (usually 0 from dApp)
+        val stampLimitTextView = view.findViewById<TextView>(R.id.tv_stamp_limit)
+        stampLimitTextView.text = "${initialStampLimit.toInt()} Stamps (Provided by dApp)" // Show initial value
+
+        // Find UI elements
+        val estimateButton = view.findViewById<Button>(R.id.btn_estimate_fee) // Find button to remove/hide
+        // TextView for displaying the estimated fee
+        val estimatedFeeTextView = view.findViewById<TextView>(R.id.tv_estimated_fee)
+        estimatedFeeTextView.visibility = View.VISIBLE // Make it visible by default
+        estimatedFeeTextView.text = "Estimating fee..." // Initial text
+
+        // Variable to store the successfully estimated stamp limit
+        var estimatedStampLimit: Long? = null
         
-        val passwordInput = view.findViewById<EditText>(R.id.et_password)
+        // Hide password input and estimate button as they are no longer needed
+        view.findViewById<EditText>(R.id.et_password).visibility = View.GONE
+        estimateButton.visibility = View.GONE // Hide the manual estimate button
+
         val errorMessageView = view.findViewById<TextView>(R.id.tv_error_message)
+        errorMessageView.visibility = View.GONE // Start hidden
 
-        // Check if password input is needed
-        val requirePasswordOnStartup = walletManager.getRequirePassword()
-        val cachedKey = walletManager.getUnlockedPrivateKey()
-        val needsPasswordInput = !requirePasswordOnStartup || cachedKey == null
-
-        if (needsPasswordInput) {
-            android.util.Log.d(TAG, "Transaction dialog requires password input.")
-            passwordInput.visibility = View.VISIBLE
-            errorMessageView.visibility = View.GONE // Start hidden
-        } else {
-            android.util.Log.d(TAG, "Transaction dialog using cached key, password input hidden.")
-            passwordInput.visibility = View.GONE
-            errorMessageView.visibility = View.GONE
-        }
-
-        // Function to display error messages (only if password field is visible)
+        // Simplified error display function
         fun showError(message: String) {
-             if (needsPasswordInput) {
-                errorMessageView.text = message
-                errorMessageView.visibility = View.VISIBLE
-             } else {
-                 // Log error if password field is hidden
-                 Log.e(TAG, "Error in transaction dialog (password hidden): $message")
-                 // Optionally send failure back to JS? Handled in processTransaction
-             }
+             Log.e(TAG, "Error in transaction dialog: $message")
+             errorMessageView.text = message
+             errorMessageView.visibility = View.VISIBLE
         }
         
         builder.setView(view)
+
+        // --- Automatic Fee Estimation Logic ---
+        // Trigger estimation automatically when dialog is shown
+        CoroutineScope(Dispatchers.Main).launch {
+            val privateKey = walletManager.getUnlockedPrivateKey() // Should be available now due to pre-auth
+            val publicKey = walletManager.getPublicKey() ?: ""
+            var estimateErrorMsg: String? = null
+
+            if (privateKey != null && publicKey.isNotEmpty()) {
+                try {
+                    val kwargsJson = JSONObject(kwargs)
+                    Log.d(TAG, "Attempting automatic fee estimation...")
+                    val estimatedStamps = networkService.estimateTransactionFee(
+                        contract, method, kwargsJson, publicKey, privateKey
+                    )
+                    Log.d(TAG, "Raw estimation result: $estimatedStamps")
+
+                    if (estimatedStamps != null && estimatedStamps > 0) {
+                        estimatedStampLimit = estimatedStamps // Store the valid estimation
+                        val stampRate = networkService.getStampRate() // Fetch rate again for display
+                        Log.d(TAG, "Fetched stamp rate for display: $stampRate")
+                        if (stampRate > 0) {
+                            val xianEquivalent = estimatedStamps.toDouble() / stampRate
+                            val formattedXian = String.format(Locale.US, "%.4f", xianEquivalent)
+                            estimatedFeeTextView.text = "Estimated Fee: $estimatedStamps Stamps ($formattedXian Xian)"
+                            Log.d(TAG, "Displaying estimated fee: ${estimatedFeeTextView.text}")
+                        } else {
+                            estimatedFeeTextView.text = "Estimated Fee: $estimatedStamps Stamps (Rate unavailable)"
+                            Log.w(TAG, "Stamp rate unavailable for display.")
+                        }
+                    } else {
+                        estimateErrorMsg = "Fee estimation failed (result: $estimatedStamps)"
+                        estimatedStampLimit = null // Invalidate estimate
+                        Log.e(TAG, estimateErrorMsg)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e(TAG, "Error during automatic fee estimation", e)
+                    estimateErrorMsg = "Fee estimation error: ${e.message}"
+                    estimatedStampLimit = null
+                }
+            } else {
+                estimateErrorMsg = "Cannot estimate fee: Wallet key unavailable."
+                estimatedStampLimit = null
+                 Log.e(TAG, estimateErrorMsg)
+            }
+
+            // Display Estimation Result or Error
+            if (estimateErrorMsg != null) {
+                estimatedFeeTextView.text = estimateErrorMsg
+                estimatedFeeTextView.setTextColor(context.getColor(android.R.color.holo_red_dark))
+                // Keep initial stamp limit visible if estimation fails
+                stampLimitTextView.visibility = View.VISIBLE
+            } else if (estimatedStampLimit == null) {
+                 // If estimation didn't produce a valid value but no specific error message
+                 stampLimitTextView.visibility = View.VISIBLE // Show initial
+                 estimatedFeeTextView.text = "Fee estimation unavailable." // Update text
+                 estimatedFeeTextView.setTextColor(context.getColor(android.R.color.darker_gray))
+            } else {
+                 // Success - estimation text is already set
+                 estimatedFeeTextView.setTextColor(context.getColor(android.R.color.primary_text_light))
+                 stampLimitTextView.visibility = View.GONE // Hide the initial "Provided by dApp" line
+            }
+        }
+        // --- End Automatic Fee Estimation Logic ---
         
         // Add buttons first, before creating the dialog
         builder.setPositiveButton("Approve") { _, _ ->
@@ -162,21 +268,17 @@ class XianWebViewBridge(private val walletManager: WalletManager, private val ne
         
         // Override the positive button click listener
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            var passwordToUse: String? = null // Null if using cached key
+            // Password is no longer handled here, assume cached key is valid from pre-auth
+            errorMessageView.visibility = View.GONE // Clear previous errors
+            Log.d(TAG, "Approve clicked.")
 
-            if (needsPasswordInput) {
-                passwordToUse = passwordInput.text.toString()
-                errorMessageView.visibility = View.GONE // Clear previous errors
-                if (passwordToUse.isEmpty()) {
-                    showError("Password is required")
-                    return@setOnClickListener // Stop if password needed but empty
-                }
-            } else {
-                 // Not requesting password input, will rely on cached key in processTransaction
-                 Log.d(TAG, "Approve clicked, proceeding with cached key.")
-            }
+            // 2. Determine the final stamp limit
+            // Use the successfully estimated value if available, otherwise use the initial value from dApp.
+            val finalStampLimit = estimatedStampLimit?.toDouble() ?: initialStampLimit
+            Log.d(TAG, "Using final stamp limit for transaction: $finalStampLimit (Estimated: ${estimatedStampLimit != null})")
 
-            // Validate the transaction parameters before processing
+            // 3. Validate transaction parameters
+            // 3. Validate transaction parameters (remains the same)
             try {
                 if (contract.isBlank()) {
                     showError("Contract address cannot be empty")
@@ -187,21 +289,24 @@ class XianWebViewBridge(private val walletManager: WalletManager, private val ne
                     return@setOnClickListener
                 }
 
-                // Process the transaction (pass null password if using cached key)
-                processTransaction(contract, method, kwargs, passwordToUse, stampLimit, dialog, errorMessageView)
+                // 4. Process the transaction
+                // Pass the determined password (or null) and the final stamp limit.
+                // Pass null for password (using cached key), pass the final determined stamp limit.
+                processTransaction(contract, method, kwargs, null, finalStampLimit, dialog, errorMessageView)
 
             } catch (e: Exception) {
-                Log.e(TAG, "Validation or processing error", e)
+                // Catch errors during validation or the processTransaction call itself
+                Log.e(TAG, "Validation or processing error on Approve", e)
                 showError("Error: ${e.message ?: "Unknown error"}")
-                // Send failure back to JS as well
-                sendTransactionFailureResponse("Validation error: ${e.message ?: "Unknown error"}")
+                // Optionally send failure back to JS
+                sendTransactionFailureResponse("Approval error: ${e.message ?: "Unknown error"}")
             }
         }
     }
     
     // Password parameter is nullable (null means try using cached key)
     private fun processTransaction(contract: String, method: String, kwargs: String, password: String?,
-                                  stampLimit: Int, dialog: AlertDialog, errorMessageView: TextView) {
+                                  stampLimit: Double, dialog: AlertDialog, errorMessageView: TextView) { // Accept Double
         val showErrorInDialog = password != null // Only show error in dialog if password was requested
 
         try {
@@ -255,7 +360,8 @@ class XianWebViewBridge(private val walletManager: WalletManager, private val ne
                         }
                         
                         // Send the transaction if there is balance
-                        networkService.sendTransaction(contract, method, kwargsJson, privateKey, stampLimit)
+                        // Convert Double back to Int for the network call (truncating decimals)
+                        networkService.sendTransaction(contract, method, kwargsJson, privateKey, stampLimit.toInt())
                     } catch (e: Exception) {
                         // Catch any error during the transaction
                         Log.e(TAG, "Transaction failed", e)

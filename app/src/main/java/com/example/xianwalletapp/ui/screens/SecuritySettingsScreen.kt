@@ -105,11 +105,31 @@ fun SecuritySettingsScreen(
                 }
                 Switch(
                     checked = requirePasswordOnStartup,
-                    onCheckedChange = {
-                        requirePasswordOnStartup = it
-                        walletManager.setRequirePassword(it)
-                        coroutineScope.launch {
-                            snackbarHostState.showSnackbar("Password requirement on startup ${if (it) "enabled" else "disabled"}")
+                    onCheckedChange = { isChecked ->
+                        requirePasswordOnStartup = isChecked
+                        walletManager.setRequirePassword(isChecked)
+
+                        // New logic: If password requirement is disabled, also disable biometrics if it was enabled
+                        if (!isChecked && biometricEnabled) {
+                            try {
+                                walletManager.disableBiometric()
+                                biometricEnabled = false // Update biometric state
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("Biometric unlock disabled as password requirement was turned off.")
+                                }
+                            } catch (e: Exception) {
+                                // Handle potential error during biometric disable
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("Error disabling biometrics: ${e.message}")
+                                }
+                                // Optional: Revert requirePasswordOnStartup state if disabling biometrics fails critically?
+                                // For now, just log the error and proceed with password setting change.
+                            }
+                        } else {
+                            // Show standard snackbar for password requirement change
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar("Password requirement on startup ${if (isChecked) "enabled" else "disabled"}")
+                            }
                         }
                     }
                 )

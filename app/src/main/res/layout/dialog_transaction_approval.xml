@@ -71,13 +71,26 @@
         android:id="@+id/tv_stamp_limit"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp" />
+        android:layout_marginBottom="4dp" /> <!-- Reduced margin -->
 
+    <!-- Button to trigger fee estimation -->
+    <Button
+        android:id="@+id/btn_estimate_fee"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Estimate Fee"
+        android:layout_gravity="start"
+        android:layout_marginBottom="4dp"/>
+
+    <!-- TextView to display the estimated fee result -->
     <TextView
+        android:id="@+id/tv_estimated_fee"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Enter your wallet password to approve this transaction:"
-        android:textStyle="bold" />
+        android:visibility="gone"
+        android:layout_marginBottom="16dp" /> <!-- Initially hidden -->
+
+    <!-- Password prompt text removed as auth happens before dialog -->
 
     <EditText
         android:id="@+id/et_password"

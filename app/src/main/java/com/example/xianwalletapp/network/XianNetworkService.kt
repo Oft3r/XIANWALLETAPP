@@ -1571,39 +1571,16 @@ class XianNetworkService private constructor(private val context: Context) {
                 val decoded = String(decodedBytes)
                 android.util.Log.d("XianNetworkService", "Valor de tasa de stamps decodificado: $decoded")
                 
-                try {
-                    // Try converting to double precision to avoid problems with scientific notation
-                    val stampRateValue = decoded.toDoubleOrNull()
-                    
-                    if (stampRateValue != null) {
-                        // The rate is stamps per XIAN, so it should be a value like 100,000
-                        // If it's abnormally low (like 0.0001), it might be inverted
-                        val stampRate = if (stampRateValue < 1.0) {
-                            // If it's extremely low, assume it's inverted (XIAN per stamp)
-                            // and correct it (convert to stamps per XIAN)
-                            android.util.Log.d("XianNetworkService", "Corrigiendo tasa invertida: $stampRateValue")
-                            (1.0 / stampRateValue).toFloat()
-                        } else {
-                            // Seems reasonable, use as is
-                            stampRateValue.toFloat()
-                        }
-                        
-                        // Verify the rate is within a reasonable range to avoid excessive costs
-                        val finalRate = when {
-                            stampRate < 1000.0f -> 10000.0f // Demasiado bajo, usar valor por defecto
-                            stampRate > 1000000.0f -> 100000.0f // Demasiado alto, limitar
-                            else -> stampRate
-                        }
-                        
-                        android.util.Log.d("XianNetworkService", "Tasa de stamps FINAL: $finalRate stamps/XIAN")
-                        return@withContext finalRate
-                    } else {
-                        android.util.Log.e("XianNetworkService", "Could not convert to number: $decoded")
-                        return@withContext 10000.0f // Use default value
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("XianNetworkService", "Error procesando tasa de stamps: ${e.message}")
-                    return@withContext 10000.0f // Valor por defecto en caso de error
+                // Mimic web wallet: Parse as Long (integer stamps per XIAN)
+                val stampRateValue = decoded.toLongOrNull()
+
+                if (stampRateValue != null && stampRateValue > 0) {
+                    android.util.Log.d("XianNetworkService", "Stamp Rate Parsed (Long): $stampRateValue stamps/XIAN")
+                    // Return as Float for consistency with previous usage
+                    return@withContext stampRateValue.toFloat()
+                } else {
+                    android.util.Log.e("XianNetworkService", "Could not parse stamp rate as Long or value <= 0: '$decoded'")
+                    return@withContext 10000.0f // Default value
                 }
             } else {
                 android.util.Log.e("XianNetworkService", "Could not get stamp rate, using default value")

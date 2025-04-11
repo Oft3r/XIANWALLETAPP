@@ -28,6 +28,10 @@ import androidx.navigation.NavController
 import com.example.xianwalletapp.network.XianNetworkService
 import com.example.xianwalletapp.wallet.WalletManager
 import com.example.xianwalletapp.wallet.XianWebViewBridge
+import com.example.xianwalletapp.wallet.AuthRequestListener
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import kotlinx.coroutines.launch
 
 /**
  * Web Browser screen with URL address bar and WebView
@@ -60,6 +64,14 @@ fun WebBrowserScreen(
     // State for managing the custom JS prompt dialog
     var showJsPromptDialog by remember { mutableStateOf(false) }
     var jsPromptRequest by remember { mutableStateOf<JsPromptRequest?>(null) }
+
+    // State for the pre-authentication password dialog
+    var showPasswordDialog by remember { mutableStateOf(false) }
+    var passwordInput by rememberSaveable { mutableStateOf("") }
+    var authCallbacks by remember { mutableStateOf<Pair<((String) -> Unit), (() -> Unit)>?>(null) }
+    var txDetailsForAuth by remember { mutableStateOf<String?>(null) }
+    var authErrorMessage by remember { mutableStateOf<String?>(null) }
+    val coroutineScope = rememberCoroutineScope()
     
     Scaffold(
         topBar = {
@@ -147,6 +159,23 @@ fun WebBrowserScreen(
             // WebView
             AndroidView(
                 factory = { context ->
+                    // --- Create AuthRequestListener Implementation ---
+                    val authListener = object : AuthRequestListener {
+                        override fun requestAuth(
+                            txDetailsJson: String,
+                            onSuccess: (txDetailsJson: String) -> Unit,
+                            onFailure: () -> Unit
+                        ) {
+                            // Store callbacks and details, then show dialog
+                            txDetailsForAuth = txDetailsJson
+                            authCallbacks = Pair(onSuccess, onFailure)
+                            passwordInput = "" // Clear previous input
+                            authErrorMessage = null // Clear previous error
+                            showPasswordDialog = true
+                        }
+                    }
+                    // --- End AuthRequestListener Implementation ---
+
                     WebView(context).apply {
                         layoutParams = ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -258,6 +287,7 @@ fun WebBrowserScreen(
                                         
                                         try {
                                             // Store transaction details for native dialog
+
                                             const txDetails = {
                                                 contract: event.detail.contract,
                                                 method: event.detail.method,
@@ -322,7 +352,8 @@ fun WebBrowserScreen(
                         settings.domStorageEnabled = true
                         
                         // Add JavaScript interface
-                        val bridge = XianWebViewBridge(walletManager, networkService)
+                        // Pass the listener implementation to the bridge constructor
+                        val bridge = XianWebViewBridge(walletManager, networkService, authListener)
                         bridge.setWebView(this) // Pasar la referencia del WebView al bridge
                         addJavascriptInterface(bridge, "XianWalletBridge")
                         
@@ -377,6 +408,72 @@ fun WebBrowserScreen(
                         ) {
                             Text("Cancel")
                         }
+                    }
+                )
+            }
+
+            // --- Password Pre-authentication Dialog ---
+            if (showPasswordDialog) {
+                AlertDialog(
+                    onDismissRequest = {
+                        // Treat dismiss as cancellation
+                        authCallbacks?.second?.invoke() // Call onFailure
+                        showPasswordDialog = false
+                        authCallbacks = null
+                        txDetailsForAuth = null
+                        authErrorMessage = null
+                    },
+                    title = { Text("Authentication Required") },
+                    text = {
+                        Column {
+                            Text("Enter your wallet password to proceed with the transaction.")
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = passwordInput,
+                                onValueChange = { passwordInput = it },
+                                label = { Text("Password") },
+                                singleLine = true,
+                                visualTransformation = PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { /* Handle validation/auth on button click */ })
+                            )
+                            authErrorMessage?.let {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(it, color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                coroutineScope.launch { // Use coroutine for walletManager call
+                                    val unlocked = walletManager.unlockWallet(passwordInput)
+                                    if (unlocked != null) {
+                                        // Success
+                                        authCallbacks?.first?.invoke(txDetailsForAuth ?: "") // Call onSuccess
+                                        showPasswordDialog = false
+                                        authCallbacks = null
+                                        txDetailsForAuth = null
+                                        authErrorMessage = null
+                                    } else {
+                                        // Failure
+                                        authErrorMessage = "Invalid password"
+                                    }
+                                }
+                            }
+                        ) { Text("Unlock") }
+                    },
+                    dismissButton = {
+                        Button(
+                            onClick = {
+                                // Treat dismiss as cancellation
+                                authCallbacks?.second?.invoke() // Call onFailure
+                                showPasswordDialog = false
+                                authCallbacks = null
+                                txDetailsForAuth = null
+                                authErrorMessage = null
+                            }
+                        ) { Text("Cancel") }
                     }
                 )
             }
