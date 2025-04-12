@@ -86,6 +86,8 @@ dependencies {
     // QR Code Scanning (ZXing Embedded)
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("io.coil-kt:coil-compose:2.5.0")
+    // HTML Parsing
+    implementation("org.jsoup:jsoup:1.17.2")
     
     // Testing
     testImplementation(libs.junit)
