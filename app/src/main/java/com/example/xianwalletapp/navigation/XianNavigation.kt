@@ -12,6 +12,7 @@ import com.example.xianwalletapp.ui.screens.AdvancedScreen // Import the new scr
 // SnakeGameScreen import removed
 import com.example.xianwalletapp.wallet.WalletManager // Assuming you need these
 import com.example.xianwalletapp.network.XianNetworkService // Assuming you need these
+import com.example.xianwalletapp.data.FaviconCacheManager // Import FaviconCacheManager
 /**
  * Navigation routes for the Xian wallet app
  */
@@ -51,6 +52,7 @@ fun XianNavGraph(
     navController: NavHostController,
     walletManager: WalletManager, // Add WalletManager parameter
     networkService: XianNetworkService, // Add XianNetworkService parameter
+    faviconCacheManager: FaviconCacheManager, // Add FaviconCacheManager parameter
     startDestination: String = XianDestinations.SPLASH
 ) {
     NavHost(
@@ -112,6 +114,7 @@ fun XianNavGraph(
                 navController = navController,
                 walletManager = walletManager, // Pass the instance from XianNavGraph parameters
                 networkService = networkService, // Pass the instance from XianNavGraph parameters
+                faviconCacheManager = faviconCacheManager, // Pass the cache manager instance
                 initialUrl = initialUrl // Pass the extracted URL
             )
         }

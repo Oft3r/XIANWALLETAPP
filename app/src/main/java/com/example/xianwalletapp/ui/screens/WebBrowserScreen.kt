@@ -60,6 +60,7 @@ import com.example.xianwalletapp.network.XianNetworkService
 import com.example.xianwalletapp.wallet.WalletManager
 import com.example.xianwalletapp.wallet.XianWebViewBridge
 import com.example.xianwalletapp.wallet.AuthRequestListener
+import com.example.xianwalletapp.data.FaviconCacheManager // Import the cache manager
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import kotlinx.coroutines.launch
@@ -154,7 +155,8 @@ fun DashboardContent(
     mainApps: List<XAppInfo>,
     favoriteApps: List<XAppInfo>,
     onShortcutClick: (String) -> Unit,
-    onRemoveFavoriteClick: (XAppInfo) -> Unit // Add callback for removing favorites
+    onRemoveFavoriteClick: (XAppInfo) -> Unit, // Add callback for removing favorites
+    faviconCacheManager: FaviconCacheManager // Add cache manager parameter
 ) {
     // State to hold the dynamically fetched favicon URLs, keyed by the app's main URL
     val faviconUrls = remember { mutableStateMapOf<String, String?>() }
@@ -177,15 +179,33 @@ fun DashboardContent(
             modifier = Modifier.fillMaxWidth() // Grid takes available width, height wraps content
         ) {
             items(mainApps) { app -> // Use mainApps list here
-                // Fetch favicon URL in the background only if not manually provided
-                LaunchedEffect(app.url) {
+                // Fetch favicon URL: Check cache first, then fetch if needed
+                LaunchedEffect(app.url, faviconCacheManager) { // Add cache manager as key
                     if (app.faviconUrl == null && !faviconUrls.containsKey(app.url)) {
-                        faviconUrls[app.url] = null // Mark as fetching/default
-                        val fetchedUrl = fetchFaviconUrl(app.url)
-                        if (fetchedUrl != null) {
-                            faviconUrls[app.url] = fetchedUrl
+                        // 1. Check cache
+                        val cachedUrl = faviconCacheManager.getFaviconUrl(app.url)
+                        if (cachedUrl != null) {
+                            faviconUrls[app.url] = cachedUrl // Use cached URL
+                            Log.d("FaviconCache", "Using cached favicon for ${app.url}")
+                        } else {
+                            // 2. Fetch if not in cache
+                            Log.d("FaviconCache", "Fetching favicon for ${app.url}")
+                            faviconUrls[app.url] = null // Mark as fetching/default
+                            val fetchedUrl = fetchFaviconUrl(app.url)
+                            if (fetchedUrl != null) {
+                                faviconUrls[app.url] = fetchedUrl // Update state
+                                // 3. Save to cache after successful fetch
+                                faviconCacheManager.saveFaviconUrl(app.url, fetchedUrl)
+                                Log.d("FaviconCache", "Fetched and cached favicon for ${app.url}")
+                            } else {
+                                // Fetch failed, state remains null (triggers fallback)
+                                Log.w("FaviconCache", "Failed to fetch favicon for ${app.url}")
+                            }
                         }
-                        // If fetchedUrl is null, it remains null in the map, triggering fallback
+                    } else if (app.faviconUrl != null) {
+                        // If manual faviconUrl is provided, ensure it's in the state map
+                        // (though Coil likely handles this fine, this ensures consistency if needed elsewhere)
+                        faviconUrls[app.url] = app.faviconUrl
                     }
                 }
 
@@ -236,14 +256,31 @@ fun DashboardContent(
                 .heightIn(max = 300.dp) // Limit height to avoid pushing things too far, adjust as needed
         ) {
             items(favoriteApps) { app ->
-                // LaunchedEffect for favicon fetching (remains the same)
-                LaunchedEffect(app.url) {
+                // LaunchedEffect for favicon fetching (Apply same cache logic as main apps)
+                LaunchedEffect(app.url, faviconCacheManager) { // Add cache manager as key
                     if (app.faviconUrl == null && !faviconUrls.containsKey(app.url)) {
-                        faviconUrls[app.url] = null
-                        val fetchedUrl = fetchFaviconUrl(app.url)
-                        if (fetchedUrl != null) {
-                            faviconUrls[app.url] = fetchedUrl
+                        // 1. Check cache
+                        val cachedUrl = faviconCacheManager.getFaviconUrl(app.url)
+                        if (cachedUrl != null) {
+                            faviconUrls[app.url] = cachedUrl // Use cached URL
+                            Log.d("FaviconCache", "[Fav] Using cached favicon for ${app.url}")
+                        } else {
+                            // 2. Fetch if not in cache
+                            Log.d("FaviconCache", "[Fav] Fetching favicon for ${app.url}")
+                            faviconUrls[app.url] = null // Mark as fetching/default
+                            val fetchedUrl = fetchFaviconUrl(app.url)
+                            if (fetchedUrl != null) {
+                                faviconUrls[app.url] = fetchedUrl // Update state
+                                // 3. Save to cache after successful fetch
+                                faviconCacheManager.saveFaviconUrl(app.url, fetchedUrl)
+                                Log.d("FaviconCache", "[Fav] Fetched and cached favicon for ${app.url}")
+                            } else {
+                                // Fetch failed, state remains null (triggers fallback)
+                                Log.w("FaviconCache", "[Fav] Failed to fetch favicon for ${app.url}")
+                            }
                         }
+                    } else if (app.faviconUrl != null) {
+                        faviconUrls[app.url] = app.faviconUrl
                     }
                 }
 
@@ -304,6 +341,7 @@ fun WebBrowserScreen(
     navController: NavController,
     walletManager: WalletManager,
     networkService: XianNetworkService,
+    faviconCacheManager: FaviconCacheManager, // Add FaviconCacheManager parameter
 // Helper function to normalize URLs for comparison
 // Removed misplaced normalizeUrlForComparison function from here. It will be inserted at the top level.
 
@@ -548,6 +586,7 @@ fun WebBrowserScreen(
                         isLoading = true
                         showDashboard = false
                     },
+                    faviconCacheManager = faviconCacheManager, // Pass the cache manager here
                     onRemoveFavoriteClick = { appToRemove ->
                         favoriteXApps.remove(appToRemove)
                         // Save updated list asynchronously

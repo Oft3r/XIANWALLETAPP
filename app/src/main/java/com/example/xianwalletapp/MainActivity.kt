@@ -28,11 +28,13 @@ import com.example.xianwalletapp.network.XianNetworkService
 import com.example.xianwalletapp.ui.screens.*
 import com.example.xianwalletapp.ui.theme.XIANWALLETAPPTheme
 import com.example.xianwalletapp.wallet.WalletManager
+import com.example.xianwalletapp.data.FaviconCacheManager // Import FaviconCacheManager
 import kotlinx.coroutines.delay
 
 class MainActivity : AppCompatActivity() { // Changed inheritance
     private lateinit var walletManager: WalletManager
     private lateinit var networkService: XianNetworkService
+    private lateinit var faviconCacheManager: FaviconCacheManager // Declare FaviconCacheManager
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,6 +42,7 @@ class MainActivity : AppCompatActivity() { // Changed inheritance
         // Initialize wallet manager and network service
         walletManager = WalletManager.getInstance(this)
         networkService = XianNetworkService.getInstance(this)
+        faviconCacheManager = FaviconCacheManager(applicationContext) // Initialize FaviconCacheManager
         
         // Set RPC and explorer URLs from wallet manager
         networkService.setRpcUrl(walletManager.getRpcUrl())
@@ -49,7 +52,7 @@ class MainActivity : AppCompatActivity() { // Changed inheritance
         setContent {
             XIANWALLETAPPTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    XianWalletApp(walletManager, networkService)
+                    XianWalletApp(walletManager, networkService, faviconCacheManager) // Pass FaviconCacheManager
                 }
             }
         }
@@ -65,7 +68,11 @@ class MainActivity : AppCompatActivity() { // Changed inheritance
 }
 
 @Composable
-fun XianWalletApp(walletManager: WalletManager, networkService: XianNetworkService) {
+fun XianWalletApp(
+    walletManager: WalletManager,
+    networkService: XianNetworkService,
+    faviconCacheManager: FaviconCacheManager // Add FaviconCacheManager parameter
+) {
     val navController = rememberNavController()
     val snackbarHostState = remember { SnackbarHostState() } // Hoist SnackbarHostState
     val coroutineScope = rememberCoroutineScope() // Hoist CoroutineScope
@@ -168,6 +175,7 @@ fun XianWalletApp(walletManager: WalletManager, networkService: XianNetworkServi
                 navController = navController,
                 walletManager = walletManager, // Pass existing instance
                 networkService = networkService, // Pass existing instance
+                faviconCacheManager = faviconCacheManager, // Pass FaviconCacheManager instance
                 initialUrl = initialUrl // Pass the extracted URL
             )
         }
