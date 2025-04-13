@@ -19,6 +19,10 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.IvParameterSpec
 import com.example.xianwalletapp.crypto.XianCrypto
 import kotlinx.coroutines.Dispatchers
+import java.security.SecureRandom
+// Removed unused bitcoinj HD derivation imports
+import org.bitcoinj.crypto.MnemonicCode
+
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -154,35 +158,49 @@ class WalletManager private constructor(context: Context) {
      */
     fun createWallet(password: String): WalletCreationResult {
         try {
-            // Generate a new key pair
-            val keyPair = crypto.createKeyPair()
+            // 1. Generate Mnemonic (BIP39 using bitcoinj)
+            val entropy = ByteArray(32) // 256 bits for 24 words
+            SecureRandom().nextBytes(entropy)
+            val mnemonicCode = MnemonicCode.INSTANCE.toMnemonic(entropy)
+            val mnemonicPhrase = mnemonicCode.joinToString(" ")
 
-            // Convert keys to format needed for storage
-            val publicKey = crypto.toHexString(keyPair.second) // public key
-            val privateKeyBytes = keyPair.first // private key
+            // 2. Derive Seed from Mnemonic
+            // The second argument is the BIP39 passphrase (optional, using empty for now)
+            val seed = MnemonicCode.toSeed(mnemonicCode, "")
 
-            // Encrypt the private key
-            val encryptedPrivateKey = crypto.encryptPrivateKey(privateKeyBytes, password)
+            // 3. Use the first 32 bytes of the 64-byte BIP39 seed for Ed25519 key generation
+            // **Important:** This avoids the problematic HDKeyDerivation step in bitcoinj for this context.
+            // This is NOT standard HD derivation. Standard derivation would use BIP32/SLIP-0010 on the full 64-byte seed.
+            if (seed.size < 32) {
+                throw IllegalStateException("Generated BIP39 seed is too short (${seed.size} bytes)")
+            }
+            val ed25519Seed = seed.copyOfRange(0, 32)
+
+            // 4. Generate Key Pair using existing XianCrypto method with the 32-byte seed
+            val keyPair = crypto.createKeyPairFromSeed(ed25519Seed)
+            val privateKeyBytes = keyPair.first // This is the actual private key used
+            val publicKeyBytes = keyPair.second
+            val publicKey = crypto.toHexString(publicKeyBytes) // Use your existing hex conversion
+
+            // 5. Encrypt the derived private key
+            val encryptedPrivateKey = crypto.encryptPrivateKey(privateKeyBytes, password) // Corrected call
             assignDefaultWalletName(publicKey) // Assign name
 
-            // Store the encrypted key specific to this wallet
+            // 6. Store the encrypted key specific to this wallet
             prefs.edit()
                 .putString(getWalletPrefKey(publicKey, KEY_ENCRYPTED_PRIVATE_KEY), encryptedPrivateKey)
                 .apply()
 
-            // Add wallet to the list and set as active
+            // 7. Add wallet to the list and set as active
             addWalletToList(publicKey)
             setActiveWallet(publicKey) // This updates the flow and prefs
 
-            // Initialize token list for this wallet (if needed, or manage globally)
-            // For now, let's assume token list is global or handled elsewhere per wallet
-            // if (!prefs.contains(getWalletPrefKey(publicKey, KEY_TOKEN_LIST))) {
-            //     prefs.edit().putStringSet(getWalletPrefKey(publicKey, KEY_TOKEN_LIST), setOf(DEFAULT_TOKEN)).apply()
-            // }
+            // 8. Return result including the mnemonic phrase
+            return WalletCreationResult(success = true, publicKey = publicKey, mnemonicPhrase = mnemonicPhrase)
 
-            return WalletCreationResult(success = true, publicKey = publicKey)
         } catch (e: Exception) {
-            return WalletCreationResult(success = false, error = e.message)
+            Log.e("WalletManager", "Error creating wallet", e)
+            return WalletCreationResult(success = false, error = e.message ?: "Unknown error during wallet creation")
         }
     }
 
@@ -221,6 +239,62 @@ class WalletManager private constructor(context: Context) {
             return WalletCreationResult(success = false, error = e.message)
         }
     } // End of importWallet function
+
+
+    /**
+     * Import an existing wallet using a mnemonic phrase and set it as active
+     */
+    fun importWalletFromMnemonic(mnemonicPhrase: String, password: String): WalletCreationResult {
+        try {
+            // 1. Validate and process mnemonic
+            val mnemonicCode = mnemonicPhrase.trim().lowercase().split("\\s+".toRegex())
+            MnemonicCode.INSTANCE.check(mnemonicCode) // Throws MnemonicException if invalid
+
+            // 2. Derive Seed from Mnemonic
+            val seed = MnemonicCode.toSeed(mnemonicCode, "")
+
+            // 3. Use the first 32 bytes of the seed for Ed25519 key generation
+            if (seed.size < 32) {
+                throw IllegalStateException("Derived BIP39 seed is too short (${seed.size} bytes)")
+            }
+            val ed25519Seed = seed.copyOfRange(0, 32)
+
+            // 4. Generate Key Pair
+            val keyPair = crypto.createKeyPairFromSeed(ed25519Seed)
+            val privateKeyBytes = keyPair.first
+            val publicKeyBytes = keyPair.second
+            val publicKey = crypto.toHexString(publicKeyBytes)
+
+            // 5. Encrypt the derived private key with the *new* password
+            val encryptedPrivateKey = crypto.encryptPrivateKey(privateKeyBytes, password)
+
+            // 6. Store the encrypted key specific to this wallet
+            prefs.edit()
+                .putString(getWalletPrefKey(publicKey, KEY_ENCRYPTED_PRIVATE_KEY), encryptedPrivateKey)
+                .apply()
+
+            // 7. Add wallet to the list and set as active
+            addWalletToList(publicKey)
+            setActiveWallet(publicKey) // This updates the flow and prefs
+            assignDefaultWalletName(publicKey) // Assign name
+
+            // 8. Return success
+            return WalletCreationResult(success = true, publicKey = publicKey)
+
+        } catch (e: org.bitcoinj.crypto.MnemonicException.MnemonicLengthException) {
+            Log.e("WalletManager", "Mnemonic import error: Invalid word count", e)
+            return WalletCreationResult(success = false, error = "Invalid recovery phrase: Must be 24 words.")
+        } catch (e: org.bitcoinj.crypto.MnemonicException.MnemonicWordException) {
+            Log.e("WalletManager", "Mnemonic import error: Invalid word found", e)
+            return WalletCreationResult(success = false, error = "Invalid recovery phrase: Contains invalid word(s).")
+        } catch (e: org.bitcoinj.crypto.MnemonicException.MnemonicChecksumException) {
+            Log.e("WalletManager", "Mnemonic import error: Checksum failed", e)
+            return WalletCreationResult(success = false, error = "Invalid recovery phrase: Checksum validation failed.")
+        } catch (e: Exception) {
+            Log.e("WalletManager", "Error importing wallet from mnemonic", e)
+            return WalletCreationResult(success = false, error = e.message ?: "Unknown error during mnemonic import")
+        }
+    }
 
     /** Assigns a default name like "My Wallet X" to a newly added wallet */
     private fun assignDefaultWalletName(publicKey: String) {
@@ -892,5 +966,6 @@ class WalletManager private constructor(context: Context) {
 data class WalletCreationResult(
     val success: Boolean,
     val publicKey: String? = null,
+    val mnemonicPhrase: String? = null, // Added mnemonic phrase
     val error: String? = null
 )

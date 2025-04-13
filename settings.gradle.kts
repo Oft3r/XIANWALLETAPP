@@ -16,7 +16,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        jcenter() // Added for libsodium-android dependency
+        // jcenter() // Commented out as it's deprecated and might cause issues
         maven { url = uri("https://jitpack.io") } // Alternative source for libsodium
     }
 }

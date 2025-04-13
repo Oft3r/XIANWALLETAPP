@@ -77,8 +77,14 @@ dependencies {
     // Biometric authentication
     implementation("androidx.biometric:biometric:1.2.0-alpha05")
     // Using a different crypto library since libsodium is not accessible
-    implementation("org.bouncycastle:bcprov-jdk18on:1.79")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.79") // Re-enabled explicit Bouncy Castle
     
+    implementation("org.bitcoinj:bitcoinj-core:0.16.2") { // Re-added bitcoinj
+        exclude(group = "org.bouncycastle", module = "bcprov-jdk15to18") // Exclude transitive BC dependency
+    }
+    // implementation("io.github.novacrypto:bip39:0.1.10") // Removed again
+
+
     // JSON parsing
     implementation("com.google.code.gson:gson:2.10.1")
     // QR Code Generation (ZXing)

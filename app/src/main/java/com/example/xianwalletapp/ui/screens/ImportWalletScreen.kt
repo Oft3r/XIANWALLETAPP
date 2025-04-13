@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -24,7 +25,11 @@ import com.example.xianwalletapp.ui.theme.xianButtonColors
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ImportWalletScreen(navController: NavController, walletManager: WalletManager) {
-    var privateKey by remember { mutableStateOf("") }
+    var selectedTabIndex by rememberSaveable { mutableStateOf(0) } // 0 for Phrase, 1 for Private Key
+    val importTypes = listOf("Recovery Phrase", "Private Key")
+
+    var mnemonicPhrase by remember { mutableStateOf("") }
+    var privateKeyHex by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -48,17 +53,47 @@ fun ImportWalletScreen(navController: NavController, walletManager: WalletManage
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(vertical = 24.dp)
             )
-            
-            // Private key field
-            OutlinedTextField(
-                value = privateKey,
-                onValueChange = { privateKey = it; errorMessage = null },
-                label = { Text("Private Key") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                singleLine = true
-            )
+            // Import Type Selector
+            TabRow(selectedTabIndex = selectedTabIndex) {
+                importTypes.forEachIndexed { index, title ->
+                    Tab(
+                        selected = selectedTabIndex == index,
+                        onClick = { selectedTabIndex = index; errorMessage = null },
+                        text = { Text(title) }
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Conditional Input Field
+            when (selectedTabIndex) {
+                0 -> { // Recovery Phrase
+                    OutlinedTextField(
+                        value = mnemonicPhrase,
+                        onValueChange = { mnemonicPhrase = it.lowercase(); errorMessage = null }, // Convert to lowercase for consistency
+                        label = { Text("Recovery Phrase (24 words)") },
+                        placeholder = { Text("Enter words separated by spaces") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp)
+                            .heightIn(min = 100.dp), // Allow more space for phrase
+                        maxLines = 4 // Allow multiple lines
+                    )
+                }
+                1 -> { // Private Key
+                    OutlinedTextField(
+                        value = privateKeyHex,
+                        onValueChange = { privateKeyHex = it; errorMessage = null },
+                        label = { Text("Private Key (Hex)") },
+                        placeholder = { Text("Enter your private key hex string") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp),
+                        maxLines = 1,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii) // Allow hex chars
+                    )
+                }
+            }
             
             // Password field
             OutlinedTextField(
@@ -108,29 +143,64 @@ fun ImportWalletScreen(navController: NavController, walletManager: WalletManage
             // Import wallet button
             Button(
                 onClick = {
-                    // Validate inputs
-                    when {
-                        privateKey.isBlank() -> {
-                            errorMessage = "Private key cannot be empty"
-                        }
-                        password.length < 6 -> {
-                            errorMessage = "Password must be at least 6 characters"
-                        }
-                        password != confirmPassword -> {
-                            errorMessage = "Passwords do not match"
-                        }
-                        else -> {
-                            isLoading = true
-                            // Import wallet
-                            val result = walletManager.importWallet(privateKey, password)
-                            isLoading = false
-                            
-                            if (result.success) {
-                                importedPublicKey = result.publicKey ?: ""
-                                showSuccessDialog = true
+                    // Clear previous error
+                    errorMessage = null
+
+                    // Basic Password Validation (common to both)
+                    if (password.length < 6) {
+                        errorMessage = "Password must be at least 6 characters"
+                        return@Button
+                    }
+                    if (password != confirmPassword) {
+                        errorMessage = "Passwords do not match"
+                        return@Button
+                    }
+
+                    isLoading = true
+                    val result = when (selectedTabIndex) {
+                        0 -> { // Import via Mnemonic Phrase
+                            if (mnemonicPhrase.isBlank()) {
+                                errorMessage = "Recovery phrase cannot be empty"
+                                isLoading = false
+                                null // Indicate validation failure
                             } else {
-                                errorMessage = result.error ?: "Failed to import wallet"
+                                // Basic word count check (more robust check in WalletManager)
+                                if (mnemonicPhrase.trim().split("\\s+".toRegex()).size != 24) {
+                                    errorMessage = "Please enter exactly 24 words"
+                                    isLoading = false
+                                    null // Indicate validation failure
+                                } else {
+                                    walletManager.importWalletFromMnemonic(mnemonicPhrase, password)
+                                }
                             }
+                        }
+                        1 -> { // Import via Private Key
+                            if (privateKeyHex.isBlank()) {
+                                errorMessage = "Private key cannot be empty"
+                                isLoading = false
+                                null // Indicate validation failure
+                            } else if (!privateKeyHex.matches(Regex("^[a-fA-F0-9]{64}$"))) { // Basic hex validation
+                                errorMessage = "Invalid private key format (must be 64 hex characters)"
+                                isLoading = false
+                                null // Indicate validation failure
+                            } else {
+                                walletManager.importWallet(privateKeyHex, password)
+                            }
+                        }
+                        else -> { // Should not happen
+                            errorMessage = "Invalid import type selected"
+                            isLoading = false
+                            null
+                        }
+                    }
+                    isLoading = false // Ensure loading is stopped even if result is null
+
+                    if (result != null) {
+                        if (result.success) {
+                            importedPublicKey = result.publicKey ?: ""
+                            showSuccessDialog = true
+                        } else {
+                            errorMessage = result.error ?: "Failed to import wallet"
                         }
                     }
                 },

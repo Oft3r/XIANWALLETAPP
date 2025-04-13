@@ -28,8 +28,10 @@ fun CreateWalletScreen(navController: NavController, walletManager: WalletManage
     var confirmPassword by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
-    var showSuccessDialog by remember { mutableStateOf(false) }
+    var showMnemonicDialog by remember { mutableStateOf(false) } // Renamed state
     var newPublicKey by remember { mutableStateOf("") }
+    var newMnemonicPhrase by remember { mutableStateOf("") } // Added state for mnemonic
+    var mnemonicAcknowledged by remember { mutableStateOf(false) } // State for backup confirmation
     
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -112,7 +114,9 @@ fun CreateWalletScreen(navController: NavController, walletManager: WalletManage
                             
                             if (result.success) {
                                 newPublicKey = result.publicKey ?: ""
-                                showSuccessDialog = true
+                                newMnemonicPhrase = result.mnemonicPhrase ?: "" // Store mnemonic
+                                mnemonicAcknowledged = false // Reset acknowledgment
+                                showMnemonicDialog = true // Show the mnemonic dialog
                             } else {
                                 errorMessage = result.error ?: "Failed to create wallet"
                             }
@@ -138,35 +142,57 @@ fun CreateWalletScreen(navController: NavController, walletManager: WalletManage
         }
         
         // Success dialog
-        if (showSuccessDialog) {
+        // Mnemonic Backup Dialog
+        if (showMnemonicDialog) {
             AlertDialog(
-                onDismissRequest = { },
-                title = { Text("Wallet Created") },
+                onDismissRequest = { /* Prevent dismissing without acknowledging */ },
+                title = { Text("IMPORTANT: Backup Your Phrase!") },
                 text = {
                     Column {
-                        Text("Your wallet has been created successfully!")
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("Your public address:")
                         Text(
-                            text = newPublicKey,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(top = 8.dp)
+                            "Your 24-word recovery phrase is the ONLY way to restore your wallet if you lose your device or uninstall the app.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.error // Emphasize importance
                         )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            "Write these words down in the correct order and store them in a secure, offline location. Never share them or store them digitally.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        // Display the phrase (Consider better formatting for readability)
+                        Text(
+                            text = newMnemonicPhrase,
+                            style = MaterialTheme.typography.bodyLarge, // Make phrase stand out
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = mnemonicAcknowledged,
+                                onCheckedChange = { mnemonicAcknowledged = it }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("I have securely backed up my recovery phrase.")
+                        }
                     }
                 },
                 confirmButton = {
                     Button(
                         onClick = {
-                            showSuccessDialog = false
+                            showMnemonicDialog = false
                             navController.navigate(XianDestinations.WALLET) {
                                 popUpTo(XianDestinations.WELCOME) { inclusive = true }
                             }
                         },
+                        enabled = mnemonicAcknowledged, // Enable button only after acknowledgment
                         colors = xianButtonColors(XianButtonType.PRIMARY)
                     ) {
-                        Text("Continue")
+                        Text("Continue to Wallet")
                     }
-                }
+                },
+                dismissButton = null // No dismiss button to force acknowledgment
             )
         }
     }
