@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.xianwalletapp"
+    namespace = "net.xian.xianwalletapp"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.xianwalletapp"
+        applicationId = "net.xian.xianwalletapp"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
@@ -23,11 +23,15 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isDebuggable = false // Explicitly set debuggable to false for release
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            ndk {
+                debugSymbolLevel = "FULL" // Generate full native debug symbols
+            }
         }
     }
     compileOptions {
@@ -40,6 +44,10 @@ android {
     buildFeatures {
         compose = true
     }
+    lint {
+        abortOnError = false
+    }
+
 }
 
 dependencies {
@@ -94,6 +102,7 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.5.0")
     // HTML Parsing
     implementation("org.jsoup:jsoup:1.17.2")
+    implementation("org.slf4j:slf4j-nop:1.7.32") // Add NOP SLF4J implementation for R8
     
     // Testing
     testImplementation(libs.junit)

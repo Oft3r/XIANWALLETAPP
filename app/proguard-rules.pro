@@ -19,3 +19,6 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Keep SLF4J binder class needed by dependencies like bitcoinj
+-keep class org.slf4j.impl.StaticLoggerBinder { *; }
