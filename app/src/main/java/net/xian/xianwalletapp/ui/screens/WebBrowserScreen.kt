@@ -64,6 +64,9 @@ import net.xian.xianwalletapp.data.FaviconCacheManager // Import the cache manag
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import kotlinx.coroutines.launch
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.border
 // TODO: Add import for actual Xian logo resource if available
 // import net.xian.xianwalletapp.R
 // import androidx.compose.ui.res.painterResource
@@ -161,174 +164,211 @@ fun DashboardContent(
     // State to hold the dynamically fetched favicon URLs, keyed by the app's main URL
     val faviconUrls = remember { mutableStateMapOf<String, String?>() }
 
+    // Define the gradient brush for the border (adjust colors as needed)
+    val borderBrush = Brush.horizontalGradient(
+        colors = listOf(Color(0xFFFFEB3B), Color(0xFF2196F3)) // Yellow and Blue
+    )
+
     // Main Column to hold both sections
     Column(
-        modifier = Modifier.fillMaxSize() // Remove verticalScroll from the outer Column
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp) // Add horizontal padding to the main column
+            .verticalScroll(rememberScrollState()) // Add vertical scroll to the main column
     ) {
         // --- Main XApps Section ---
         Text(
             text = "Main XApps",
             style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
+            modifier = Modifier.padding(top = 16.dp, bottom = 8.dp) // Adjust padding
         )
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 100.dp), // Adjust minSize as needed
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.fillMaxWidth() // Grid takes available width, height wraps content
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border( // Add the gradient border
+                    width = 2.dp,
+                    brush = borderBrush, // Use the updated brush
+                    shape = MaterialTheme.shapes.medium // Match shape with Card's shape
+                ),
+            shape = MaterialTheme.shapes.medium, // Use medium rounded corners
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp) // Add some elevation
         ) {
-            items(mainApps) { app -> // Use mainApps list here
-                // Fetch favicon URL: Check cache first, then fetch if needed
-                LaunchedEffect(app.url, faviconCacheManager) { // Add cache manager as key
-                    if (app.faviconUrl == null && !faviconUrls.containsKey(app.url)) {
-                        // 1. Check cache
-                        val cachedUrl = faviconCacheManager.getFaviconUrl(app.url)
-                        if (cachedUrl != null) {
-                            faviconUrls[app.url] = cachedUrl // Use cached URL
-                            Log.d("FaviconCache", "Using cached favicon for ${app.url}")
-                        } else {
-                            // 2. Fetch if not in cache
-                            Log.d("FaviconCache", "Fetching favicon for ${app.url}")
-                            faviconUrls[app.url] = null // Mark as fetching/default
-                            val fetchedUrl = fetchFaviconUrl(app.url)
-                            if (fetchedUrl != null) {
-                                faviconUrls[app.url] = fetchedUrl // Update state
-                                // 3. Save to cache after successful fetch
-                                faviconCacheManager.saveFaviconUrl(app.url, fetchedUrl)
-                                Log.d("FaviconCache", "Fetched and cached favicon for ${app.url}")
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 100.dp), // Adjust minSize as needed
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 300.dp) // Set a max height to prevent excessive growth if many items
+                    // .padding(16.dp) // Padding is now handled by contentPadding
+            ) {
+                items(mainApps) { app -> // Use mainApps list here
+                    // Fetch favicon URL: Check cache first, then fetch if needed
+                    LaunchedEffect(app.url, faviconCacheManager) { // Add cache manager as key
+                        if (app.faviconUrl == null && !faviconUrls.containsKey(app.url)) {
+                            // 1. Check cache
+                            val cachedUrl = faviconCacheManager.getFaviconUrl(app.url)
+                            if (cachedUrl != null) {
+                                faviconUrls[app.url] = cachedUrl // Use cached URL
+                                Log.d("FaviconCache", "Using cached favicon for ${app.url}")
                             } else {
-                                // Fetch failed, state remains null (triggers fallback)
-                                Log.w("FaviconCache", "Failed to fetch favicon for ${app.url}")
+                                // 2. Fetch if not in cache
+                                Log.d("FaviconCache", "Fetching favicon for ${app.url}")
+                                faviconUrls[app.url] = null // Mark as fetching/default
+                                val fetchedUrl = fetchFaviconUrl(app.url)
+                                if (fetchedUrl != null) {
+                                    faviconUrls[app.url] = fetchedUrl // Update state
+                                    // 3. Save to cache after successful fetch
+                                    faviconCacheManager.saveFaviconUrl(app.url, fetchedUrl)
+                                    Log.d("FaviconCache", "Fetched and cached favicon for ${app.url}")
+                                } else {
+                                    // Fetch failed, state remains null (triggers fallback)
+                                    Log.w("FaviconCache", "Failed to fetch favicon for ${app.url}")
+                                }
                             }
+                        } else if (app.faviconUrl != null) {
+                            // If manual faviconUrl is provided, ensure it's in the state map
+                            // (though Coil likely handles this fine, this ensures consistency if needed elsewhere)
+                            faviconUrls[app.url] = app.faviconUrl
                         }
-                    } else if (app.faviconUrl != null) {
-                        // If manual faviconUrl is provided, ensure it's in the state map
-                        // (though Coil likely handles this fine, this ensures consistency if needed elsewhere)
-                        faviconUrls[app.url] = app.faviconUrl
                     }
-                }
 
-                Column(
-                    modifier = Modifier
-                        .clickable { onShortcutClick(app.url) }
-                        .padding(8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    val placeholderPainter = rememberVectorPainter(image = app.icon)
-                    // Prioritize manual URL, then fetched URL, then placeholder
-                    val imageUrl = app.faviconUrl ?: faviconUrls[app.url]
-
-                    Image(
-                        painter = rememberAsyncImagePainter(
-                            model = imageUrl, // Use manual or fetched URL
-                            placeholder = placeholderPainter,
-                            error = placeholderPainter // Fallback to placeholder on error or if URL is null
-                        ),
-                        contentDescription = app.name,
-                        modifier = Modifier.size(64.dp) // Icon size
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = app.name,
-                        textAlign = TextAlign.Center,
-                        fontSize = 14.sp, // Text size
-                        maxLines = 1 // Ensure text doesn't wrap excessively
-                    )
-                }
-            }
-        } // End LazyVerticalGrid for Main XApps
-
-        // --- Favorite XApps Section ---
-        Text(
-            text = "Favorite XApps", // New title
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(start = 16.dp, top = 24.dp, bottom = 8.dp) // Added top padding
-        )
-        // TODO: Add LazyVerticalGrid or similar here for favorite apps later
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 100.dp),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.fillMaxWidth() // Grid takes available width, height wraps content
-                .heightIn(max = 300.dp) // Limit height to avoid pushing things too far, adjust as needed
-        ) {
-            items(favoriteApps) { app ->
-                // LaunchedEffect for favicon fetching (Apply same cache logic as main apps)
-                LaunchedEffect(app.url, faviconCacheManager) { // Add cache manager as key
-                    if (app.faviconUrl == null && !faviconUrls.containsKey(app.url)) {
-                        // 1. Check cache
-                        val cachedUrl = faviconCacheManager.getFaviconUrl(app.url)
-                        if (cachedUrl != null) {
-                            faviconUrls[app.url] = cachedUrl // Use cached URL
-                            Log.d("FaviconCache", "[Fav] Using cached favicon for ${app.url}")
-                        } else {
-                            // 2. Fetch if not in cache
-                            Log.d("FaviconCache", "[Fav] Fetching favicon for ${app.url}")
-                            faviconUrls[app.url] = null // Mark as fetching/default
-                            val fetchedUrl = fetchFaviconUrl(app.url)
-                            if (fetchedUrl != null) {
-                                faviconUrls[app.url] = fetchedUrl // Update state
-                                // 3. Save to cache after successful fetch
-                                faviconCacheManager.saveFaviconUrl(app.url, fetchedUrl)
-                                Log.d("FaviconCache", "[Fav] Fetched and cached favicon for ${app.url}")
-                            } else {
-                                // Fetch failed, state remains null (triggers fallback)
-                                Log.w("FaviconCache", "[Fav] Failed to fetch favicon for ${app.url}")
-                            }
-                        }
-                    } else if (app.faviconUrl != null) {
-                        faviconUrls[app.url] = app.faviconUrl
-                    }
-                }
-
-                // Box to overlay the remove button
-                Box {
                     Column(
                         modifier = Modifier
                             .clickable { onShortcutClick(app.url) }
-                            .padding(8.dp), // Add padding to Column so remove button doesn't overlap content too much
+                            .padding(8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
                         val placeholderPainter = rememberVectorPainter(image = app.icon)
+                        // Prioritize manual URL, then fetched URL, then placeholder
                         val imageUrl = app.faviconUrl ?: faviconUrls[app.url]
+
                         Image(
                             painter = rememberAsyncImagePainter(
-                                model = imageUrl,
+                                model = imageUrl, // Use manual or fetched URL
                                 placeholder = placeholderPainter,
-                                error = placeholderPainter
+                                error = placeholderPainter // Fallback to placeholder on error or if URL is null
                             ),
                             contentDescription = app.name,
-                            modifier = Modifier.size(64.dp)
+                            modifier = Modifier.size(64.dp) // Icon size
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = app.name,
                             textAlign = TextAlign.Center,
-                            fontSize = 14.sp,
-                            maxLines = 1
-                        )
-                    }
-                    // Remove Button - aligned to top-end
-                    IconButton(
-                        onClick = { onRemoveFavoriteClick(app) },
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(0.dp) // Adjust padding if needed
-                            .size(24.dp) // Make button small
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.RemoveCircleOutline,
-                            contentDescription = "Remove Favorite",
-                            tint = MaterialTheme.colorScheme.error // Use error color for remove
+                            fontSize = 14.sp, // Text size
+                            maxLines = 1 // Ensure text doesn't wrap excessively
                         )
                     }
                 }
-            }
-        }
+            } // End LazyVerticalGrid for Main XApps
+        } // End Card for Main XApps
+
+        // --- Favorite XApps Section ---
+        Text(
+            text = "Favorite XApps", // New title
+            style = MaterialTheme.typography.headlineMedium,
+            modifier = Modifier.padding(top = 24.dp, bottom = 8.dp) // Added top padding
+        )
+        Card(
+             modifier = Modifier
+                .fillMaxWidth()
+                .border( // Add the gradient border
+                    width = 2.dp,
+                    brush = borderBrush, // Use the updated brush
+                    shape = MaterialTheme.shapes.medium // Match shape with Card's shape
+                ),
+            shape = MaterialTheme.shapes.medium, // Use medium rounded corners
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp) // Add some elevation
+        ) {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 100.dp),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 300.dp) // Limit height
+                    // .padding(16.dp) // Padding is now handled by contentPadding
+            ) {
+                items(favoriteApps) { app ->
+                    // LaunchedEffect for favicon fetching (Apply same cache logic as main apps)
+                    LaunchedEffect(app.url, faviconCacheManager) { // Add cache manager as key
+                        if (app.faviconUrl == null && !faviconUrls.containsKey(app.url)) {
+                            // 1. Check cache
+                            val cachedUrl = faviconCacheManager.getFaviconUrl(app.url)
+                            if (cachedUrl != null) {
+                                faviconUrls[app.url] = cachedUrl // Use cached URL
+                                Log.d("FaviconCache", "[Fav] Using cached favicon for ${app.url}")
+                            } else {
+                                // 2. Fetch if not in cache
+                                Log.d("FaviconCache", "[Fav] Fetching favicon for ${app.url}")
+                                faviconUrls[app.url] = null // Mark as fetching/default
+                                val fetchedUrl = fetchFaviconUrl(app.url)
+                                if (fetchedUrl != null) {
+                                    faviconUrls[app.url] = fetchedUrl // Update state
+                                    // 3. Save to cache after successful fetch
+                                    faviconCacheManager.saveFaviconUrl(app.url, fetchedUrl)
+                                    Log.d("FaviconCache", "[Fav] Fetched and cached favicon for ${app.url}")
+                                } else {
+                                    // Fetch failed, state remains null (triggers fallback)
+                                    Log.w("FaviconCache", "[Fav] Failed to fetch favicon for ${app.url}")
+                                }
+                            }
+                        } else if (app.faviconUrl != null) {
+                            faviconUrls[app.url] = app.faviconUrl
+                        }
+                    }
+
+                    // Box to overlay the remove button
+                    Box {
+                        Column(
+                            modifier = Modifier
+                                .clickable { onShortcutClick(app.url) }
+                                .padding(8.dp), // Add padding to Column so remove button doesn't overlap content too much
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            val placeholderPainter = rememberVectorPainter(image = app.icon)
+                            val imageUrl = app.faviconUrl ?: faviconUrls[app.url]
+                            Image(
+                                painter = rememberAsyncImagePainter(
+                                    model = imageUrl,
+                                    placeholder = placeholderPainter,
+                                    error = placeholderPainter
+                                ),
+                                contentDescription = app.name,
+                                modifier = Modifier.size(64.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = app.name,
+                                textAlign = TextAlign.Center,
+                                fontSize = 14.sp,
+                                maxLines = 1
+                            )
+                        }
+                        // Remove Button - aligned to top-end
+                        IconButton(
+                            onClick = { onRemoveFavoriteClick(app) },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(0.dp) // Adjust padding if needed
+                                .size(24.dp) // Make button small
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.RemoveCircleOutline,
+                                contentDescription = "Remove Favorite",
+                                tint = MaterialTheme.colorScheme.error // Use error color for remove
+                            )
+                        }
+                    }
+                }
+            } // End LazyVerticalGrid for Favorite XApps
+        } // End Card for Favorite XApps
+        Spacer(modifier = Modifier.height(16.dp)) // Add space at the bottom
     } // End Main Column
 }
 

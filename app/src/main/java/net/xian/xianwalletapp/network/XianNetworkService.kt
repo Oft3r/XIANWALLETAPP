@@ -14,6 +14,12 @@ import java.math.BigDecimal
 import net.xian.xianwalletapp.crypto.XianCrypto
 import net.xian.xianwalletapp.wallet.WalletManager
 import com.google.gson.reflect.TypeToken // Needed for parsing list of arguments
+import java.time.Instant
+import java.time.LocalDateTime // Add import
+import java.time.ZoneOffset // Add import
+import java.time.format.DateTimeFormatter // Add import
+import java.time.format.DateTimeParseException
+
 /**
  * Service class for interacting with the Xian Network
  * Handles all network calls to the Xian RPC endpoints
@@ -844,6 +850,96 @@ class XianNetworkService private constructor(private val context: Context) {
         android.util.Log.d("XianNetworkService", "Finished fetching NFTs. Total found: ${nftInfoList.size}")
         return@withContext nftInfoList
     }
+
+    /**
+     * Fetches the XNS usernames owned by a specific public key (address).
+     * Uses GraphQL similar to the provided JavaScript example.
+     */
+    suspend fun getOwnedXnsNames(publicKey: String): List<String> = withContext(Dispatchers.IO) {
+        if (!checkNodeConnectivity()) {
+            android.util.Log.e("XianNetworkService", "No connection to node, cannot fetch owned XNS names.")
+            return@withContext emptyList()
+        }
+
+        val graphQLEndpoint = "$rpcUrl/graphql"
+        val prefix = "$XNS_CONTRACT_NAME.balances:$publicKey"
+        android.util.Log.d("XianNetworkService", "Fetching owned XNS names with prefix: $prefix")
+
+        // GraphQL query with prefix embedded directly, no variables
+        val query = """
+            query { # Removed named query and variable definition
+              allStates(
+                filter: {
+                  and: {
+                    key: { startsWith: "$prefix" } # Embed prefix directly
+                    value: { equalTo: "1" }
+                  }
+                }
+                first: 100 # Limit results for safety
+              ) {
+                edges {
+                  node {
+                    key
+                    value
+                  }
+                }
+              }
+            }
+        """.trimIndent()
+
+        // Remove variables JSONObject
+        // val variables = JSONObject().apply {
+        //     put("prefix", prefix)
+        // }
+
+        val requestBody = JSONObject().apply {
+            put("query", query)
+            // Remove variables from request body
+            // put("variables", variables)
+        }.toString()
+
+        val request = Request.Builder()
+            .url(graphQLEndpoint)
+            .post(okhttp3.RequestBody.create("application/json".toMediaTypeOrNull(), requestBody))
+            .build()
+
+        try {
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                android.util.Log.e("XianNetworkService", "Failed to fetch owned XNS names: ${response.code} ${response.message}")
+                return@withContext emptyList()
+            }
+
+            val responseBody = response.body?.string() ?: "{}"
+            android.util.Log.d("XianNetworkService", "Owned XNS Names Response: $responseBody")
+            val json = JSONObject(responseBody)
+            val edges = json.optJSONObject("data")?.optJSONObject("allStates")?.optJSONArray("edges")
+
+            val names = mutableListOf<String>()
+            if (edges != null) {
+                for (i in 0 until edges.length()) {
+                    val node = edges.getJSONObject(i)?.optJSONObject("node")
+                    val key = node?.optString("key")
+                    if (key != null) {
+                        // Key format: con_name_service_final.balances:<address>:<username>
+                        val parts = key.split(":")
+                        if (parts.size == 3) {
+                            val username = parts[2]
+                            if (username.isNotEmpty()) {
+                                names.add(username)
+                                android.util.Log.d("XianNetworkService", "Found owned XNS name: $username")
+                            }
+                        }
+                    }
+                }
+            }
+            return@withContext names.distinct() // Return distinct names
+        } catch (e: Exception) {
+            android.util.Log.e("XianNetworkService", "Error fetching/parsing owned XNS names: ${e.message}", e)
+            return@withContext emptyList()
+        }
+    }
+
 
     /**
      * Fetches the reserve balances for the XIAN/USDC pair (pair ID 1)
@@ -1693,6 +1789,114 @@ class XianNetworkService private constructor(private val context: Context) {
         } catch (e: Exception) {
             android.util.Log.e("XianNetworkService", "Error signing transaction: ${e.message}", e)
             throw e
+        }
+    }
+
+    /**
+     * Fetches the expiration times for a list of XNS usernames in a single GraphQL query.
+     *
+     * @param usernames The list of XNS names to check.
+     * @return A map where keys are usernames and values are their expiration Instants (or null if expired/not found/error).
+     */
+    suspend fun getXnsNameExpirationTimes(usernames: List<String>): Map<String, Instant?> = withContext(Dispatchers.IO) {
+        if (usernames.isEmpty()) {
+            android.util.Log.d("XianNetworkService", "getXnsNameExpirationTimes called with empty list.")
+            return@withContext emptyMap()
+        }
+        if (!checkNodeConnectivity()) {
+            android.util.Log.e("XianNetworkService", "No connection to node, cannot fetch XNS expiration times.")
+            return@withContext emptyMap()
+        }
+
+        val graphQLEndpoint = "$rpcUrl/graphql"
+        android.util.Log.d("XianNetworkService", "Fetching expiration times for ${usernames.size} XNS names.")
+
+        // Dynamically construct the 'or' filter conditions
+        val conditions = usernames.joinToString(", ") { name ->
+            // Escape the username just in case, although unlikely needed for typical XNS names
+            val escapedName = name // Basic placeholder, add real escaping if needed
+            "{ key: { equalTo: \"$XNS_CONTRACT_NAME.expiry_times:$escapedName\" } }"
+        }
+
+        // Construct the full GraphQL query
+        val query = """
+            query expiryDates {
+              allStates(
+                filter: { or: [ $conditions ] }
+                first: ${usernames.size} # Fetch up to the number of names requested
+              ) {
+                edges {
+                  node {
+                    key
+                    value # Expected format: ISO 8601 string like "2025-12-31T23:59:59Z"
+                  }
+                }
+              }
+            }
+        """.trimIndent()
+
+        val requestBody = JSONObject().apply {
+            put("query", query)
+        }.toString()
+
+        val request = Request.Builder()
+            .url(graphQLEndpoint)
+            .post(okhttp3.RequestBody.create("application/json".toMediaTypeOrNull(), requestBody))
+            .build()
+
+        try {
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                android.util.Log.e("XianNetworkService", "Failed to fetch XNS expiration times: ${response.code} ${response.message}")
+                return@withContext emptyMap()
+            }
+
+            val responseBody = response.body?.string() ?: "{}"
+            android.util.Log.d("XianNetworkService", "XNS Expiration Times Response: $responseBody")
+            val json = JSONObject(responseBody)
+            val edges = json.optJSONObject("data")?.optJSONObject("allStates")?.optJSONArray("edges")
+
+            val expirationMap = mutableMapOf<String, Instant?>()
+            if (edges != null) {
+                for (i in 0 until edges.length()) {
+                    val node = edges.getJSONObject(i)?.optJSONObject("node")
+                    val key = node?.optString("key")
+                    val value = node?.optString("value") // ISO 8601 date string
+
+                    if (key != null && value != null) {
+                        // Key format: con_name_service_final.expiry_times:<username>
+                        val parts = key.split(":")
+                        if (parts.size == 2 && parts[0] == "$XNS_CONTRACT_NAME.expiry_times") {
+                            val username = parts[1]
+                            try {
+                                // Define the formatter for the specific date format with microseconds
+                                val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSSSS")
+                                // Parse as LocalDateTime first
+                                val localDateTime = LocalDateTime.parse(value, formatter)
+                                // Assume UTC and convert to Instant
+                                val instant = localDateTime.toInstant(ZoneOffset.UTC)
+                                expirationMap[username] = instant
+                            } catch (e: DateTimeParseException) {
+                                android.util.Log.e("XianNetworkService", "Failed to parse expiration date '$value' for username '$username': ${e.message}")
+                                expirationMap[username] = null // Store null if parsing fails
+                            } catch (e: Exception) { // Catch other potential errors during conversion
+                                android.util.Log.e("XianNetworkService", "Error processing expiration date '$value' for username '$username': ${e.message}", e)
+                                expirationMap[username] = null
+                            }
+                        }
+                    }
+                }
+            }
+            // Ensure all requested usernames have an entry, even if not found in response (map to null)
+            usernames.forEach { name ->
+                if (!expirationMap.containsKey(name)) {
+                    expirationMap[name] = null
+                }
+            }
+            return@withContext expirationMap
+        } catch (e: Exception) {
+            android.util.Log.e("XianNetworkService", "Error fetching/parsing XNS expiration times: ${e.message}", e)
+            return@withContext emptyMap()
         }
     }
 }

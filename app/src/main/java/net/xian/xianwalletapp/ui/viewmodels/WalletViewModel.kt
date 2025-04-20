@@ -19,11 +19,15 @@ import org.json.JSONObject // Added import
 import java.math.BigDecimal // Added import
 import java.text.NumberFormat // For fee formatting
 import java.util.Locale // For fee formatting
+import java.time.Duration // Added for calculating remaining days
+import java.time.Instant // Already imported
 
 // Define default empty states
 private val EMPTY_TOKEN_INFO_MAP: Map<String, TokenInfo> = emptyMap()
 private val EMPTY_BALANCE_MAP: Map<String, Float> = emptyMap()
 private val EMPTY_NFT_LIST: List<NftInfo> = emptyList()
+private val EMPTY_XNS_NAME_LIST: List<String> = emptyList() // Added for XNS names
+private val EMPTY_XNS_EXPIRATIONS: Map<String, Long?> = emptyMap() // Added for expirations
 
 // --- Fee Estimation State ---
 sealed class FeeEstimationState {
@@ -60,6 +64,15 @@ class WalletViewModel(
 
     private val _nftList = MutableStateFlow<List<NftInfo>>(EMPTY_NFT_LIST)
     val nftList: StateFlow<List<NftInfo>> = _nftList.asStateFlow()
+
+    // --- State Flow for Owned XNS Names (VALID ONLY) ---
+    private val _ownedXnsNames = MutableStateFlow<List<String>>(EMPTY_XNS_NAME_LIST)
+    val ownedXnsNames: StateFlow<List<String>> = _ownedXnsNames.asStateFlow()
+
+    // --- State Flow for XNS Name Expirations (Remaining Days) ---
+    private val _xnsNameExpirations = MutableStateFlow<Map<String, Long?>>(EMPTY_XNS_EXPIRATIONS)
+    val xnsNameExpirations: StateFlow<Map<String, Long?>> = _xnsNameExpirations.asStateFlow()
+    // --- End of XNS States ---
 
     private val _displayedNftInfo = MutableStateFlow<NftInfo?>(null)
     val displayedNftInfo: StateFlow<NftInfo?> = _displayedNftInfo.asStateFlow()
@@ -109,6 +122,8 @@ class WalletViewModel(
                     if (activeKey != null && activeKey != _publicKey.value) {
                         _publicKey.value = activeKey // Update the ViewModel's public key state
                         hasLoadedInitialData = false // Reset flag to force reload for the new wallet
+                        _ownedXnsNames.value = EMPTY_XNS_NAME_LIST // Clear XNS names
+                        _xnsNameExpirations.value = EMPTY_XNS_EXPIRATIONS // Clear expirations
                         loadData(force = true) // Trigger data load for the new active wallet
                     } else if (activeKey == null && _publicKey.value.isNotEmpty()) {
                         // Handle case where all wallets might be deleted
@@ -118,6 +133,8 @@ class WalletViewModel(
                         _tokenInfoMap.value = EMPTY_TOKEN_INFO_MAP
                         _balanceMap.value = EMPTY_BALANCE_MAP
                         _nftList.value = EMPTY_NFT_LIST
+                        _ownedXnsNames.value = EMPTY_XNS_NAME_LIST // Clear XNS names
+                        _xnsNameExpirations.value = EMPTY_XNS_EXPIRATIONS // Clear expirations
                         _displayedNftInfo.value = null
                         _isLoading.value = false
                         _isNftLoading.value = false
@@ -448,20 +465,79 @@ class WalletViewModel(
                  Log.e("WalletViewModel", "Error fetching XIAN price info", e)
             }
 
-
-            // Fetch NFTs
+            // --- Fetch NFTs and XNS Names & Expirations ---
             var fetchedNfts: List<NftInfo> = emptyList()
+            var validXnsNames: List<String> = emptyList()
+            var xnsExpirationsMap: Map<String, Long?> = emptyMap()
+
             if (currentPublicKey.isNotEmpty()) {
+                // Fetch NFTs (existing code)
                 try {
                     fetchedNfts = networkService.getNfts(currentPublicKey)
                     Log.d("WalletViewModel", "Fetched ${fetchedNfts.size} NFTs")
                 } catch (e: Exception) {
                     Log.e("WalletViewModel", "Error fetching NFTs", e)
                 }
+
+                // Fetch ALL Owned XNS Names (potentially including expired)
+                var allOwnedXnsNames: List<String> = emptyList()
+                try {
+                    allOwnedXnsNames = networkService.getOwnedXnsNames(currentPublicKey)
+                    Log.d("WalletViewModel", "Fetched ${allOwnedXnsNames.size} potential XNS names")
+                } catch (e: Exception) {
+                    Log.e("WalletViewModel", "Error fetching initial owned XNS names", e)
+                }
+
+                // Fetch Expiration Times for the potential names
+                if (allOwnedXnsNames.isNotEmpty()) {
+                    try {
+                        val expirationInstantsMap = networkService.getXnsNameExpirationTimes(allOwnedXnsNames)
+                        Log.d("WalletViewModel", "Fetched expiration instants for ${expirationInstantsMap.size} names")
+
+                        val now = Instant.now()
+                        val tempValidNames = mutableListOf<String>()
+                        val tempExpirations = mutableMapOf<String, Long?>()
+
+                        expirationInstantsMap.forEach { (name, expirationInstant) ->
+                            if (expirationInstant != null && expirationInstant.isAfter(now)) {
+                                // Valid and not expired
+                                val remainingDuration = Duration.between(now, expirationInstant)
+                                val remainingDays = remainingDuration.toDays()
+                                tempValidNames.add(name)
+                                tempExpirations[name] = remainingDays
+                                Log.d("WalletViewModel", "XNS '$name' is valid. Expires in $remainingDays days.")
+                            } else {
+                                // Expired or error fetching expiration
+                                Log.d("WalletViewModel", "XNS '$name' is expired or expiration unknown (Instant: $expirationInstant)")
+                            }
+                        }
+                        validXnsNames = tempValidNames.sorted() // Keep the list sorted
+                        xnsExpirationsMap = tempExpirations
+
+                    } catch (e: Exception) {
+                        Log.e("WalletViewModel", "Error fetching or processing XNS expiration times", e)
+                        // Keep lists empty on error
+                        validXnsNames = emptyList()
+                        xnsExpirationsMap = emptyMap()
+                    }
+                } else {
+                     Log.d("WalletViewModel", "No potential XNS names found, skipping expiration check.")
+                }
+
             } else {
-                Log.w("WalletViewModel", "Cannot fetch NFTs, publicKey is empty.")
+                Log.w("WalletViewModel", "Cannot fetch NFTs or XNS names, publicKey is empty.")
             }
+
+            // Update State Flows
             _nftList.value = fetchedNfts
+            _ownedXnsNames.value = validXnsNames // Update with ONLY valid names
+            _xnsNameExpirations.value = xnsExpirationsMap // Update with remaining days
+
+            // --- Log fetched data ---
+            Log.d("WalletViewModel", "loadData results: NFTs=${fetchedNfts.size}, Valid XNS Names=${validXnsNames.size}")
+            Log.d("WalletViewModel", "_ownedXnsNames state updated to: ${_ownedXnsNames.value}")
+            Log.d("WalletViewModel", "_xnsNameExpirations state updated to: ${_xnsNameExpirations.value}")
+            // --- End Fetch NFTs and XNS Names & Expirations ---
 
             // Determine displayed NFT (only on first load or refresh)
              if (!hasLoadedInitialData || force) {

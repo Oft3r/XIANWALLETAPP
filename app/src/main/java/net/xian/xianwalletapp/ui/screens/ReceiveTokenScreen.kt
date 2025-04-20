@@ -6,7 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Share // Import Share icon
 import kotlinx.coroutines.launch
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -90,17 +90,28 @@ fun ReceiveTokenScreen(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = publicKey,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(16.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                Box(modifier = Modifier.fillMaxWidth()) { // Wrap content in a Box for overlay
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = publicKey,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(16.dp), // Keep padding for text
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = "Share Address",
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd) // Align to bottom right
+                            .padding(8.dp) // Add some padding from the edges
+                            .size(20.dp), // Adjust size as needed
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant // Use a subtle tint
                     )
                 }
             }

@@ -29,6 +29,14 @@ import kotlinx.coroutines.Job
 import java.math.BigDecimal
 import org.json.JSONObject // Needed for kwargs
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import coil.compose.AsyncImage
+import net.xian.xianwalletapp.R
+
 // Python smart contract template for a standard token
 private const val TOKEN_CONTRACT_TEMPLATE = """
 balances = Hash(default_value=0)
@@ -427,13 +435,32 @@ fun AdvancedScreen(
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
-                    OutlinedTextField(
-                        value = tokenLogoUrl,
-                        onValueChange = { tokenLogoUrl = it },
-                        label = { Text("Token Logo URL") },
+                    // Wrap the Logo URL field and the preview in a Row
+                    Row(
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                        singleLine = true
-                    )
+                        verticalAlignment = Alignment.CenterVertically // Align items vertically
+                    ) {
+                        OutlinedTextField(
+                            value = tokenLogoUrl,
+                            onValueChange = { tokenLogoUrl = it },
+                            label = { Text("Token Logo URL") },
+                            modifier = Modifier.weight(1f), // TextField takes available space
+                            singleLine = true
+                        )
+                        Spacer(modifier = Modifier.width(8.dp)) // Add space between field and image
+                        // Image Preview
+                        AsyncImage(
+                            model = tokenLogoUrl,
+                            contentDescription = "Token Logo Preview",
+                            modifier = Modifier
+                                .size(40.dp) // Set a small size for the preview
+                                .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape) // Add a background shape
+                                .clip(CircleShape),
+                            placeholder = painterResource(id = R.drawable.ic_launcher_foreground), // Placeholder image
+                            error = painterResource(id = R.drawable.ic_launcher_background), // Error image
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop // Crop image to fit
+                        )
+                    }
                     OutlinedTextField(
                         value = tokenWebsiteUrl,
                         onValueChange = { tokenWebsiteUrl = it },
@@ -456,7 +483,7 @@ fun AdvancedScreen(
                     // Create Token Action Buttons
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
+                        horizontalArrangement = Arrangement.Center // Center the remaining button
                     ) {
                         Button(
                             onClick = {
@@ -487,12 +514,7 @@ fun AdvancedScreen(
                                 Text("Create Token")
                             }
                         }
-                        Button(
-                            onClick = { navController.popBackStack() }, // Consider if Cancel should be here or global
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-                        ) {
-                            Text("Cancel Create") // Clarify button action
-                        }
+                        // Removed the "Cancel Create" Button
                     }
                 }
             } // End of Create Token Card

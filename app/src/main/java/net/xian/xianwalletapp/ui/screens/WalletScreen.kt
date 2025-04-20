@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Build // Import for Build icon
+import androidx.compose.material.icons.filled.Person // Import Person icon
 import androidx.compose.material3.*
 import androidx.compose.runtime.saveable.rememberSaveable // Import rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle // Import for state collection
@@ -104,6 +105,8 @@ fun WalletScreen(
     val isNodeConnected by viewModel.isNodeConnected.collectAsStateWithLifecycle()
     val isNftLoading by viewModel.isNftLoading.collectAsStateWithLifecycle() // Collect NFT loading state
     // val isCheckingConnection by viewModel.isCheckingConnection.collectAsStateWithLifecycle() // Optional: if needed for UI
+    val ownedXnsNames by viewModel.ownedXnsNames.collectAsStateWithLifecycle() // Collect owned XNS names
+    val xnsNameExpirations by viewModel.xnsNameExpirations.collectAsStateWithLifecycle() // Collect expirations
 
     // --- Local UI State (Dialogs, Snackbar, etc.) ---
     var showAddTokenDialog by remember { mutableStateOf(false) }
@@ -414,7 +417,7 @@ fun WalletScreen(
                     Tab(
                         selected = selectedTabIndex == 1,
                         onClick = { selectedTabIndex = 1 },
-                        text = { Text("NFTs") }
+                        text = { Text("Collectibles") } // Changed from "NFTs"
                     )
                     Tab(
                         selected = selectedTabIndex == 2,
@@ -498,16 +501,18 @@ fun WalletScreen(
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator()
                             }
-                        } else if (nftList.isEmpty()) {
+                        } else if (nftList.isEmpty() && ownedXnsNames.isEmpty()) { // Check both lists
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text(
-                                    text = "No NFTs found.",
+                                    text = "No NFTs or XNS Names found.", // Updated text
                                     textAlign = TextAlign.Center,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         } else {
-                            // Use LazyVerticalGrid for NFT list
+                            // Combine NFTs and XNS names for the grid
+                            val totalItems = nftList.size + ownedXnsNames.size
+
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(2), // Display 2 items per row
                                 modifier = Modifier.fillMaxSize(),
@@ -515,22 +520,36 @@ fun WalletScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp), // Add horizontal spacing
                                 verticalArrangement = Arrangement.spacedBy(8.dp) // Add vertical spacing
                             ) {
-                                items(nftList) { nft ->
-                                    NftItem(
-                                        nftInfo = nft,
-                                        onViewClick = { url ->
-                                            // Open the NFT view URL in a browser
-                                            try {
-                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                                context.startActivity(intent)
-                                            } catch (e: Exception) {
-                                                android.util.Log.e("WalletScreen", "Failed to open URL: $url", e)
-                                                coroutineScope.launch {
-                                                    snackbarHostState.showSnackbar("Could not open link")
+                                items(totalItems) { index ->
+                                    if (index < nftList.size) {
+                                        // Display NFT Item
+                                        val nft = nftList[index]
+                                        NftItem(
+                                            nftInfo = nft,
+                                            onViewClick = { url ->
+                                                // Open the NFT view URL in a browser
+                                                try {
+                                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                                    context.startActivity(intent)
+                                                } catch (e: Exception) {
+                                                    android.util.Log.e("WalletScreen", "Failed to open URL: $url", e)
+                                                    coroutineScope.launch {
+                                                        snackbarHostState.showSnackbar("Could not open link")
+                                                    }
                                                 }
                                             }
-                                        }
-                                    )
+                                        )
+                                    } else {
+                                        // Display XNS Name Item
+                                        val xnsIndex = index - nftList.size
+                                        val username = ownedXnsNames[xnsIndex]
+                                        val remainingDays = xnsNameExpirations[username] // Get remaining days
+                                        XnsNameItem(
+                                            username = username,
+                                            remainingDays = remainingDays, // Pass remaining days
+                                            navController = navController // Pass NavController
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -750,14 +769,15 @@ fun NftItem(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp),
+            // .padding(vertical = 8.dp) // Padding is handled by LazyVerticalGrid spacing
+            .height(300.dp), // Set a fixed height
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant // Slightly different background
         )
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxSize() // Fill the fixed height
                 .padding(16.dp)
         ) {
             // NFT Image
@@ -766,39 +786,37 @@ fun NftItem(
                 contentDescription = "${nftInfo.name} NFT Image",
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(180.dp) // Adjust height as needed
+                    .height(150.dp) // Adjusted height to fit within fixed card height
                     .clip(RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)), // Placeholder background
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                 error = painterResource(id = android.R.drawable.ic_menu_gallery) // Use standard gallery icon as fallback
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // NFT Name
             Text(
                 text = nftInfo.name,
                 fontWeight = FontWeight.Bold,
-                fontSize = 18.sp,
+                fontSize = 16.sp, // Slightly smaller font
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
 
             Spacer(modifier = Modifier.height(4.dp))
 
-
-
-// TransactionRecordItem moved below NftItem
             // NFT Description
             Text(
                 text = nftInfo.description,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 14.sp,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis
+                fontSize = 12.sp, // Slightly smaller font
+                maxLines = 2, // Limit lines to fit
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f) // Allow description to take available space
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // View Button
             Button(
@@ -814,6 +832,101 @@ fun NftItem(
     }
 }
 // --- End of NftItem Composable ---
+
+// --- XnsNameItem Composable ---
+@Composable
+fun XnsNameItem(
+    username: String,
+    remainingDays: Long?, // Add remainingDays parameter
+    navController: NavController // Add NavController parameter
+) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() } // Needed if showing snackbar on error
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            // .padding(vertical = 8.dp) // Padding is handled by LazyVerticalGrid spacing
+            .height(300.dp), // Set the same fixed height as NftItem
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant // Use similar background as NFTItem
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize() // Fill the fixed height
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally, // Center content
+            verticalArrangement = Arrangement.Center // Center content vertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Person, // Use a generic person/user icon
+                contentDescription = "XNS Name Icon",
+                modifier = Modifier
+                    .size(60.dp) // Adjusted size
+                    .padding(bottom = 8.dp),
+                tint = MaterialTheme.colorScheme.primary // Use primary color for the icon
+            )
+            Text(
+                text = username,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp, // Adjusted font size
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
+            )
+            // Optional: Add a small label
+            Text(
+                text = "XNS Name",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+
+            // Display Remaining Days
+            if (remainingDays != null) {
+                Text(
+                    text = "Expires in $remainingDays days",
+                    fontSize = 12.sp,
+                    color = if (remainingDays < 30) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, // Highlight if expiring soon
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            } else {
+                 // Optional: Show placeholder or nothing if days are null (shouldn't happen for valid names)
+                 Spacer(modifier = Modifier.height(18.dp)) // Keep spacing consistent
+            }
+
+            Spacer(modifier = Modifier.weight(1f)) // Pushes the button to the bottom
+
+            // Button to open XNS Domains link
+            Button(
+                onClick = {
+                    val url = "https://xns.domains/?name=$username"
+                    try {
+                        // URL Encode the URL before passing it as a navigation argument
+                        val encodedUrl = URLEncoder.encode(url, StandardCharsets.UTF_8.toString())
+                        // Navigate to the internal WebBrowserScreen
+                        navController.navigate("${XianDestinations.WEB_BROWSER}?url=$encodedUrl")
+                    } catch (e: Exception) {
+                        android.util.Log.e("XnsNameItem", "Failed to encode or navigate to URL: $url", e)
+                        coroutineScope.launch {
+                            // Consider showing a snackbar or toast
+                            // snackbarHostState.showSnackbar("Could not open link")
+                            android.widget.Toast.makeText(context, "Could not open link", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                modifier = Modifier.align(Alignment.CenterHorizontally) // Center button
+            ) {
+                Icon(Icons.Default.Language, contentDescription = "View", modifier = Modifier.size(ButtonDefaults.IconSize))
+                Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                Text("View")
+            }
+        }
+    }
+}
+// --- End of XnsNameItem Composable ---
 
 
 /**
