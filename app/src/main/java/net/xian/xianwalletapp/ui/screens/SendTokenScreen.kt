@@ -70,7 +70,11 @@ fun SendTokenScreen(
     symbol: String,
     // Inject ViewModel using the factory
     viewModel: WalletViewModel = viewModel(
-        factory = WalletViewModelFactory(WalletManager.getInstance(LocalContext.current), XianNetworkService.getInstance(LocalContext.current))
+        factory = WalletViewModelFactory(
+            context = LocalContext.current, // Pass context
+            walletManager = WalletManager.getInstance(LocalContext.current), // Pass WalletManager instance
+            networkService = XianNetworkService.getInstance(LocalContext.current) // Pass XianNetworkService instance
+        )
     )
 ) {
     val coroutineScope = rememberCoroutineScope()

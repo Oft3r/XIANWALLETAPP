@@ -30,8 +30,20 @@ import kotlinx.coroutines.withContext
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Language
 
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences // Import for catch block
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.map
+import java.io.IOException
+import androidx.datastore.core.DataStore // Import DataStore
+import androidx.annotation.Keep // Import @Keep
 
 // Data class specifically for storing favorite info (without non-serializable fields)
+@Keep // Add this annotation
 internal data class FavoriteXAppStorageInfo(
     val name: String,
     val url: String,
@@ -46,7 +58,10 @@ internal data class FavoriteXAppStorageInfo(
 class WalletManager private constructor(context: Context) {
     private val appContext = context.applicationContext
     private val crypto = XianCrypto.getInstance()
+    // SharedPreferences is still used for other settings for now
     private val prefs: SharedPreferences
+    // DataStore instance - Use the extension property defined in companion object
+    private val dataStore: DataStore<Preferences> = appContext.dataStore
     private var cachedPrivateKey: ByteArray? = null // Variable to cache the decrypted key
     // StateFlow to hold the currently active wallet's public key
     private val _activeWalletPublicKeyFlow = MutableStateFlow<String?>(null)
@@ -71,7 +86,10 @@ class WalletManager private constructor(context: Context) {
         private const val KEY_BIOMETRIC_PRIVATE_KEY_IV = "biometric_private_key_iv"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val BIOMETRIC_KEY_ALIAS = "xian_biometric_key"
-        private const val KEY_FAVORITE_XAPPS = "favorite_xapps_list" // Key for favorites
+        private const val KEY_FAVORITE_XAPPS = "favorite_xapps_list" // Restore for deprecated function
+
+        // DataStore Keys
+        private val FAVORITE_XAPPS_KEY = stringPreferencesKey("favorite_xapps_list_datastore") // New key for DataStore
 
         // Default token
         private const val DEFAULT_TOKEN = "currency"
@@ -88,6 +106,9 @@ class WalletManager private constructor(context: Context) {
                 instance ?: WalletManager(context).also { instance = it }
             }
         }
+
+        // Helper for DataStore initialization
+        private val Context.dataStore by preferencesDataStore(name = "xian_wallet_settings")
     }
 
     init {
@@ -106,6 +127,7 @@ class WalletManager private constructor(context: Context) {
         )
         // Initialize the StateFlow with the stored active key or the first available key
         _activeWalletPublicKeyFlow.value = readActiveWalletPublicKeyFromPrefs()
+        // dataStore is now initialized via property delegate
     }
 
     // Helper function to create wallet-specific preference keys
@@ -899,65 +921,114 @@ class WalletManager private constructor(context: Context) {
         }
     }
 
-    // --- Favorite XApps Persistence ---
+    // --- Favorite XApps Persistence (Using DataStore) ---
 
     private val gson = Gson() // Gson instance for serialization
 
-    /** Saves the list of favorite XApps to SharedPreferences asynchronously */
+    /** Saves the list of favorite XApps to DataStore asynchronously */
     suspend fun saveFavorites(favorites: List<net.xian.xianwalletapp.ui.screens.XAppInfo>) {
-        withContext(Dispatchers.IO) { // Perform file I/O on a background thread
-            try {
-                // Convert to storage-friendly format
-                val storageList = favorites.map {
-                    FavoriteXAppStorageInfo(name = it.name, url = it.url, faviconUrl = it.faviconUrl)
-                }
-                val jsonString = gson.toJson(storageList)
-                Log.d("WalletManager", "Attempting to save favorites JSON: $jsonString")
-                // Use commit() within IO context for synchronous save on this thread
-                val success = prefs.edit().putString(KEY_FAVORITE_XAPPS, jsonString).commit()
-                if (success) {
-                    Log.d("WalletManager", "Successfully saved ${storageList.size} favorites.")
-                } else {
-                    Log.w("WalletManager", "Failed to commit favorites save to SharedPreferences.")
-                }
-            } catch (e: Exception) {
-                Log.e("WalletManager", "Error saving favorites", e)
+        // No need for withContext(Dispatchers.IO), DataStore handles threading
+        try {
+            // Convert to storage-friendly format
+            val storageList = favorites.map {
+                FavoriteXAppStorageInfo(name = it.name, url = it.url, faviconUrl = it.faviconUrl)
             }
+            val jsonString = gson.toJson(storageList)
+            Log.d("WalletManager", "Attempting to save favorites JSON to DataStore: $jsonString")
+
+            // Use the class property dataStore
+            dataStore.edit { settings ->
+                settings[FAVORITE_XAPPS_KEY] = jsonString
+            }
+            Log.d("WalletManager", "Successfully saved ${storageList.size} favorites to DataStore.")
+
+        } catch (e: Exception) {
+            Log.e("WalletManager", "Error saving favorites to DataStore", e)
+            // Consider re-throwing or handling the exception appropriately
         }
     }
 
+    /** Loads the list of favorite XApps from DataStore as a Flow */
+    fun loadFavoritesFlow(): Flow<List<net.xian.xianwalletapp.ui.screens.XAppInfo>> {
+        // Use the class property dataStore
+        return dataStore.data
+            .catch { exception ->
+                // Handle read errors, e.g., IOException
+                Log.e("WalletManager", "Error reading favorites from DataStore", exception)
+                if (exception is IOException) {
+                    // Emit empty list or default value in case of error
+                    emit(emptyPreferences()) // Use imported emptyPreferences
+                } else {
+                    throw exception // Re-throw other exceptions
+                }
+            }
+            .map { preferences ->
+                val jsonString = preferences[FAVORITE_XAPPS_KEY]
+                Log.d("WalletManager", "Loading favorites JSON from DataStore: $jsonString")
+                if (jsonString != null) {
+                    try {
+                        // Define the type for Gson deserialization using the storage class
+                        val typeToken = object : TypeToken<List<FavoriteXAppStorageInfo>>() {}.type
+                        val loadedStorageList: List<FavoriteXAppStorageInfo> = gson.fromJson(jsonString, typeToken) ?: emptyList()
+
+                        // Convert back to the UI data class, adding default icon
+                        val uiList = loadedStorageList.map { storageInfo ->
+                            net.xian.xianwalletapp.ui.screens.XAppInfo(
+                                name = storageInfo.name,
+                                url = storageInfo.url,
+                                faviconUrl = storageInfo.faviconUrl,
+                                icon = androidx.compose.material.icons.Icons.Default.Language // Add default icon back
+                            )
+                        }
+                        Log.d("WalletManager", "Successfully loaded and mapped ${uiList.size} favorites from DataStore.")
+                        uiList
+                    } catch (e: Exception) {
+                        Log.e("WalletManager", "Error parsing favorites JSON from DataStore", e)
+                        emptyList<net.xian.xianwalletapp.ui.screens.XAppInfo>() // Return empty list on error
+                    }
+                } else {
+                    Log.d("WalletManager", "No saved favorites found in DataStore.")
+                    emptyList<net.xian.xianwalletapp.ui.screens.XAppInfo>() // Return empty list if no data saved
+                }
+            }
+    }
+
+    // Keep the old loadFavorites for now if needed elsewhere, but mark as deprecated or remove later
     /** Loads the list of favorite XApps from SharedPreferences asynchronously */
+    @Deprecated("Use loadFavoritesFlow instead", ReplaceWith("loadFavoritesFlow().firstOrNull() ?: emptyList()"))
     suspend fun loadFavorites(): List<net.xian.xianwalletapp.ui.screens.XAppInfo> {
-        return withContext(Dispatchers.IO) { // Perform file I/O on a background thread
-            val jsonString = prefs.getString(KEY_FAVORITE_XAPPS, null)
-            Log.d("WalletManager", "Loading favorites JSON: $jsonString")
+        // ... (Keep the old SharedPreferences implementation if strictly needed temporarily) ...
+        // ... or just return emptyList() if it's safe to remove completely ...
+         Log.w("WalletManager", "Deprecated loadFavorites() called. Switch to loadFavoritesFlow().")
+         return withContext(Dispatchers.IO) { // Perform file I/O on a background thread
+            val jsonString = prefs.getString(KEY_FAVORITE_XAPPS, null) // Use old key here (now restored)
+            Log.d("WalletManager", "[Deprecated] Loading favorites JSON: $jsonString")
             if (jsonString != null) {
                 try {
-                    // Define the type for Gson deserialization using the storage class
                     val typeToken = object : TypeToken<List<FavoriteXAppStorageInfo>>() {}.type
                     val loadedStorageList: List<FavoriteXAppStorageInfo> = gson.fromJson(jsonString, typeToken) ?: emptyList()
-
-                    // Convert back to the UI data class, adding default icon
                     val uiList = loadedStorageList.map { storageInfo ->
                         net.xian.xianwalletapp.ui.screens.XAppInfo(
                             name = storageInfo.name,
                             url = storageInfo.url,
                             faviconUrl = storageInfo.faviconUrl,
-                            icon = androidx.compose.material.icons.Icons.Default.Language // Add default icon back
+                            icon = androidx.compose.material.icons.Icons.Default.Language
                         )
                     }
-                    Log.d("WalletManager", "Successfully loaded and mapped ${uiList.size} favorites.")
+                    Log.d("WalletManager", "[Deprecated] Successfully loaded and mapped ${uiList.size} favorites.")
                     uiList
                 } catch (e: Exception) {
-                    Log.e("WalletManager", "Error parsing favorites JSON", e)
-                    emptyList<net.xian.xianwalletapp.ui.screens.XAppInfo>() // Return empty list on error
+                    Log.e("WalletManager", "[Deprecated] Error parsing favorites JSON", e)
+                    emptyList<net.xian.xianwalletapp.ui.screens.XAppInfo>()
                 }
             } else {
-                Log.d("WalletManager", "No saved favorites found.")
-                emptyList<net.xian.xianwalletapp.ui.screens.XAppInfo>() // Return empty list if no data saved
+                Log.d("WalletManager", "[Deprecated] No saved favorites found.")
+                emptyList<net.xian.xianwalletapp.ui.screens.XAppInfo>()
             }
         }
     }
+
+
 } // End of WalletManager class
 
 /**

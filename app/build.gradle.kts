@@ -2,6 +2,8 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    id("kotlin-kapt") // Add kotlin-kapt plugin
+    // KSP plugin temporarily disabled due to compatibility issues with Kotlin 2.0.21
 }
 
 android {
@@ -12,8 +14,8 @@ android {
         applicationId = "net.xian.xianwalletapp"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2 // Cambia este valor al nuevo código de versión
-        versionName = "1.1" // Cambia este valor a la nueva versión
+        versionCode = 5 // Cambia este valor al nuevo código de versión
+        versionName = "1.2.2" // Cambia este valor a la nueva versión
 
         // Aquí configuras el nombre del APK
         setProperty("archivesBaseName", "Xian Wallet-$versionName")
@@ -23,7 +25,7 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
+            isMinifyEnabled = false
             isDebuggable = false // Explicitly set debuggable to false for release
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -104,6 +106,14 @@ dependencies {
     implementation("org.jsoup:jsoup:1.17.2")
     implementation("org.slf4j:slf4j-nop:1.7.32") // Add NOP SLF4J implementation for R8
     
+    // Jetpack DataStore Preferences
+    implementation("androidx.datastore:datastore-preferences:1.1.1") // Use the latest stable version    // Room Persistence Library
+    val room_version = "2.6.1" // Use the latest stable version
+    implementation("androidx.room:room-runtime:$room_version")
+    kapt("androidx.room:room-compiler:$room_version") // Change this line
+    // Optional - Kotlin Extensions and Coroutines support for Room
+    implementation("androidx.room:room-ktx:$room_version")
+
     // Testing
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

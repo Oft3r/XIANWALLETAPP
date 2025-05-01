@@ -1,5 +1,6 @@
 package net.xian.xianwalletapp.ui.screens
 
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -74,6 +75,7 @@ import net.xian.xianwalletapp.ui.viewmodels.WalletViewModel // Import ViewModel
 import net.xian.xianwalletapp.ui.viewmodels.WalletViewModelFactory // Import ViewModelFactory
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import net.xian.xianwalletapp.data.db.NftCacheEntity // Import NftCacheEntity
 
 /**
  * Main wallet screen showing token balances and actions
@@ -82,11 +84,11 @@ import java.nio.charset.StandardCharsets
 @Composable
 fun WalletScreen(
     navController: NavController,
-    walletManager: WalletManager, // Keep for ViewModel creation if needed, or remove if injected
-    networkService: XianNetworkService, // Keep for ViewModel creation if needed, or remove if injected
+    walletManager: WalletManager, // Keep for ViewModel creation
+    networkService: XianNetworkService, // Keep for ViewModel creation
     // Obtain ViewModel instance
     viewModel: WalletViewModel = viewModel(
-        factory = WalletViewModelFactory(walletManager, networkService) // Assuming a simple factory for now
+        factory = WalletViewModelFactory(LocalContext.current, walletManager, networkService) // Pass context
     )
 ) {
     val context = LocalContext.current
@@ -94,17 +96,37 @@ fun WalletScreen(
     val coroutineScope = rememberCoroutineScope()
 
     // --- Collect State from ViewModel ---
-    val publicKey by viewModel.publicKey
+    val publicKey by viewModel.publicKey.collectAsStateWithLifecycle() // Changed to collect from StateFlow
     val tokens by viewModel.tokens.collectAsStateWithLifecycle()
     val tokenInfoMap by viewModel.tokenInfoMap.collectAsStateWithLifecycle()
     val balanceMap by viewModel.balanceMap.collectAsStateWithLifecycle()
     val xianPrice by viewModel.xianPrice.collectAsStateWithLifecycle()
-    val nftList by viewModel.nftList.collectAsStateWithLifecycle()
-    val displayedNftInfo by viewModel.displayedNftInfo.collectAsStateWithLifecycle()
+    
+    // Special handling for XIAN price - only load once at startup, not during refresh
+    // Store the first non-null price we receive
+    var staticXianPrice by remember { mutableStateOf<Float?>(null) }
+      // Effect to capture the first non-null XIAN price value
+    LaunchedEffect(Unit) {
+        // At component initialization, check if we need to load the price
+        if (staticXianPrice == null && xianPrice != null) {
+            staticXianPrice = xianPrice
+            Log.d("WalletScreen", "Captured initial XIAN price: $staticXianPrice")
+        }
+    }
+    
+    // Also observe price changes, but only update our static value if it's still null
+    LaunchedEffect(xianPrice) {
+        if (xianPrice != null && staticXianPrice == null) {
+            staticXianPrice = xianPrice
+            Log.d("WalletScreen", "Captured delayed XIAN price: $staticXianPrice")
+        }
+    }
+    
+    val nftList by viewModel.nftList.collectAsStateWithLifecycle() // Now collects List<NftCacheEntity>
+    val displayedNftInfo by viewModel.displayedNftInfo.collectAsStateWithLifecycle() // Now collects NftCacheEntity?
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val isNodeConnected by viewModel.isNodeConnected.collectAsStateWithLifecycle()
-    val isNftLoading by viewModel.isNftLoading.collectAsStateWithLifecycle() // Collect NFT loading state
-    // val isCheckingConnection by viewModel.isCheckingConnection.collectAsStateWithLifecycle() // Optional: if needed for UI
+    val isNftLoading by viewModel.isNftLoading.collectAsStateWithLifecycle()
     val ownedXnsNames by viewModel.ownedXnsNames.collectAsStateWithLifecycle() // Collect owned XNS names
     val xnsNameExpirations by viewModel.xnsNameExpirations.collectAsStateWithLifecycle() // Collect expirations
 
@@ -131,9 +153,10 @@ fun WalletScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         // NFT Image Preview Box (Clickable) & Dropdown
                         Box {
+                            // Use displayedNftInfo (NftCacheEntity?)
                             if (displayedNftInfo != null) {
                                 AsyncImage(
-                                    model = displayedNftInfo?.imageUrl,
+                                    model = displayedNftInfo?.imageUrl, // Use imageUrl from NftCacheEntity
                                     contentDescription = "Selected NFT Preview",
                                     modifier = Modifier
                                         .size(32.dp)
@@ -144,8 +167,7 @@ fun WalletScreen(
                                     error = painterResource(id = R.drawable.ic_launcher_background)
                                 )
                             } else if (nftList.isNotEmpty()) {
-                                // Show a placeholder if no NFT is selected but list is not empty
-                                // (e.g., if preferred NFT was removed) - Optional
+                                // Placeholder if no NFT selected but list is not empty
                                 Box(modifier = Modifier
                                     .size(32.dp)
                                     .background(Color.Gray, RoundedCornerShape(4.dp))
@@ -159,12 +181,13 @@ fun WalletScreen(
                                 expanded = showNftDropdown,
                                 onDismissRequest = { showNftDropdown = false }
                             ) {
+                                // Iterate over nftList (List<NftCacheEntity>)
                                 nftList.forEach { nft ->
                                     DropdownMenuItem(
                                         text = {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 AsyncImage(
-                                                    model = nft.imageUrl,
+                                                    model = nft.imageUrl, // Use imageUrl from NftCacheEntity
                                                     contentDescription = nft.name,
                                                     modifier = Modifier
                                                         .size(24.dp)
@@ -177,7 +200,7 @@ fun WalletScreen(
                                             }
                                         },
                                         onClick = {
-                                            viewModel.setPreferredNft(nft) // Use ViewModel
+                                            viewModel.setPreferredNft(nft) // Pass NftCacheEntity
                                             showNftDropdown = false // Close dropdown
                                             android.util.Log.d("WalletScreen", "Selected NFT: ${nft.contractAddress}")
                                         }
@@ -269,8 +292,8 @@ fun WalletScreen(
         }
     ) { paddingValues ->
         SwipeRefresh(
-            state = rememberSwipeRefreshState(isLoading),
-            onRefresh = { viewModel.refreshData() } // Call ViewModel refresh
+            state = rememberSwipeRefreshState(isLoading), // Use combined isLoading
+            onRefresh = { viewModel.refreshData() }
         ) {
             Column(
                 modifier = Modifier
@@ -303,18 +326,16 @@ fun WalletScreen(
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
 
-                        Spacer(modifier = Modifier.height(8.dp)) // Add space between label and balance
-
-                        // Display balance or loading indicator
-                        if (isLoading) {
+                        Spacer(modifier = Modifier.height(8.dp)) // Add space between label and balance                        // Display balance or loading indicator
+                        if (staticXianPrice == null) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(24.dp),
                                 strokeWidth = 2.dp,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         } else {
-                            // Display calculated price or placeholder
-                            val priceText = xianPrice?.let { "%.6f".format(it) } ?: "---" // Format to 6 decimals or show placeholder
+                            // Display the static price that doesn't update with refresh
+                            val priceText = staticXianPrice?.let { "%.6f".format(it) } ?: "---" // Format to 6 decimals or show placeholder
                             Text(
                                 text = priceText,
                                 fontSize = 40.sp, // Set specific larger font size
@@ -496,15 +517,20 @@ fun WalletScreen(
                         }
                     }
                     1 -> {
-                        // NFTs tab
-                        if (isNftLoading) {
+                        // Collectibles tab (NFTs and XNS Names)
+
+                        // *** ADD LOGGING HERE ***
+                        Log.d("WalletScreen", "Collectibles Tab: nftList size = ${nftList.size}, ownedXnsNames size = ${ownedXnsNames.size}")
+
+                        // Use isNftLoading for this specific section's loading state
+                        if (isNftLoading && nftList.isEmpty() && ownedXnsNames.isEmpty()) { // Check both lists for initial loading
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator()
                             }
-                        } else if (nftList.isEmpty() && ownedXnsNames.isEmpty()) { // Check both lists
+                        } else if (nftList.isEmpty() && ownedXnsNames.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text(
-                                    text = "No NFTs or XNS Names found.", // Updated text
+                                    text = "No Collectibles found.", // Updated text
                                     textAlign = TextAlign.Center,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -514,42 +540,49 @@ fun WalletScreen(
                             val totalItems = nftList.size + ownedXnsNames.size
 
                             LazyVerticalGrid(
-                                columns = GridCells.Fixed(2), // Display 2 items per row
+                                columns = GridCells.Fixed(2),
                                 modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(bottom = 80.dp), // Add padding for FAB
-                                horizontalArrangement = Arrangement.spacedBy(8.dp), // Add horizontal spacing
-                                verticalArrangement = Arrangement.spacedBy(8.dp) // Add vertical spacing
+                                contentPadding = PaddingValues(bottom = 80.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                items(totalItems) { index ->
-                                    if (index < nftList.size) {
-                                        // Display NFT Item
-                                        val nft = nftList[index]
-                                        NftItem(
-                                            nftInfo = nft,
-                                            onViewClick = { url ->
-                                                // Open the NFT view URL in a browser
+                                // Render NFTs first
+                                items(nftList) { nft ->
+                                    NftItem(
+                                        nftInfo = nft,
+                                        onViewClick = { url ->
+                                            url?.let {
                                                 try {
-                                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(it))
                                                     context.startActivity(intent)
                                                 } catch (e: Exception) {
-                                                    android.util.Log.e("WalletScreen", "Failed to open URL: $url", e)
                                                     coroutineScope.launch {
-                                                        snackbarHostState.showSnackbar("Could not open link")
+                                                        snackbarHostState.showSnackbar("Could not open URL: ${e.message}")
                                                     }
                                                 }
                                             }
-                                        )
-                                    } else {
-                                        // Display XNS Name Item
-                                        val xnsIndex = index - nftList.size
-                                        val username = ownedXnsNames[xnsIndex]
-                                        val remainingDays = xnsNameExpirations[username] // Get remaining days
-                                        XnsNameItem(
-                                            username = username,
-                                            remainingDays = remainingDays, // Pass remaining days
-                                            navController = navController // Pass NavController
-                                        )
+                                        }
+                                    )
+                                }
+
+                                // Render XNS Names after NFTs
+                                items(ownedXnsNames) { xnsName ->
+                                     // *** ADD LOGGING HERE (Optional) ***
+                                     // Log.d("WalletScreen", "Rendering XnsNameItem for: $xnsName")
+                                    val expiration = xnsNameExpirations[xnsName]
+                                    // Calculate remaining days from expiration Instant
+                                    val remainingDays = expiration?.let {
+                                        val now = java.time.Instant.now()
+                                        // Use Instant.ofEpochSecond to convert Long to Instant
+                                        val expirationInstant = java.time.Instant.ofEpochSecond(it)
+                                        val duration = java.time.Duration.between(now, expirationInstant)
+                                        duration.toDays().coerceAtLeast(0) // Ensure non-negative days
                                     }
+                                    XnsNameItem(
+                                        navController = navController, // Pass NavController
+                                        username = xnsName, // Corrected parameter name
+                                        remainingDays = remainingDays // Corrected parameter name and pass calculated value
+                                    )
                                 }
                             }
                         }
@@ -760,46 +793,45 @@ fun TokenItem(
 }
 
 
-// --- NftItem Composable ---
+// --- NftItem Composable --- Updated to use NftCacheEntity
 @Composable
 fun NftItem(
-    nftInfo: NftInfo,
-    onViewClick: (String) -> Unit
+    nftInfo: NftCacheEntity, // Changed type to NftCacheEntity
+    onViewClick: (String?) -> Unit // Accept nullable String for URL
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            // .padding(vertical = 8.dp) // Padding is handled by LazyVerticalGrid spacing
-            .height(300.dp), // Set a fixed height
+            .height(300.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant // Slightly different background
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
         )
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize() // Fill the fixed height
+                .fillMaxSize()
                 .padding(16.dp)
         ) {
             // NFT Image
             AsyncImage(
-                model = nftInfo.imageUrl,
+                model = nftInfo.imageUrl, // Use imageUrl from NftCacheEntity
                 contentDescription = "${nftInfo.name} NFT Image",
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(150.dp) // Adjusted height to fit within fixed card height
+                    .height(150.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)), // Placeholder background
+                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)),
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                error = painterResource(id = android.R.drawable.ic_menu_gallery) // Use standard gallery icon as fallback
+                error = painterResource(id = android.R.drawable.ic_menu_gallery)
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
             // NFT Name
             Text(
-                text = nftInfo.name,
+                text = nftInfo.name, // Use name from NftCacheEntity
                 fontWeight = FontWeight.Bold,
-                fontSize = 16.sp, // Slightly smaller font
+                fontSize = 16.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -808,21 +840,22 @@ fun NftItem(
 
             // NFT Description
             Text(
-                text = nftInfo.description,
+                text = nftInfo.description ?: "", // Use description from NftCacheEntity, provide default
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp, // Slightly smaller font
-                maxLines = 2, // Limit lines to fit
+                fontSize = 12.sp,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f) // Allow description to take available space
+                modifier = Modifier.weight(1f)
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
             // View Button
             Button(
-                onClick = { onViewClick(nftInfo.viewUrl) },
+                onClick = { onViewClick(nftInfo.viewUrl) }, // Pass viewUrl from NftCacheEntity
                 modifier = Modifier.align(Alignment.End),
-                colors = ButtonDefaults.buttonColors() // TODO: Revert to xianButtonColors if definition is correct
+                enabled = nftInfo.viewUrl != null // Disable button if URL is null
+                // colors = ButtonDefaults.buttonColors() // Use default or xianButtonColors
             ) {
                 Icon(Icons.Default.Visibility, contentDescription = "View NFT", modifier = Modifier.size(ButtonDefaults.IconSize))
                 Spacer(Modifier.size(ButtonDefaults.IconSpacing))

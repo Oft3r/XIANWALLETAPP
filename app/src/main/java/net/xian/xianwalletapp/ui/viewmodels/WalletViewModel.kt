@@ -5,7 +5,9 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import net.xian.xianwalletapp.network.NftInfo
+import net.xian.xianwalletapp.network.NftInfo // Keep for network response
+import net.xian.xianwalletapp.data.db.NftCacheDao // Import DAO
+import net.xian.xianwalletapp.data.db.NftCacheEntity // Import Entity
 import net.xian.xianwalletapp.network.TokenInfo
 import net.xian.xianwalletapp.network.XianNetworkService
 import net.xian.xianwalletapp.wallet.WalletManager
@@ -14,6 +16,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.flatMapLatest // Import flatMapLatest
+import kotlinx.coroutines.flow.flowOf // Import flowOf
 import kotlinx.coroutines.launch
 import org.json.JSONObject // Added import
 import java.math.BigDecimal // Added import
@@ -25,7 +31,8 @@ import java.time.Instant // Already imported
 // Define default empty states
 private val EMPTY_TOKEN_INFO_MAP: Map<String, TokenInfo> = emptyMap()
 private val EMPTY_BALANCE_MAP: Map<String, Float> = emptyMap()
-private val EMPTY_NFT_LIST: List<NftInfo> = emptyList()
+// private val EMPTY_NFT_LIST: List<NftInfo> = emptyList() // Replaced by Flow
+private val EMPTY_NFT_CACHE_LIST: List<NftCacheEntity> = emptyList() // Default for Flow
 private val EMPTY_XNS_NAME_LIST: List<String> = emptyList() // Added for XNS names
 private val EMPTY_XNS_EXPIRATIONS: Map<String, Long?> = emptyMap() // Added for expirations
 
@@ -40,11 +47,12 @@ sealed class FeeEstimationState {
 
 class WalletViewModel(
     private val walletManager: WalletManager,
-    private val networkService: XianNetworkService
+    private val networkService: XianNetworkService,
+    private val nftCacheDao: NftCacheDao // Add DAO as dependency
 ) : ViewModel() {
 
-    private val _publicKey = mutableStateOf(walletManager.getPublicKey() ?: "")
-    val publicKey: State<String> = _publicKey
+    private val _publicKeyFlow = MutableStateFlow(walletManager.getActiveWalletPublicKey() ?: "") // Use a Flow for publicKey
+    val publicKey: StateFlow<String> = _publicKeyFlow.asStateFlow()
 
     // --- State Flows for UI ---
     private val _tokens = MutableStateFlow(walletManager.getTokenList().toList().sortedWith(compareBy<String> { it != "currency" }.thenBy { it }))
@@ -62,8 +70,21 @@ class WalletViewModel(
     private val _xianPrice = MutableStateFlow<Float?>(null)
     val xianPrice: StateFlow<Float?> = _xianPrice.asStateFlow()
 
-    private val _nftList = MutableStateFlow<List<NftInfo>>(EMPTY_NFT_LIST)
-    val nftList: StateFlow<List<NftInfo>> = _nftList.asStateFlow()
+    // --- NFT List Flow from Database --- //
+    // Use flatMapLatest to switch the underlying Flow when the public key changes
+    val nftList: StateFlow<List<NftCacheEntity>> = _publicKeyFlow.flatMapLatest { key ->
+        if (key.isNotEmpty()) {
+            Log.d("WalletViewModel", "Subscribing to NFT cache for key: $key")
+            nftCacheDao.getNftsByOwner(key)
+        } else {
+            Log.d("WalletViewModel", "Public key is empty, providing empty NFT list flow.")
+            flowOf(EMPTY_NFT_CACHE_LIST) // Return a flow with an empty list if key is empty
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000), // Keep subscribed for 5s after last observer
+        initialValue = EMPTY_NFT_CACHE_LIST // Initial value before flow emits
+    )
 
     // --- State Flow for Owned XNS Names (VALID ONLY) ---
     private val _ownedXnsNames = MutableStateFlow<List<String>>(EMPTY_XNS_NAME_LIST)
@@ -74,8 +95,11 @@ class WalletViewModel(
     val xnsNameExpirations: StateFlow<Map<String, Long?>> = _xnsNameExpirations.asStateFlow()
     // --- End of XNS States ---
 
-    private val _displayedNftInfo = MutableStateFlow<NftInfo?>(null)
-    val displayedNftInfo: StateFlow<NftInfo?> = _displayedNftInfo.asStateFlow()
+    // --- Displayed NFT Info --- //
+    // This needs adjustment. It should probably react to changes in nftList and preferred contract.
+    // For simplicity now, we'll update it within loadData, but a more reactive approach is better.
+    private val _displayedNftInfo = MutableStateFlow<NftCacheEntity?>(null) // Changed type to NftCacheEntity
+    val displayedNftInfo: StateFlow<NftCacheEntity?> = _displayedNftInfo.asStateFlow()
 
     private val _isLoading = MutableStateFlow(true) // Combined loading state for tokens/price
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -109,7 +133,7 @@ class WalletViewModel(
     init {
         // Observe the active wallet public key flow from WalletManager
         // Ensure the initial public key state is set correctly
-        _publicKey.value = walletManager.getActiveWalletPublicKey() ?: ""
+        _publicKeyFlow.value = walletManager.getActiveWalletPublicKey() ?: ""
 
         // Observe the active wallet public key flow for CHANGES
         viewModelScope.launch {
@@ -119,25 +143,26 @@ class WalletViewModel(
 
                 // Only react to changes *after* the initial state is processed
                 if (!isInitialValue) {
-                    if (activeKey != null && activeKey != _publicKey.value) {
-                        _publicKey.value = activeKey // Update the ViewModel's public key state
+                    val newKey = activeKey ?: ""
+                    val currentKey = _publicKeyFlow.value
+                    if (newKey != currentKey) {
+                        _publicKeyFlow.value = newKey // Update the ViewModel's public key flow
                         hasLoadedInitialData = false // Reset flag to force reload for the new wallet
                         _ownedXnsNames.value = EMPTY_XNS_NAME_LIST // Clear XNS names
                         _xnsNameExpirations.value = EMPTY_XNS_EXPIRATIONS // Clear expirations
-                        loadData(force = true) // Trigger data load for the new active wallet
-                    } else if (activeKey == null && _publicKey.value.isNotEmpty()) {
-                        // Handle case where all wallets might be deleted
-                        Log.w("WalletViewModel", "Active wallet key became null.")
-                        _publicKey.value = ""
-                        _tokens.value = emptyList()
-                        _tokenInfoMap.value = EMPTY_TOKEN_INFO_MAP
-                        _balanceMap.value = EMPTY_BALANCE_MAP
-                        _nftList.value = EMPTY_NFT_LIST
-                        _ownedXnsNames.value = EMPTY_XNS_NAME_LIST // Clear XNS names
-                        _xnsNameExpirations.value = EMPTY_XNS_EXPIRATIONS // Clear expirations
-                        _displayedNftInfo.value = null
-                        _isLoading.value = false
-                        _isNftLoading.value = false
+                        // No need to clear _nftList, the flatMapLatest will switch the source Flow
+                        _displayedNftInfo.value = null // Clear displayed NFT
+                        if (newKey.isNotEmpty()) {
+                            loadData(force = true) // Trigger data load for the new active wallet
+                        } else {
+                            // Handle case where all wallets might be deleted
+                            Log.w("WalletViewModel", "Active wallet key became null.")
+                            _tokens.value = emptyList()
+                            _tokenInfoMap.value = EMPTY_TOKEN_INFO_MAP
+                            _balanceMap.value = EMPTY_BALANCE_MAP
+                            _isLoading.value = false
+                            _isNftLoading.value = false
+                        }
                     }
                 }
                 isInitialValue = false // Mark initial value as processed
@@ -159,7 +184,8 @@ class WalletViewModel(
         loadData(force = true)
     }
 
-    fun setPreferredNft(nft: NftInfo) {
+    // Updated to accept NftCacheEntity
+    fun setPreferredNft(nft: NftCacheEntity) {
         _displayedNftInfo.value = nft
         walletManager.setPreferredNftContract(nft.contractAddress)
         Log.d("WalletViewModel", "Preferred NFT set to: ${nft.contractAddress}")
@@ -319,8 +345,8 @@ class WalletViewModel(
     fun requestFeeEstimation(contract: String, recipientAddress: String, amount: String) {
         viewModelScope.launch {
             _estimatedFeeState.value = FeeEstimationState.Loading
-            val senderPublicKey = _publicKey.value
-            if (senderPublicKey.isBlank()) {
+            val senderPublicKey = walletManager.getPublicKey() // Get public key from WalletManager
+            if (senderPublicKey.isNullOrBlank()) { // Check for null or blank
                 Log.e("WalletViewModel", "Cannot estimate fee: Sender public key is blank.")
                 _estimatedFeeState.value = FeeEstimationState.Failure
                 return@launch
@@ -398,48 +424,50 @@ class WalletViewModel(
     // --- Private Data Loading Logic ---
 
     private fun loadDataIfNotLoaded() {
-        if (!hasLoadedInitialData) {
-            Log.d("WalletViewModel", "Initial data load triggered.")
+        if (!hasLoadedInitialData && _publicKeyFlow.value.isNotEmpty()) { // Only load if key exists
+            Log.d("WalletViewModel", "Initial data load triggered for key: ${_publicKeyFlow.value}")
             loadData(force = false)
         } else {
-             Log.d("WalletViewModel", "Skipping initial data load, already loaded.")
-             // Ensure loading state is false if we skip loading
+             Log.d("WalletViewModel", "Skipping initial data load. Already loaded or public key empty.")
              _isLoading.value = false
-
              _isNftLoading.value = false
         }
     }
 
     private fun loadData(force: Boolean) {
-        // Only proceed if forced or if initial data hasn't been loaded
+        val currentPublicKey = _publicKeyFlow.value
+        if (currentPublicKey.isEmpty()) {
+            Log.w("WalletViewModel", "Skipping loadData, public key is empty.")
+            _isLoading.value = false // Ensure loading stops if key becomes empty during load
+            _isNftLoading.value = false
+            return
+        }
+
         if (!force && hasLoadedInitialData) {
             Log.d("WalletViewModel", "Skipping loadData, already loaded and not forced.")
             return
         }
 
         viewModelScope.launch {
-            // Ensure we always fetch the token list for the *current* active wallet
             _tokens.value = walletManager.getTokenList().toList().sortedWith(compareBy<String> { it != "currency" }.thenBy { it })
-            Log.d("WalletViewModel", "loadData: Updated token list for active wallet ${_publicKey.value}: ${_tokens.value}")
+            Log.d("WalletViewModel", "loadData: Updated token list for active wallet $currentPublicKey: ${_tokens.value}")
 
-            Log.d("WalletViewModel", "Starting data fetch (force=$force)")
+            Log.d("WalletViewModel", "Starting data fetch (force=$force) for key: $currentPublicKey")
 
             _isLoading.value = true
-            _isNftLoading.value = true // Assume NFTs load with other data for simplicity now
+            _isNftLoading.value = true // Keep separate NFT loading state for now
 
-            // Check connectivity first
+            // Check connectivity
             _isCheckingConnection.value = true
             _isNodeConnected.value = networkService.checkNodeConnectivity()
             _isCheckingConnection.value = false
             Log.d("WalletViewModel", "Node connectivity check result: ${_isNodeConnected.value}")
 
-
             val currentTokens = _tokens.value
-            val currentPublicKey = _publicKey.value
             val newTokenInfoMap = mutableMapOf<String, TokenInfo>()
             val newBalanceMap = mutableMapOf<String, Float>()
 
-            // Fetch Tokens
+            // Fetch Tokens (unchanged)
             currentTokens.forEach { contract ->
                 try {
                     val tokenInfo = networkService.getTokenInfo(contract)
@@ -455,7 +483,7 @@ class WalletViewModel(
             _tokenInfoMap.value = newTokenInfoMap
             _balanceMap.value = newBalanceMap
 
-            // Fetch XIAN price info
+            // Fetch XIAN price info (unchanged)
             try {
                 val priceInfo = networkService.getXianPriceInfo()
                 _xianPriceInfo.value = priceInfo
@@ -465,94 +493,94 @@ class WalletViewModel(
                  Log.e("WalletViewModel", "Error fetching XIAN price info", e)
             }
 
-            // --- Fetch NFTs and XNS Names & Expirations ---
-            var fetchedNfts: List<NftInfo> = emptyList()
+            // --- Fetch NFTs and XNS Names & Expirations --- //
+            var fetchedNetworkNfts: List<NftInfo> = emptyList()
             var validXnsNames: List<String> = emptyList()
             var xnsExpirationsMap: Map<String, Long?> = emptyMap()
 
-            if (currentPublicKey.isNotEmpty()) {
-                // Fetch NFTs (existing code)
-                try {
-                    fetchedNfts = networkService.getNfts(currentPublicKey)
-                    Log.d("WalletViewModel", "Fetched ${fetchedNfts.size} NFTs")
-                } catch (e: Exception) {
-                    Log.e("WalletViewModel", "Error fetching NFTs", e)
+            // Fetch NFTs from Network
+            try {
+                fetchedNetworkNfts = networkService.getNfts(currentPublicKey)
+                Log.d("WalletViewModel", "Fetched ${fetchedNetworkNfts.size} NFTs from network for $currentPublicKey")
+
+                // --- Update Room Database --- //
+                val nftEntities = fetchedNetworkNfts.map { nftInfo ->
+                    NftCacheEntity(
+                        contractAddress = nftInfo.contractAddress,
+                        ownerPublicKey = currentPublicKey, // Associate with current wallet
+                        name = nftInfo.name,
+                        description = nftInfo.description,
+                        imageUrl = nftInfo.imageUrl,
+                        viewUrl = nftInfo.viewUrl
+                    )
                 }
+                // Insert or update fetched NFTs
+                nftCacheDao.insertOrUpdateNfts(nftEntities)
+                Log.d("WalletViewModel", "Inserted/Updated ${nftEntities.size} NFTs into cache for $currentPublicKey")
 
-                // Fetch ALL Owned XNS Names (potentially including expired)
-                var allOwnedXnsNames: List<String> = emptyList()
-                try {
-                    allOwnedXnsNames = networkService.getOwnedXnsNames(currentPublicKey)
-                    Log.d("WalletViewModel", "Fetched ${allOwnedXnsNames.size} potential XNS names")
-                } catch (e: Exception) {
-                    Log.e("WalletViewModel", "Error fetching initial owned XNS names", e)
-                }
+                // Delete NFTs from cache that are no longer associated with the owner
+                val currentNftContracts = fetchedNetworkNfts.map { it.contractAddress }
+                nftCacheDao.deleteOrphanedNfts(currentPublicKey, currentNftContracts)
+                Log.d("WalletViewModel", "Deleted orphaned NFTs from cache for $currentPublicKey")
+                // --- Room Update Complete --- //
 
-                // Fetch Expiration Times for the potential names
-                if (allOwnedXnsNames.isNotEmpty()) {
-                    try {
-                        val expirationInstantsMap = networkService.getXnsNameExpirationTimes(allOwnedXnsNames)
-                        Log.d("WalletViewModel", "Fetched expiration instants for ${expirationInstantsMap.size} names")
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error fetching NFTs from network or updating cache for $currentPublicKey", e)
+                // Don't clear local cache on network error, just log it.
+                // The UI will continue showing the last cached data.
+            }
 
-                        val now = Instant.now()
-                        val tempValidNames = mutableListOf<String>()
-                        val tempExpirations = mutableMapOf<String, Long?>()
-
-                        expirationInstantsMap.forEach { (name, expirationInstant) ->
-                            if (expirationInstant != null && expirationInstant.isAfter(now)) {
-                                // Valid and not expired
-                                val remainingDuration = Duration.between(now, expirationInstant)
-                                val remainingDays = remainingDuration.toDays()
-                                tempValidNames.add(name)
-                                tempExpirations[name] = remainingDays
-                                Log.d("WalletViewModel", "XNS '$name' is valid. Expires in $remainingDays days.")
-                            } else {
-                                // Expired or error fetching expiration
-                                Log.d("WalletViewModel", "XNS '$name' is expired or expiration unknown (Instant: $expirationInstant)")
-                            }
-                        }
-                        validXnsNames = tempValidNames.sorted() // Keep the list sorted
-                        xnsExpirationsMap = tempExpirations
-
-                    } catch (e: Exception) {
-                        Log.e("WalletViewModel", "Error fetching or processing XNS expiration times", e)
-                        // Keep lists empty on error
-                        validXnsNames = emptyList()
-                        xnsExpirationsMap = emptyMap()
+            // Fetch XNS Names
+            try {
+                validXnsNames = networkService.getOwnedXnsNames(currentPublicKey)
+                // *** ADD LOGGING HERE ***
+                Log.d("WalletViewModel", "Fetched ${validXnsNames.size} XNS names for $currentPublicKey: $validXnsNames")
+                if (validXnsNames.isNotEmpty()) {
+                    // Fetch expirations only if names were found
+                    val expirations = networkService.getXnsNameExpirationTimes(validXnsNames)
+                    // Convert Instant? to epoch seconds Long?
+                    xnsExpirationsMap = expirations.mapValues { (_, instant) ->
+                        instant?.epochSecond
                     }
-                } else {
-                     Log.d("WalletViewModel", "No potential XNS names found, skipping expiration check.")
+                    Log.d("WalletViewModel", "Fetched expirations: $xnsExpirationsMap")
                 }
-
-            } else {
-                Log.w("WalletViewModel", "Cannot fetch NFTs or XNS names, publicKey is empty.")
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error fetching XNS names or expirations", e)
+                // Keep lists empty on error
+                validXnsNames = emptyList()
+                xnsExpirationsMap = emptyMap()
+            } finally {
+                 _isNftLoading.value = false // Mark NFT loading as complete (success or fail) - Moved here
             }
 
-            // Update State Flows
-            _nftList.value = fetchedNfts
-            _ownedXnsNames.value = validXnsNames // Update with ONLY valid names
-            _xnsNameExpirations.value = xnsExpirationsMap // Update with remaining days
 
-            // --- Log fetched data ---
-            Log.d("WalletViewModel", "loadData results: NFTs=${fetchedNfts.size}, Valid XNS Names=${validXnsNames.size}")
-            Log.d("WalletViewModel", "_ownedXnsNames state updated to: ${_ownedXnsNames.value}")
-            Log.d("WalletViewModel", "_xnsNameExpirations state updated to: ${_xnsNameExpirations.value}")
-            // --- End Fetch NFTs and XNS Names & Expirations ---
+            // --- Update StateFlows --- //
+            // Update Room (existing code)
+            // ...
 
-            // Determine displayed NFT (only on first load or refresh)
-             if (!hasLoadedInitialData || force) {
+            // Update XNS StateFlows
+            _ownedXnsNames.value = validXnsNames // Update with fetched names
+            _xnsNameExpirations.value = xnsExpirationsMap // Update with fetched expirations
+
+            // --- Update Displayed NFT --- //
+            // This part needs refinement for reactivity. For now, update after network fetch.
+            if (!hasLoadedInitialData || force) {
                 val preferredContract = walletManager.getPreferredNftContract()
+                // Get the current cached list (might have been updated by the Flow already)
+                val currentCachedNfts = nftList.value
                 val newDisplayedNft = if (preferredContract != null) {
-                    fetchedNfts.find { it.contractAddress == preferredContract } ?: fetchedNfts.firstOrNull()
+                    currentCachedNfts.find { it.contractAddress == preferredContract } ?: currentCachedNfts.firstOrNull()
                 } else {
-                    fetchedNfts.firstOrNull()
+                    currentCachedNfts.firstOrNull()
                 }
-                _displayedNftInfo.value = newDisplayedNft
-                Log.d("WalletViewModel", "Updated displayed NFT: ${newDisplayedNft?.contractAddress}")
+                // Only update if the displayed NFT actually changed
+                if (_displayedNftInfo.value?.contractAddress != newDisplayedNft?.contractAddress) {
+                     _displayedNftInfo.value = newDisplayedNft
+                     Log.d("WalletViewModel", "Updated displayed NFT (cache): ${newDisplayedNft?.contractAddress}")
+                }
             }
 
-
-            // Fetch initial stamp rate during data load
+            // Fetch initial stamp rate (unchanged)
             try {
                  currentStampRate = networkService.getStampRate()
                  Log.d("WalletViewModel", "Fetched initial stamp rate: $currentStampRate")
@@ -561,14 +589,14 @@ class WalletViewModel(
                  currentStampRate = null // Ensure it's null if fetch fails
             }
 
-            _isLoading.value = false
-            _isNftLoading.value = false
-            hasLoadedInitialData = true // Mark initial load as complete
-            Log.d("WalletViewModel", "Data fetch complete.")
+            _isLoading.value = false // Mark overall loading as false
+            // _isNftLoading is set within the NFT fetch block
+            hasLoadedInitialData = true
+            Log.d("WalletViewModel", "Data fetch cycle complete for $currentPublicKey.")
         }
     }
 
-     private fun startConnectivityChecks() {
+    private fun startConnectivityChecks() {
         viewModelScope.launch {
             delay(10000) // Initial delay
             while (true) {
