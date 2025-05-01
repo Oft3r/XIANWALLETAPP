@@ -3,9 +3,22 @@ package net.xian.xianwalletapp.ui.screens
 import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.systemBarsPadding
 
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -32,6 +45,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.saveable.rememberSaveable // Import rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle // Import for state collection
 import androidx.lifecycle.viewmodel.compose.viewModel // Import for getting ViewModel
+import androidx.lifecycle.SavedStateHandle // Import SavedStateHandle
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,6 +87,10 @@ import net.xian.xianwalletapp.ui.theme.XianButtonType
 import net.xian.xianwalletapp.ui.theme.xianButtonColors
 import net.xian.xianwalletapp.ui.viewmodels.WalletViewModel // Import ViewModel
 import net.xian.xianwalletapp.ui.viewmodels.WalletViewModelFactory // Import ViewModelFactory
+import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModel // Import NavigationViewModel
+import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModelFactory // Import NavigationViewModelFactory
+import net.xian.xianwalletapp.ui.components.XianBottomNavBar // Import our new navigation component
+import androidx.compose.foundation.border
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import net.xian.xianwalletapp.data.db.NftCacheEntity // Import NftCacheEntity
@@ -86,16 +104,18 @@ fun WalletScreen(
     navController: NavController,
     walletManager: WalletManager, // Keep for ViewModel creation
     networkService: XianNetworkService, // Keep for ViewModel creation
-    // Obtain ViewModel instance
+    // Obtain ViewModel instances
     viewModel: WalletViewModel = viewModel(
         factory = WalletViewModelFactory(LocalContext.current, walletManager, networkService) // Pass context
+    ),
+    // Initialize NavigationViewModel for persistent navigation state
+    navigationViewModel: NavigationViewModel = viewModel(
+        factory = NavigationViewModelFactory(SavedStateHandle()) // Pass empty SavedStateHandle
     )
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
-    val coroutineScope = rememberCoroutineScope()
-
-    // --- Collect State from ViewModel ---
+    val coroutineScope = rememberCoroutineScope()    // --- Collect State from ViewModel ---
     val publicKey by viewModel.publicKey.collectAsStateWithLifecycle() // Changed to collect from StateFlow
     val tokens by viewModel.tokens.collectAsStateWithLifecycle()
     val tokenInfoMap by viewModel.tokenInfoMap.collectAsStateWithLifecycle()
@@ -105,7 +125,13 @@ fun WalletScreen(
     // Special handling for XIAN price - only load once at startup, not during refresh
     // Store the first non-null price we receive
     var staticXianPrice by remember { mutableStateOf<Float?>(null) }
-      // Effect to capture the first non-null XIAN price value
+      // Ensure proper navigation state when returning to the wallet screen
+    LaunchedEffect(Unit) {
+        // Sync navigation with wallet route (index 0)
+        navigationViewModel.syncSelectedItemWithRoute("wallet")
+    }
+    
+    // Effect to capture the first non-null XIAN price value
     LaunchedEffect(Unit) {
         // At component initialization, check if we need to load the price
         if (staticXianPrice == null && xianPrice != null) {
@@ -138,13 +164,9 @@ fun WalletScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     
     // State for NFTs
-    var showNftDropdown by remember { mutableStateOf(false) } // Control dropdown visibility
-
-    // State for Local Activity
+    var showNftDropdown by remember { mutableStateOf(false) } // Control dropdown visibility    // State for Local Activity
     var transactionHistory by remember { mutableStateOf<List<LocalTransactionRecord>>(emptyList()) }
     var isHistoryLoading by remember { mutableStateOf(false) }
-    
-    
     
     Scaffold(
         topBar = {
@@ -258,39 +280,25 @@ fun WalletScreen(
                     }
                 }
             )
-        },
+        },        // Configurar correctamente los insets del sistema
+        contentWindowInsets = WindowInsets.navigationBars,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showAddTokenDialog = true },
-                containerColor = MaterialTheme.colorScheme.primary
+                containerColor = MaterialTheme.colorScheme.primary,
+                shape = CircleShape // Hacer el botón completamente redondo
             ) {
                 Icon(Icons.Default.Add, contentDescription = "Add Token")
             }
-        },
+        }, 
         bottomBar = {
-            NavigationBar {
-                NavigationBarItem(
-                    selected = false,
-                    onClick = { navController.navigate(XianDestinations.WEB_BROWSER) },
-                    icon = { Icon(Icons.Default.Language, contentDescription = "Web Browser") },
-                    label = { Text("Web Browser") }
-                )
-                NavigationBarItem(
-                    selected = false,
-                    onClick = { navController.navigate(XianDestinations.ADVANCED) },
-                    icon = { Icon(Icons.Filled.Build, contentDescription = "Advanced") }, // Changed icon to Filled.Build (wrench)
-                    label = { Text("Advanced") }
-                )
-                NavigationBarItem(
-                    selected = false,
-                    onClick = { navController.navigate(XianDestinations.NEWS) },
-                    icon = { Icon(Icons.Default.Newspaper, contentDescription = "News") },
-                    label = { Text("News") }
-                )
-            }
-        }
-    ) { paddingValues ->
+            // Usar el componente XianBottomNavBar para la barra de navegación
+            XianBottomNavBar(
+                navController = navController,
+                navigationViewModel = navigationViewModel
+            )
+        }) { paddingValues ->
         SwipeRefresh(
             state = rememberSwipeRefreshState(isLoading), // Use combined isLoading
             onRefresh = { viewModel.refreshData() }
@@ -298,8 +306,9 @@ fun WalletScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(paddingValues)
-                    .padding(16.dp)
+                    .padding(paddingValues) // Apply padding from Scaffold
+                    .padding(16.dp) // Apply general content padding
+                    // .navigationBarsPadding() // REMOVED: Rely on paddingValues from Scaffold
             ) {
                 // XIAN Balance Card
                 Card(
@@ -1037,4 +1046,6 @@ fun TransactionRecordItem(record: LocalTransactionRecord) {
         }
     }
 }
+
+// CustomNavItem se ha movido al componente XianBottomNavBar
 

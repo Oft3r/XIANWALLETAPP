@@ -2,6 +2,7 @@ package net.xian.xianwalletapp.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -24,6 +25,12 @@ import net.xian.xianwalletapp.ui.theme.XianBlue // Import XianBlue
 // import net.xian.xianwalletapp.utils.CryptoUtils
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import net.xian.xianwalletapp.ui.components.XianBottomNavBar // Import the shared navigation bar
+import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModel // Import NavigationViewModel 
+import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModelFactory // Import NavigationViewModelFactory
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Job
 // XianCrypto import removed as signing is handled by NetworkService
 import java.math.BigDecimal
@@ -106,9 +113,18 @@ def transfer_from(amount: float, to: str, main_account: str):
 fun AdvancedScreen(
     navController: NavController,
     walletManager: WalletManager,
-    networkService: XianNetworkService
+    networkService: XianNetworkService,
+    // Use shared NavigationViewModel for persistent navigation state
+    navigationViewModel: NavigationViewModel = viewModel(
+        factory = NavigationViewModelFactory(SavedStateHandle())
+    )
 ) {
     val coroutineScope = rememberCoroutineScope() // Scope for launching coroutines
+      // Ensure navigation state is synchronized with current screen
+    LaunchedEffect(Unit) {
+        // Use 2 for Advanced screen based on bottom nav order
+        navigationViewModel.syncSelectedItemWithRoute("advanced")
+    }
 
     // --- State for Create Token ---
     var tokenName by remember { mutableStateOf("") }
@@ -349,17 +365,22 @@ fun AdvancedScreen(
             triggerDebouncedFeeEstimation()
          }
     }
-
-
     Scaffold(
+        contentWindowInsets = WindowInsets.navigationBars,
         topBar = {
             TopAppBar(
-                title = { Text("Advanced") },
-                navigationIcon = {
+                title = { Text("Advanced") },                navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 }
+            )
+        },
+        bottomBar = {
+            // Usar el componente XianBottomNavBar para la barra de navegación
+            XianBottomNavBar(
+                navController = navController,
+                navigationViewModel = navigationViewModel
             )
         }
     ) { paddingValues ->

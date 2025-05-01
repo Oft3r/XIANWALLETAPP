@@ -29,6 +29,10 @@ import net.xian.xianwalletapp.ui.screens.*
 import net.xian.xianwalletapp.ui.theme.XIANWALLETAPPTheme
 import net.xian.xianwalletapp.wallet.WalletManager
 import net.xian.xianwalletapp.data.FaviconCacheManager // Import FaviconCacheManager
+import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModel // Import NavigationViewModel
+import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModelFactory // Import NavigationViewModelFactory
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
 
 class MainActivity : AppCompatActivity() { // Changed inheritance
@@ -46,12 +50,26 @@ class MainActivity : AppCompatActivity() { // Changed inheritance
         
         // Set RPC and explorer URLs from wallet manager
         networkService.setRpcUrl(walletManager.getRpcUrl())
-        networkService.setExplorerUrl(walletManager.getExplorerUrl())
+        networkService.setExplorerUrl(walletManager.getExplorerUrl())        // Configuración edge-to-edge para tener en cuenta la barra de navegación del sistema
+        // Usamos enableEdgeToEdge() con parámetros para un mejor control
+        enableEdgeToEdge(
+            statusBarStyle = androidx.activity.SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            ),
+            navigationBarStyle = androidx.activity.SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            )
+        )
         
-        enableEdgeToEdge()
         setContent {
             XIANWALLETAPPTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                // El Surface usará la configuración del tema para manejar los insets del sistema
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
                     XianWalletApp(walletManager, networkService, faviconCacheManager) // Pass FaviconCacheManager
                 }
             }
@@ -179,13 +197,28 @@ fun XianWalletApp(
                 initialUrl = initialUrl // Pass the extracted URL
             )
         }
-        
-        composable(XianDestinations.ADVANCED) {
-            AdvancedScreen(navController, walletManager, networkService)
+          composable(XianDestinations.ADVANCED) {
+            AdvancedScreen(
+                navController = navController,
+                walletManager = walletManager,
+                networkService = networkService,
+                // Share the NavigationViewModel
+                navigationViewModel = viewModel(
+                    factory = NavigationViewModelFactory(SavedStateHandle())
+                )
+            )
         }
         
         composable(XianDestinations.NEWS) {
-            NewsScreen(navController, walletManager, networkService)
+            NewsScreen(
+                navController = navController,
+                walletManager = walletManager,
+                networkService = networkService,
+                // Share the NavigationViewModel
+                navigationViewModel = viewModel(
+                    factory = NavigationViewModelFactory(SavedStateHandle())
+                )
+            )
         }
         
         composable(XianDestinations.SETTINGS) {

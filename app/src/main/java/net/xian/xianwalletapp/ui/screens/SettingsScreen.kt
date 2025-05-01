@@ -487,11 +487,23 @@ fun SettingsScreen(
                     )
 
 
+                    // Rate Us
                     SettingsMenuItem(
                         title = "Rate Us",
                         icon = Icons.Default.Star,
-                        onClick = { /* TODO: Implement navigation or action */ }
+                        onClick = {
+                            val packageName = context.packageName // Get app's package name
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageName"))
+                                context.startActivity(intent)
+                            } catch (e: android.content.ActivityNotFoundException) {
+                                // Fallback to web browser if Play Store app is not installed
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$packageName"))
+                                context.startActivity(intent)
+                            }
+                        }
                     )
+                    HorizontalDivider() // Add divider after Rate Us
 
                     Spacer(Modifier.weight(1f)) // Correct syntax
 

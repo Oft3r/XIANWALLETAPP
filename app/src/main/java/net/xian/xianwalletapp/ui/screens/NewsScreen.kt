@@ -3,6 +3,7 @@ package net.xian.xianwalletapp.ui.screens
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -26,6 +27,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.accompanist.swiperefresh.SwipeRefresh
 import com.google.accompanist.swiperefresh.rememberSwipeRefreshState
 // Removed unused SimpleDateFormat and java.util.* imports
+import net.xian.xianwalletapp.ui.components.XianBottomNavBar // Import the shared navigation bar
+import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModel // Import NavigationViewModel 
+import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModelFactory // Import NavigationViewModelFactory
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 /**
  * Screen for displaying ecosystem news and updates fetched from Reddit
@@ -36,22 +42,37 @@ fun NewsScreen(
     navController: NavController,
     walletManager: WalletManager, // TODO: Review if this is needed here
     networkService: XianNetworkService, // TODO: Review if this is needed here
-    newsViewModel: NewsViewModel = viewModel() // Inject ViewModel
-) {
+    newsViewModel: NewsViewModel = viewModel(), // Inject ViewModel
+    // Use shared NavigationViewModel for persistent navigation state
+    navigationViewModel: NavigationViewModel = viewModel(
+        factory = NavigationViewModelFactory(SavedStateHandle())
+    )
+) {    // Ensure navigation state is synchronized with current screen
+    LaunchedEffect(Unit) {
+        // Use 3 for News screen based on bottom nav order (WALLET=0, WEB=1, ADVANCED=2, NEWS=3)
+        navigationViewModel.syncSelectedItemWithRoute("news")
+    }
+    
     val uiState by newsViewModel.uiState.collectAsStateWithLifecycle()
     // Link refresh state to loading state, but only show SwipeRefresh indicator
     val isRefreshing = uiState is NewsUiState.Loading
     val swipeRefreshState = rememberSwipeRefreshState(isRefreshing)
-
-    Scaffold(
+      Scaffold(
+        contentWindowInsets = WindowInsets.navigationBars,
         topBar = {
             TopAppBar(
-                title = { Text("Ecosystem News") },
-                navigationIcon = {
+                title = { Text("Ecosystem News") },                navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 }
+            )
+        },
+        bottomBar = {
+            // Use the shared navigation bar component
+            XianBottomNavBar(
+                navController = navController,
+                navigationViewModel = navigationViewModel
             )
         }
     ) { paddingValues ->

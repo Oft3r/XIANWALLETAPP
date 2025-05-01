@@ -37,6 +37,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Language // Placeholder icon
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material.icons.filled.RemoveCircleOutline // Import Remove icon
 import androidx.compose.material.icons.filled.Star // Import Star icon
 import androidx.compose.material.icons.filled.CheckCircle
@@ -75,6 +76,11 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.border
+import net.xian.xianwalletapp.ui.components.XianBottomNavBar // Import the shared navigation bar
+import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModel // Import NavigationViewModel 
+import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModelFactory // Import NavigationViewModelFactory
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.collectAsState // Import collectAsState
 // TODO: Add import for actual Xian logo resource if available
 // import net.xian.xianwalletapp.R
@@ -391,12 +397,15 @@ fun WebBrowserScreen(
     walletManager: WalletManager,
     networkService: XianNetworkService,
     faviconCacheManager: FaviconCacheManager, // Add FaviconCacheManager parameter
-// Helper function to normalize URLs for comparison
-// Removed misplaced normalizeUrlForComparison function from here. It will be inserted at the top level.
-
-
-    initialUrl: String? = null // Argument for initial URL
-) {
+    initialUrl: String? = null, // Argument for initial URL
+    navigationViewModel: NavigationViewModel = viewModel(
+        factory = NavigationViewModelFactory(SavedStateHandle())
+    )
+) {    // Ensure navigation state is synchronized with current screen
+    LaunchedEffect(Unit) {
+        // Use 1 for WebBrowser screen based on bottom nav order
+        navigationViewModel.syncSelectedItemWithRoute("web_browser")
+    }
     val defaultUrl = "https://xian.org"
     // Decode the initial URL if provided
     val decodedInitialUrl = remember(initialUrl) {
@@ -455,8 +464,8 @@ fun WebBrowserScreen(
         XAppInfo(name = "Xian Block Explorer", url = "https://explorer.xian.org", icon = Icons.Default.Language, faviconUrl = "https://explorer.xian.org/img/logo.bf1eed5b.png") // Manual URL
         // Add more apps here later (just name, url, placeholder icon)
     )
-    
-    Scaffold(
+      Scaffold(
+        contentWindowInsets = WindowInsets.navigationBars,
         topBar = {
             TopAppBar(
                 title = { Text("Web Browser") },
@@ -477,12 +486,20 @@ fun WebBrowserScreen(
                             // If Dashboard is showing, pop the screen
                             navController.popBackStack()
                         }
-                    }) {
+                    }) {                        
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
-        }
+        },
+        bottomBar = {        // Use the shared navigation bar component
+        XianBottomNavBar(
+            navController = navController,
+            navigationViewModel = viewModel(
+                factory = NavigationViewModelFactory(SavedStateHandle())
+            )
+        )
+    }
     ) { paddingValues ->
         Column(
             modifier = Modifier
