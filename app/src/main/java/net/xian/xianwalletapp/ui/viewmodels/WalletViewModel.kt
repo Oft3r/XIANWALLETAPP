@@ -36,6 +36,13 @@ private val EMPTY_NFT_CACHE_LIST: List<NftCacheEntity> = emptyList() // Default 
 private val EMPTY_XNS_NAME_LIST: List<String> = emptyList() // Added for XNS names
 private val EMPTY_XNS_EXPIRATIONS: Map<String, Long?> = emptyMap() // Added for expirations
 
+// Data class to represent predefined tokens for easy selection
+data class PredefinedToken(
+    val name: String,
+    val contract: String,
+    val logoUrl: String? = null // Añadir URL del logo
+)
+
 // --- Fee Estimation State ---
 sealed class FeeEstimationState {
     object Idle : FeeEstimationState()
@@ -49,7 +56,29 @@ class WalletViewModel(
     private val walletManager: WalletManager,
     private val networkService: XianNetworkService,
     private val nftCacheDao: NftCacheDao // Add DAO as dependency
-) : ViewModel() {
+) : ViewModel() {    // List of predefined tokens that users can select from the dropdown
+    private val _internalPredefinedTokens = listOf(
+        PredefinedToken(
+            name = "xUSDC", 
+            contract = "con_usdc",
+            logoUrl = "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png"
+        ),
+        PredefinedToken(
+            name = "Poop Coin",
+            contract = "con_poop_coin",
+            logoUrl = "https://emojiisland.com/cdn/shop/products/Poop_Emoji_7b204f05-eec6-4496-91b1-351acc03d2c7_large.png" 
+        ),
+        PredefinedToken( // Add the new token here
+            name = "XTFU Token", // Assuming a display name
+            contract = "con_xtfu",
+            logoUrl = "https://snakexchange.org/icons/con_xtfu.png" // No logo provided, will attempt to fetch later
+        )
+        // Add more predefined tokens here as needed
+    )
+    
+    // Expose predefined tokens to the UI
+    private val _predefinedTokens = MutableStateFlow(_internalPredefinedTokens)
+    val predefinedTokens: StateFlow<List<PredefinedToken>> = _predefinedTokens.asStateFlow()
 
     private val _publicKeyFlow = MutableStateFlow(walletManager.getActiveWalletPublicKey() ?: "") // Use a Flow for publicKey
     val publicKey: StateFlow<String> = _publicKeyFlow.asStateFlow()
@@ -134,6 +163,9 @@ class WalletViewModel(
         // Observe the active wallet public key flow from WalletManager
         // Ensure the initial public key state is set correctly
         _publicKeyFlow.value = walletManager.getActiveWalletPublicKey() ?: ""
+        
+        // Cargar información adicional de los tokens predefinidos (logos, etc)
+        loadPredefinedTokensInfo()
 
         // Observe the active wallet public key flow for CHANGES
         viewModelScope.launch {
@@ -423,6 +455,38 @@ class WalletViewModel(
     // --- Private Data Loading Logic ---
     // --- Private Data Loading Logic ---
 
+    /**
+     * Intenta cargar información adicional del token como logos para los tokens predefinidos
+     */
+    fun loadPredefinedTokensInfo() {
+        viewModelScope.launch {
+            try {
+                // Crear una nueva lista mutable para los tokens actualizados
+                val updatedTokens = _internalPredefinedTokens.map { token -> // Corrected => to ->
+                    if (token.logoUrl == null) {
+                        // Si el token no tiene logo, intentar obtener información del servicio
+                        try {
+                            val tokenInfo = networkService.getTokenInfo(token.contract)
+                            // Crear un nuevo token con la información actualizada
+                            token.copy(logoUrl = tokenInfo.logoUrl)
+                        } catch (e: Exception) {
+                            Log.e("WalletViewModel", "Error obteniendo info para token ${token.contract}", e)
+                            token // Mantener el token original si hay error
+                        }
+                    } else {
+                        token // Mantener el token original si ya tiene logo
+                    }
+                }
+                
+                // Actualizar la lista de tokens predefinidos
+                _predefinedTokens.value = updatedTokens
+                Log.d("WalletViewModel", "Lista de tokens predefinidos actualizada con información adicional")
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error al actualizar tokens predefinidos", e)
+            }
+        }
+    }
+
     private fun loadDataIfNotLoaded() {
         if (!hasLoadedInitialData && _publicKeyFlow.value.isNotEmpty()) { // Only load if key exists
             Log.d("WalletViewModel", "Initial data load triggered for key: ${_publicKeyFlow.value}")
@@ -465,13 +529,30 @@ class WalletViewModel(
 
             val currentTokens = _tokens.value
             val newTokenInfoMap = mutableMapOf<String, TokenInfo>()
-            val newBalanceMap = mutableMapOf<String, Float>()
-
-            // Fetch Tokens (unchanged)
+            val newBalanceMap = mutableMapOf<String, Float>()            // Fetch Tokens (with predefined token info priority)
             currentTokens.forEach { contract ->
                 try {
-                    val tokenInfo = networkService.getTokenInfo(contract)
-                    newTokenInfoMap[contract] = tokenInfo
+                    // Primero buscar en tokens predefinidos
+                    val predefinedToken = _predefinedTokens.value.find { it.contract == contract }
+                    
+                    // Si existe en predefinidos y tiene logo, usar esa información
+                    if (predefinedToken != null && predefinedToken.logoUrl != null) {
+                        Log.d("WalletViewModel", "Using predefined info for $contract with logo: ${predefinedToken.logoUrl}")
+                        // Crear TokenInfo a partir del token predefinido
+                        val tokenInfo = TokenInfo(
+                            name = predefinedToken.name,
+                            symbol = predefinedToken.contract.takeLast(4).uppercase(),
+                            contract = predefinedToken.contract,
+                            logoUrl = predefinedToken.logoUrl
+                        )
+                        newTokenInfoMap[contract] = tokenInfo
+                    } else {
+                        // Si no está en predefinidos, obtener del blockchain
+                        val tokenInfo = networkService.getTokenInfo(contract)
+                        newTokenInfoMap[contract] = tokenInfo
+                    }
+                    
+                    // Obtener balance en cualquier caso
                     val balance = networkService.getTokenBalance(contract, currentPublicKey)
                     Log.d("WalletViewModel", "Loaded balance for $contract: $balance")
                     newBalanceMap[contract] = balance

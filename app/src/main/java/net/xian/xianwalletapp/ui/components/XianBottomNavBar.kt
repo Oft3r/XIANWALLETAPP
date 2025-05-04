@@ -80,7 +80,7 @@ fun XianBottomNavBar(
                 // Portfolio Item (Wallet)
                 CustomNavItem(
                             icon = Icons.Default.Work,
-                            label = "Portafolio",
+                            label = "Portfolio",
                             selected = selectedItem == 0,
                             onClick = { 
                                 navigationViewModel.setSelectedNavItem(0)

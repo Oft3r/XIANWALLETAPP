@@ -6,6 +6,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
@@ -19,6 +21,9 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.TextFieldDefaults
 
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -41,6 +46,8 @@ import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Build // Import for Build icon
 import androidx.compose.material.icons.filled.Person // Import Person icon
+import androidx.compose.material.icons.filled.ArrowDropDown // Import for dropdown arrow down
+import androidx.compose.material.icons.filled.ArrowDropUp // Import for dropdown arrow up
 import androidx.compose.material3.*
 import androidx.compose.runtime.saveable.rememberSaveable // Import rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle // Import for state collection
@@ -56,6 +63,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -89,11 +97,17 @@ import net.xian.xianwalletapp.ui.viewmodels.WalletViewModel // Import ViewModel
 import net.xian.xianwalletapp.ui.viewmodels.WalletViewModelFactory // Import ViewModelFactory
 import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModel // Import NavigationViewModel
 import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModelFactory // Import NavigationViewModelFactory
+import net.xian.xianwalletapp.ui.viewmodels.PredefinedToken // Import PredefinedToken data class
 import net.xian.xianwalletapp.ui.components.XianBottomNavBar // Import our new navigation component
 import androidx.compose.foundation.border
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import net.xian.xianwalletapp.data.db.NftCacheEntity // Import NftCacheEntity
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.unit.DpOffset
 
 /**
  * Main wallet screen showing token balances and actions
@@ -625,41 +639,123 @@ fun WalletScreen(
             }
         }
     }
-    
-    // Add token dialog
+      // Add token dialog
     if (showAddTokenDialog) {
+        var contractAddress by remember { mutableStateOf("") }
+        var expanded by remember { mutableStateOf(false) }
+        val predefinedTokens by viewModel.predefinedTokens.collectAsStateWithLifecycle()
+        var textFieldWidthPx by remember { mutableStateOf(0) } // State for pixel width
+        val density = LocalDensity.current // Get density in the composable scope
+
         AlertDialog(
             onDismissRequest = { showAddTokenDialog = false },
             title = { Text("Add Token") },
             text = {
                 Column {
-                    Text("Enter the contract name of the token you want to add:")
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = newTokenContract,
-                        onValueChange = { newTokenContract = it },
-                        label = { Text("Contract Name") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    Text("Select a predefined token or enter a contract address manually.")
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Box to anchor the dropdown and measure the TextField
+                    Box {
+                        OutlinedTextField(
+                            value = contractAddress,
+                            onValueChange = { contractAddress = it },
+                            label = { Text("Token Contract Address") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onGloballyPositioned { coordinates ->
+                                    val widthInPixels = coordinates.size.width
+                                    // Update state only if the width actually changes
+                                    if (textFieldWidthPx != widthInPixels) {
+                                        textFieldWidthPx = widthInPixels
+                                        Log.d("DropdownWidth", "TextField positioned. Pixel Width: $widthInPixels")
+                                    }
+                                },
+                            singleLine = true,
+                            trailingIcon = {
+                                Icon(
+                                    imageVector = if (expanded) Icons.Filled.ArrowDropUp else Icons.Filled.ArrowDropDown,
+                                    contentDescription = "Toggle Predefined Tokens",
+                                    modifier = Modifier.clickable { expanded = !expanded }
+                                )
+                            }
+                        )
+
+                        // Dropdown Menu
+                        DropdownMenu(
+                            expanded = expanded && predefinedTokens.isNotEmpty(), // Only expand if list not empty
+                            onDismissRequest = { expanded = false },
+                            modifier = Modifier
+                                // Calculate Dp width directly using density and pixel state
+                                // Use a fallback width if measurement hasn't happened yet
+                                .requiredWidth(
+                                    with(density) {
+                                        if (textFieldWidthPx > 0) {
+                                            textFieldWidthPx.toDp()
+                                        } else {
+                                            // Provide a sensible default minimum width if not measured
+                                            // Using TextFieldDefaults.MinWidth might be appropriate
+                                            TextFieldDefaults.MinWidth
+                                        }
+                                    }
+                                )
+                                .heightIn(max = 250.dp) // Limit dropdown height
+                                .background(MaterialTheme.colorScheme.surface) // Ensure background
+                            // No offset needed if anchored correctly by Box
+                        ) {
+                            predefinedTokens.forEach { token ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            AsyncImage(
+                                                model = token.logoUrl,
+                                                contentDescription = "${token.name} logo",
+                                                modifier = Modifier
+                                                    .size(24.dp)
+                                                    .clip(CircleShape) // Make logo circular
+                                                    .background(Color.LightGray) // Placeholder background
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text(token.name, fontWeight = FontWeight.Bold)
+                                                Text(
+                                                    token.contract,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                    },
+                                    onClick = {
+                                        Log.d("WalletScreen", "Predefined token selected: ${token.name} (${token.contract})")
+                                        viewModel.addTokenAndRefresh(token.contract)
+                                        expanded = false
+                                        showAddTokenDialog = false // Close dialog after selection
+                                    }
+                                )
+                                Divider() // Add divider between items
+                            }
+                        }
+                    } // End Box
+
+                    Spacer(modifier = Modifier.height(8.dp)) // Space between dropdown/textfield and manual add button if needed
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        if (newTokenContract.isNotBlank()) {
-                            // Call ViewModel to handle token addition and refresh
-                            viewModel.addTokenAndRefresh(newTokenContract) // TODO: Implement in ViewModel
-                            newTokenContract = "" // Clear input field
-                            showAddTokenDialog = false // Close dialog
-                            coroutineScope.launch {
-                                // Optional: Show snackbar, or let ViewModel handle feedback
-                                snackbarHostState.showSnackbar("Token added (pending refresh)")
-                            }
+                        if (contractAddress.isNotBlank()) {
+                            Log.d("WalletScreen", "Manually adding token: $contractAddress")
+                            viewModel.addTokenAndRefresh(contractAddress)
+                            showAddTokenDialog = false
                         }
-                    }
+                        // Optionally show error if blank?
+                    },
+                    // Disable button if dropdown is expanded OR contract address is blank
+                    enabled = !expanded && contractAddress.isNotBlank()
                 ) {
-                    Text("Add")
+                    Text("Add Manually")
                 }
             },
             dismissButton = {
