@@ -1553,8 +1553,13 @@ class XianNetworkService private constructor(private val context: Context) {
                 put("sender", publicKey) // Sender is derived from public key
             }
 
+            // Wrap the payload in the structure expected by signTransaction
+            val transactionForSigning = JSONObject().apply {
+                put("payload", transactionPayload)
+            }
+
             // 2. Sign the Transaction (using the existing helper)
-            val signedTx = signTransaction(transactionPayload, privateKey)
+            val signedTx = signTransaction(transactionForSigning, privateKey)
              android.util.Log.d("XianNetworkService", "Signed Tx for Estimation: ${signedTx.toString(2)}")
 
 
