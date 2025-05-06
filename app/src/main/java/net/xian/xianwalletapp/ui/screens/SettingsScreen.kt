@@ -7,6 +7,8 @@ import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext // Import LocalContext
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle // Added import
@@ -333,10 +335,27 @@ fun SettingsScreen(
     }
 
     Scaffold(
-        topBar = {
-            if (!showSnakeGame && !showAboutXian) {
+        topBar = {            if (!showSnakeGame && !showAboutXian) {
                 TopAppBar(
-                    title = { Text("Settings") },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent, // Hacer la barra transparente
+                        titleContentColor = MaterialTheme.colorScheme.primary
+                    ),
+                    title = {
+                        Surface(
+                            modifier = Modifier
+                                // Borde eliminado
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surface
+                        ) {
+                            Text(
+                                text = "Settings",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                        }
+                    },
                     navigationIcon = {
                         IconButton(onClick = { navController.popBackStack() }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")

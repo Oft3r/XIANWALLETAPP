@@ -468,7 +468,24 @@ fun WebBrowserScreen(
         contentWindowInsets = WindowInsets.navigationBars,
         topBar = {
             TopAppBar(
-                title = { Text("Web Browser") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent, // Hacer la barra transparente
+                    titleContentColor = MaterialTheme.colorScheme.primary
+                ),
+                title = {                    Surface(
+                        modifier = Modifier
+                            // Borde eliminado
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface
+                    ) {
+                        Text(
+                            text = "Web Browser",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = {
                         val webView = webViewRef.value
@@ -636,14 +653,14 @@ fun WebBrowserScreen(
                                 coroutineScope.launch {
                                     walletManager.saveFavorites(updatedList)
                                 }
-                                Toast.makeText(context, "Añadido a Favoritos", Toast.LENGTH_SHORT).show() // Mensaje en español
+                                Toast.makeText(context, "Added to Favorites", Toast.LENGTH_SHORT).show() // Mensaje en español
 
                             } catch (e: MalformedURLException) {
                                 Log.e("WebBrowserScreen", "Invalid URL for favorite add: $originalUrl", e)
                                 Toast.makeText(context, "URL inválida", Toast.LENGTH_SHORT).show() // Mensaje en español
                             } catch (e: Exception) {
                                 Log.e("WebBrowserScreen", "Error adding favorite: $originalUrl", e)
-                                Toast.makeText(context, "Error al añadir favorito", Toast.LENGTH_SHORT).show() // Mensaje en español
+                                Toast.makeText(context, "Error Adding Favorite", Toast.LENGTH_SHORT).show() // Mensaje en español
                             }
                         } else if (normalizedUrl == null) {
                             // URL is blank or invalid for normalization
@@ -654,7 +671,7 @@ fun WebBrowserScreen(
                 ) {
                     Icon(
                         imageVector = if (isFavorited) Icons.Filled.Star else Icons.Outlined.Star,
-                        contentDescription = if (isFavorited) "Ya en favoritos" else "Añadir a favoritos", // Texto en español
+                        contentDescription = if (isFavorited) "Already in favorites" else "Add to favorites",
                         tint = if (isFavorited) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f) // Colores más consistentes
                     )
                 }

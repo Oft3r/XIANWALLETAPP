@@ -1,6 +1,12 @@
 package net.xian.xianwalletapp.ui.screens
 
 import android.util.Log
+import androidx.compose.animation.animateColorAsState // Added import
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -13,9 +19,15 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.detectTapGestures
+import kotlinx.coroutines.delay
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -24,6 +36,8 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.ui.unit.IntOffset  // Added import for IntOffset
+import kotlin.math.roundToInt  // Added import for roundToInt
 
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -38,6 +52,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Download // Added import
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Newspaper
 import androidx.compose.material.icons.filled.Visibility // For View icon
@@ -49,6 +64,10 @@ import androidx.compose.material.icons.filled.Person // Import Person icon
 import androidx.compose.material.icons.filled.ArrowDropDown // Import for dropdown arrow down
 import androidx.compose.material.icons.filled.ArrowDropUp // Import for dropdown arrow up
 import androidx.compose.material3.*
+import androidx.compose.material.DismissValue
+import androidx.compose.material.DismissDirection
+import androidx.compose.material.SwipeToDismiss
+import androidx.compose.material.rememberDismissState
 import androidx.compose.runtime.saveable.rememberSaveable // Import rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle // Import for state collection
 import androidx.lifecycle.viewmodel.compose.viewModel // Import for getting ViewModel
@@ -85,14 +104,25 @@ import net.xian.xianwalletapp.network.NftInfo
 import net.xian.xianwalletapp.wallet.WalletManager
 import kotlinx.coroutines.launch
 import androidx.compose.material.ExperimentalMaterialApi
+import net.xian.xianwalletapp.data.db.NftCacheEntity
+// Use specific import for LocalTransactionRecord from data package
+import net.xian.xianwalletapp.data.LocalTransactionRecord
+import net.xian.xianwalletapp.ui.components.NftItem // Keep this import
+import net.xian.xianwalletapp.ui.components.XnsNameItem // Keep this import
+import net.xian.xianwalletapp.ui.components.TransactionRecordItem // Keep this import
+import net.xian.xianwalletapp.ui.components.XianBottomNavBar
+import net.xian.xianwalletapp.ui.theme.XianBlue
+// import net.xian.xianwalletapp.ui.theme.XianButtonType // Remove duplicate
+import net.xian.xianwalletapp.ui.theme.XianYellow
+import net.xian.xianwalletapp.ui.theme.xianButtonColors
+
 import com.google.accompanist.swiperefresh.SwipeRefresh
 import com.google.accompanist.swiperefresh.rememberSwipeRefreshState
-import net.xian.xianwalletapp.ui.theme.XianBlue
 
-import net.xian.xianwalletapp.data.LocalTransactionRecord // Added
+// Remove duplicate import if present, ensure only one remains
+// import net.xian.xianwalletapp.data.LocalTransactionRecord
 import net.xian.xianwalletapp.data.TransactionHistoryManager // Added
-import net.xian.xianwalletapp.ui.theme.XianButtonType
-import net.xian.xianwalletapp.ui.theme.xianButtonColors
+import net.xian.xianwalletapp.ui.theme.XianButtonType // Keep one import
 import net.xian.xianwalletapp.ui.viewmodels.WalletViewModel // Import ViewModel
 import net.xian.xianwalletapp.ui.viewmodels.WalletViewModelFactory // Import ViewModelFactory
 import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModel // Import NavigationViewModel
@@ -102,7 +132,7 @@ import net.xian.xianwalletapp.ui.components.XianBottomNavBar // Import our new n
 import androidx.compose.foundation.border
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
-import net.xian.xianwalletapp.data.db.NftCacheEntity // Import NftCacheEntity
+// NftCacheEntity already imported above
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.geometry.Rect
@@ -183,8 +213,11 @@ fun WalletScreen(
     var isHistoryLoading by remember { mutableStateOf(false) }
     
     Scaffold(
-        topBar = {
-            TopAppBar(
+        topBar = {            TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent, // Hacer la barra transparente
+                    titleContentColor = MaterialTheme.colorScheme.primary
+                ),
                 title = { 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         // NFT Image Preview Box (Clickable) & Dropdown
@@ -262,18 +295,16 @@ fun WalletScreen(
                     // Connection status indicator
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(end = 8.dp)
-                    ) {
+                        modifier = Modifier.padding(end = 8.dp)                    ) {
                         // Status text
                         Text(
                             text = if (isNodeConnected) "Connected" else "Disconnected",
                             fontSize = 12.sp,
                             color = if (isNodeConnected) 
-                                Color(0xFF4CAF50) // Green
+                                Color.White // Keeping text white when connected
                             else 
-                                Color(0xFFF44336) // Red
-                        )
-                        
+                                Color(0xFFF44336) // Red for disconnected
+                        )                        
                         // Status indicator dot
                         Box(
                             modifier = Modifier
@@ -281,9 +312,9 @@ fun WalletScreen(
                                 .size(8.dp)
                                 .background(
                                     color = if (isNodeConnected) 
-                                        Color(0xFF4CAF50) // Green
-                                    else 
-                                        Color(0xFFF44336), // Red
+                                        Color.Green // Changed to green for connected status
+                                    else
+                                        Color(0xFFF44336), // Red for disconnected
                                     shape = CircleShape
                                 )
                         )
@@ -297,32 +328,24 @@ fun WalletScreen(
         },        // Configurar correctamente los insets del sistema
         contentWindowInsets = WindowInsets.navigationBars,
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showAddTokenDialog = true },
-                containerColor = MaterialTheme.colorScheme.primary,
-                shape = CircleShape // Hacer el botón completamente redondo
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add Token")
-            }
-        }, 
+        // Remove floatingActionButton parameter here
         bottomBar = {
             // Usar el componente XianBottomNavBar para la barra de navegación
             XianBottomNavBar(
                 navController = navController,
                 navigationViewModel = navigationViewModel
             )
-        }) { paddingValues ->
-        SwipeRefresh(
-            state = rememberSwipeRefreshState(isLoading), // Use combined isLoading
-            onRefresh = { viewModel.refreshData() }
+        }) { paddingValues ->        SwipeRefresh(
+            state = rememberSwipeRefreshState(isLoading),
+            onRefresh = { viewModel.refreshData() },
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues) // Apply padding from Scaffold
-                    .padding(16.dp) // Apply general content padding
-                    // .navigationBarsPadding() // REMOVED: Rely on paddingValues from Scaffold
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
             ) {
                 // XIAN Balance Card
                 Card(
@@ -489,52 +512,90 @@ fun WalletScreen(
                 when (selectedTabIndex) {
                     0 -> {
                         // Tokens tab
-                        if (isLoading) {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator()
+                        when {
+                            // ONLY show loading indicator when tokens list is empty (meaning we're likely
+                            // in initial state or we just added a first token)
+                            isLoading && tokens.isEmpty() -> {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator()
+                                }
                             }
-                        } else if (tokens.isEmpty()) {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = "No tokens added yet.\nClick the + button to add a token.",
-                                    textAlign = TextAlign.Center,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                            tokens.isEmpty() -> {
+                                // Empty state inside SwipeRefresh (already is, but make sure it fills space)
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = "No tokens added yet.\nClick the + button to add a token.",
+                                        textAlign = TextAlign.Center,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
-                        } else {
-                            LazyColumn {
-                                items(tokens) { contract ->
-                                    val tokenInfo = tokenInfoMap[contract]
-                                    val balance = balanceMap[contract] ?: 0f
-                                    
-                                    // This block was already applied correctly in the previous step,
-                                    // but included here for context. No changes needed in this SEARCH/REPLACE.
-                                    TokenItem(
-                                        contract = contract, // Pass contract name
-                                        name = tokenInfo?.name ?: contract,
-                                        symbol = tokenInfo?.symbol ?: "",
-                                        logoUrl = tokenInfo?.logoUrl, // Pass logo URL
-                                        balance = balance,
-                                        xianPrice = if (contract == "currency") xianPrice else null, // Pass price only for XIAN
-                                        onSendClick = {
-                                            navController.navigate(
-                                                "${XianDestinations.SEND_TOKEN}?${XianNavArgs.TOKEN_CONTRACT}=$contract&${XianNavArgs.TOKEN_SYMBOL}=${tokenInfo?.symbol ?: ""}"
-                                            )
-                                        },
-                                        onReceiveClick = {
-                                            navController.navigate(XianDestinations.RECEIVE_TOKEN)
-                                        },
-                                        onRemoveClick = {
-                                            if (contract != "currency") {
-                                                viewModel.removeToken(contract) // Call ViewModel function
-                                                coroutineScope.launch {
-                                                    // Optional: Show snackbar, or let ViewModel handle feedback
-                                                    snackbarHostState.showSnackbar("Token removal initiated")
+                            else -> {
+                                // Always show the list when we have tokens, regardless of isLoading state
+                                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                    items(tokens) { contract ->
+                                        val tokenInfo = tokenInfoMap[contract]
+                                        val balance = balanceMap[contract] ?: 0f
+                                        TokenItem(
+                                            contract = contract, 
+                                            name = tokenInfo?.name ?: contract,
+                                            symbol = tokenInfo?.symbol ?: "",
+                                            logoUrl = tokenInfo?.logoUrl,
+                                            balance = balance,
+                                            xianPrice = if (contract == "currency") xianPrice else null,
+                                            onSendClick = {
+                                                navController.navigate(
+                                                    "${XianDestinations.SEND_TOKEN}?${XianNavArgs.TOKEN_CONTRACT}=$contract&${XianNavArgs.TOKEN_SYMBOL}=${tokenInfo?.symbol ?: ""}"
+                                                )
+                                            },
+                                            onReceiveClick = {
+                                                navController.navigate(XianDestinations.RECEIVE_TOKEN)
+                                            },
+                                            onRemoveClick = {
+                                                if (contract != "currency") {
+                                                    viewModel.removeToken(contract)
+                                                    coroutineScope.launch {
+                                                        snackbarHostState.showSnackbar("Token removal initiated")
+                                                    }
                                                 }
                                             }
-                                        }
-                                    )
+                                        )
+                                    }
                                     
+                                    // Add capsule button at the end of the list
+                                    item {
+                                        Button(
+                                            onClick = { showAddTokenDialog = true },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 12.dp, horizontal = 16.dp),
+                                            shape = RoundedCornerShape(24.dp), // Pill/capsule shape
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = MaterialTheme.colorScheme.primary
+                                            )
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.Center,
+                                                modifier = Modifier.padding(vertical = 8.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Add,
+                                                    contentDescription = "Add Token",
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    "Add New Token",
+                                                    fontWeight = FontWeight.Medium,
+                                                    fontSize = 16.sp
+                                                )
+                                            }
+                                        }
+                                        
+                                        // Add some bottom spacing to ensure the button isn't cut off
+                                        Spacer(modifier = Modifier.height(80.dp))
+                                    }
                                 }
                             }
                         }
@@ -545,8 +606,8 @@ fun WalletScreen(
                         // *** ADD LOGGING HERE ***
                         Log.d("WalletScreen", "Collectibles Tab: nftList size = ${nftList.size}, ownedXnsNames size = ${ownedXnsNames.size}")
 
-                        // Use isNftLoading for this specific section's loading state
-                        if (isNftLoading && nftList.isEmpty() && ownedXnsNames.isEmpty()) { // Check both lists for initial loading
+                        // Show loading indicator only on initial load when both lists are empty
+                        if (isNftLoading && nftList.isEmpty() && ownedXnsNames.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator()
                             }
@@ -558,30 +619,37 @@ fun WalletScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                        } else {
-                            // Combine NFTs and XNS names for the grid
+                        } else {                            // Combine NFTs and XNS names for the grid
                             val totalItems = nftList.size + ownedXnsNames.size
 
                             LazyVerticalGrid(
-                                columns = GridCells.Fixed(2),
+                                columns = GridCells.Fixed(3), // Cambiado de 2 a 3 columnas
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(bottom = 80.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp), // Reducido de 8dp a 6dp para mejor ajuste
+                                verticalArrangement = Arrangement.spacedBy(6.dp)    // Reducido de 8dp a 6dp para mejor ajuste
                             ) {
                                 // Render NFTs first
-                                items(nftList) { nft ->
+                                items(nftList) { nft: NftCacheEntity -> // Keep explicit type
                                     NftItem(
                                         nftInfo = nft,
-                                        onViewClick = { url ->
-                                            url?.let {
+                                        onViewClick = { url: String? -> // Add explicit type for url
+                                            url?.let { urlString: String -> // Explicitly type 'urlString'
                                                 try {
-                                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(it))
-                                                    context.startActivity(intent)
+                                                    // Encode the URL before navigating
+                                                    val encodedUrl = URLEncoder.encode(urlString, StandardCharsets.UTF_8.toString())
+                                                    // Navigate to the in-app browser screen
+                                                    navController.navigate("${XianDestinations.WEB_BROWSER}?url=$encodedUrl")
                                                 } catch (e: Exception) {
                                                     coroutineScope.launch {
-                                                        snackbarHostState.showSnackbar("Could not open URL: ${e.message}")
+                                                        snackbarHostState.showSnackbar("Could not open URL: Invalid format")
+                                                        Log.e("WalletScreen", "Error encoding or navigating to URL: $urlString", e)
                                                     }
+                                                }
+                                            } ?: run {
+                                                // Handle case where URL is null, if necessary
+                                                coroutineScope.launch {
+                                                    snackbarHostState.showSnackbar("Cannot open: URL is missing")
                                                 }
                                             }
                                         }
@@ -589,15 +657,15 @@ fun WalletScreen(
                                 }
 
                                 // Render XNS Names after NFTs
-                                items(ownedXnsNames) { xnsName ->
+                                items(ownedXnsNames) { xnsName: String ->
                                      // *** ADD LOGGING HERE (Optional) ***
                                      // Log.d("WalletScreen", "Rendering XnsNameItem for: $xnsName")
                                     val expiration = xnsNameExpirations[xnsName]
                                     // Calculate remaining days from expiration Instant
-                                    val remainingDays = expiration?.let {
+                                    val remainingDays = expiration?.let { timestamp: Long ->
                                         val now = java.time.Instant.now()
                                         // Use Instant.ofEpochSecond to convert Long to Instant
-                                        val expirationInstant = java.time.Instant.ofEpochSecond(it)
+                                        val expirationInstant = java.time.Instant.ofEpochSecond(timestamp)
                                         val duration = java.time.Duration.between(now, expirationInstant)
                                         duration.toDays().coerceAtLeast(0) // Ensure non-negative days
                                     }
@@ -612,7 +680,8 @@ fun WalletScreen(
                     }
                     2 -> {
                         // Local Activity tab
-                        if (isHistoryLoading) {
+                        // Use isLoading state from ViewModel
+                        if (isLoading) { // Changed from isHistoryLoading
                              Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator()
                             }
@@ -629,7 +698,7 @@ fun WalletScreen(
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(bottom = 80.dp) // Add padding for FAB
                             ) {
-                                items(transactionHistory) { record ->
+                                items(transactionHistory) { record: LocalTransactionRecord -> // Keep explicit type
                                     TransactionRecordItem(record = record)
                                 }
                             }
@@ -779,369 +848,633 @@ fun TokenItem(
     onReceiveClick: () -> Unit,
     onRemoveClick: () -> Unit
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
+    // Use different UI for XIAN currency (contract == "currency")
+    if (contract == "currency") {
+        // Use SwipeableXianCard for XIAN token only
+        SwipeableXianCard(
+            name = name,
+            symbol = symbol,
+            logoUrl = logoUrl,
+            balance = balance,
+            xianPrice = xianPrice,
+            onSendClick = onSendClick,
+            onReceiveClick = onReceiveClick
         )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Token icon using AsyncImage
-                AsyncImage(
-                    model = logoUrl,
-                    contentDescription = "$name Logo",
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)), // Placeholder background
-                    contentScale = androidx.compose.ui.layout.ContentScale.Inside, // Changed from Fit to Inside
-                    // Fallback logic: Show XIAN logo for currency, or a generic icon for others
-                    error = if (contract == "currency") {
-                        painterResource(id = R.drawable.xian_logo) // Use the renamed xian_logo.jpg
-                    } else {
-                        painterResource(id = android.R.drawable.ic_menu_gallery) // Generic fallback for other tokens
-                    },
-                    placeholder = painterResource(id = R.drawable.xian_logo) // Use the renamed xian_logo.jpg
-                )
-                
-                // Token details
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = 16.dp)
-                ) {
-                    Text(
-                        // Display "XIANCurrency" specifically for the native token
-                        text = if (contract == "currency") "XIAN Currency" else name,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
-                    )
-                    Text(
-                        text = symbol,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 14.sp
-                    )
-                }
-                
-                // Token balance and USD value (if applicable)
-                Column(horizontalAlignment = Alignment.End) { // Wrap in Column, align text to the end
-                    Text(
-                        text = "%.1f".format(balance), // Format balance to 1 decimal
-                        style = MaterialTheme.typography.bodyLarge, // Use consistent styling
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    // Show USD value below balance only for XIAN currency
-                    if (contract == "currency" && xianPrice != null) {
-                        val usdValue = balance * xianPrice
-                        Text(
-                            text = "$%.2f".format(usdValue), // Format as $0.00
-                            style = MaterialTheme.typography.bodyMedium, // Correct: fontSize is part of the style
-                            color = Color.Gray, // Use a less prominent color
-                            modifier = Modifier.padding(top = 2.dp) // Add a little space
-                        ) // Corrected: Removed invalid fontSize parameter
-                    }
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            // Action buttons
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                if (contract != "currency") {
-                    IconButton(
-                        onClick = onRemoveClick,
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "Remove Token",
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    }
-                } else {
-                    Spacer(modifier = Modifier.size(40.dp))
-                }
-                
-                Row {
-                    Button(
-                        onClick = onSendClick,
-                        modifier = Modifier.padding(end = 8.dp),
-                        colors = xianButtonColors(XianButtonType.PRIMARY)
-                    ) {
-                        Text("Send")
-                    }
-                    
-                    Button(
-                        onClick = onReceiveClick,
-                        colors = xianButtonColors(XianButtonType.SECONDARY)
-                    ) {
-                        Text("Receive")
-                    }
-                }
-            }
-        }
+    } else {
+        // Regular card UI for other tokens
+        SwipeableTokenCard(
+            name = name,
+            symbol = symbol,
+            logoUrl = logoUrl,
+            balance = balance,
+            onSendClick = onSendClick,
+            onReceiveClick = onReceiveClick,
+            onRemoveClick = onRemoveClick
+        )
     }
 }
-
-
-// --- NftItem Composable --- Updated to use NftCacheEntity
-@Composable
-fun NftItem(
-    nftInfo: NftCacheEntity, // Changed type to NftCacheEntity
-    onViewClick: (String?) -> Unit // Accept nullable String for URL
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(300.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp)
-        ) {
-            // NFT Image
-            AsyncImage(
-                model = nftInfo.imageUrl, // Use imageUrl from NftCacheEntity
-                contentDescription = "${nftInfo.name} NFT Image",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(150.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)),
-                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                error = painterResource(id = android.R.drawable.ic_menu_gallery)
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // NFT Name
-            Text(
-                text = nftInfo.name, // Use name from NftCacheEntity
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // NFT Description
-            Text(
-                text = nftInfo.description ?: "", // Use description from NftCacheEntity, provide default
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // View Button
-            Button(
-                onClick = { onViewClick(nftInfo.viewUrl) }, // Pass viewUrl from NftCacheEntity
-                modifier = Modifier.align(Alignment.End),
-                enabled = nftInfo.viewUrl != null // Disable button if URL is null
-                // colors = ButtonDefaults.buttonColors() // Use default or xianButtonColors
-            ) {
-                Icon(Icons.Default.Visibility, contentDescription = "View NFT", modifier = Modifier.size(ButtonDefaults.IconSize))
-                Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                Text("View")
-            }
-        }
-    }
-}
-// --- End of NftItem Composable ---
-
-// --- XnsNameItem Composable ---
-@Composable
-fun XnsNameItem(
-    username: String,
-    remainingDays: Long?, // Add remainingDays parameter
-    navController: NavController // Add NavController parameter
-) {
-    val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    val snackbarHostState = remember { SnackbarHostState() } // Needed if showing snackbar on error
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            // .padding(vertical = 8.dp) // Padding is handled by LazyVerticalGrid spacing
-            .height(300.dp), // Set the same fixed height as NftItem
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant // Use similar background as NFTItem
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize() // Fill the fixed height
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally, // Center content
-            verticalArrangement = Arrangement.Center // Center content vertically
-        ) {
-            Icon(
-                imageVector = Icons.Default.Person, // Use a generic person/user icon
-                contentDescription = "XNS Name Icon",
-                modifier = Modifier
-                    .size(60.dp) // Adjusted size
-                    .padding(bottom = 8.dp),
-                tint = MaterialTheme.colorScheme.primary // Use primary color for the icon
-            )
-            Text(
-                text = username,
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp, // Adjusted font size
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center
-            )
-            // Optional: Add a small label
-            Text(
-                text = "XNS Name",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-
-            // Display Remaining Days
-            if (remainingDays != null) {
-                Text(
-                    text = "Expires in $remainingDays days",
-                    fontSize = 12.sp,
-                    color = if (remainingDays < 30) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, // Highlight if expiring soon
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-            } else {
-                 // Optional: Show placeholder or nothing if days are null (shouldn't happen for valid names)
-                 Spacer(modifier = Modifier.height(18.dp)) // Keep spacing consistent
-            }
-
-            Spacer(modifier = Modifier.weight(1f)) // Pushes the button to the bottom
-
-            // Button to open XNS Domains link
-            Button(
-                onClick = {
-                    val url = "https://xns.domains/?name=$username"
-                    try {
-                        // URL Encode the URL before passing it as a navigation argument
-                        val encodedUrl = URLEncoder.encode(url, StandardCharsets.UTF_8.toString())
-                        // Navigate to the internal WebBrowserScreen
-                        navController.navigate("${XianDestinations.WEB_BROWSER}?url=$encodedUrl")
-                    } catch (e: Exception) {
-                        android.util.Log.e("XnsNameItem", "Failed to encode or navigate to URL: $url", e)
-                        coroutineScope.launch {
-                            // Consider showing a snackbar or toast
-                            // snackbarHostState.showSnackbar("Could not open link")
-                            android.widget.Toast.makeText(context, "Could not open link", android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                },
-                modifier = Modifier.align(Alignment.CenterHorizontally) // Center button
-            ) {
-                Icon(Icons.Default.Language, contentDescription = "View", modifier = Modifier.size(ButtonDefaults.IconSize))
-                Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                Text("View")
-            }
-        }
-    }
-}
-// --- End of XnsNameItem Composable ---
-
 
 /**
- * Composable function to display a single local transaction record.
+ * @deprecated Use SwipeableTokenCard instead
+ * A swipeable card specifically for the XIAN token with gesture animations
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TransactionRecordItem(record: LocalTransactionRecord) {
-    val formatter = remember { java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(java.time.ZoneId.systemDefault()) }
-    val formattedTimestamp = remember(record.timestamp) { formatter.format(java.time.Instant.ofEpochMilli(record.timestamp)) }
-    val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
-    val coroutineScope = rememberCoroutineScope()
+@Deprecated("Use SwipeableTokenCard instead", ReplaceWith("SwipeableTokenCard(name, symbol, logoUrl, balance, xianPrice?.let { balance * it }, onSendClick, onReceiveClick)"))
+fun SwipeableXianCard(
+    name: String,
+    symbol: String,
+    logoUrl: String?,
+    balance: Float,
+    xianPrice: Float? = null,
+    onSendClick: () -> Unit,
+    onReceiveClick: () -> Unit
+) {
+    // Swipe state variables and animation
+    var offsetX by remember { mutableStateOf(0f) }
+    val maxSwipe = 300f // Increased from 150f to 300f to match SwipeableTokenCard
+    val animatedOffsetX by animateFloatAsState(targetValue = offsetX, label = "offsetXAnimation")
 
-    Card(
+    // Auto-demo animation state
+    val idleTimeInMillis = 5000L // 5 seconds of inactivity (use Long)
+    var lastInteractionTime by remember { mutableStateOf(System.currentTimeMillis()) } // Use mutableLongStateOf
+    var isDragging by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    var demoJob by remember { mutableStateOf<Job?>(null) } // Job reference for the demo
+
+    // Function to reset timer and cancel any ongoing demo
+    fun recordInteraction() {
+        lastInteractionTime = System.currentTimeMillis()
+        demoJob?.cancel() // Cancel any active demo job
+        demoJob = null
+        // Log.d("SwipeCard", "Interaction recorded. Demo cancelled.")
+    }
+
+    // Auto-demo effect: launched when lastInteractionTime changes
+    LaunchedEffect(lastInteractionTime) {
+        // Log.d("SwipeCard", "LaunchedEffect triggered by interaction time change.")
+        // Cancel any previous demo job before starting a new delay cycle
+        demoJob?.cancel()
+        demoJob = coroutineScope.launch {
+            delay(idleTimeInMillis) // Wait for the idle period
+
+            // After delay, check if still idle and not dragging
+            val now = System.currentTimeMillis()
+            if (!isDragging && (now - lastInteractionTime >= idleTimeInMillis)) {
+                // Log.d("SwipeCard", "Starting demo animation after idle.")
+                // Perform the demo animation
+                try {
+                    // Demo right swipe (Send)
+                    for (i in 0..40) { offsetX = i * 2.5f; delay(5) }
+                    delay(400)
+                    for (i in 40 downTo 0) { offsetX = i * 2.5f; delay(5) }
+                    delay(200)
+
+                    // Demo left swipe (Receive)
+                    for (i in 0..40) { offsetX = -i * 2.5f; delay(5) }
+                    delay(400)
+                    for (i in 40 downTo 0) { offsetX = -i * 2.5f; delay(5) }
+
+                    // Reset and schedule next check (if needed, or just let LaunchedEffect handle it)
+                    offsetX = 0f
+                    // No need to reset lastInteractionTime here, let user interaction do it
+                } catch (e: CancellationException) {
+                    // Log.d("SwipeCard", "Demo animation cancelled.")
+                    offsetX = 0f // Ensure reset if cancelled mid-animation
+                } finally {
+                     // Log.d("SwipeCard", "Demo animation finished or cancelled.")
+                     if (demoJob?.isActive == true) { // Check if the specific demo job wasn't cancelled
+                         offsetX = 0f // Ensure reset at the end
+                     }
+                }
+            } else {
+                 // Log.d("SwipeCard", "Idle period finished, but interaction occurred or dragging. No demo.")
+            }
+        }
+    }
+
+    // Outer Box - Consolidate pointer input here
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-    ) {
-        Column(
+            .padding(vertical = 8.dp)
+            .clip(CardDefaults.shape)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = { /* Called when a gesture starts */
+                        recordInteraction() // Record interaction on press down
+                        awaitRelease() // Wait until finger is lifted
+                    }
+                    // onTap is implicitly handled by onPress + awaitRelease resetting the timer
+                )
+            }
+            .pointerInput(Unit) {
+                 detectDragGestures(
+                    onDragStart = {
+                        isDragging = true
+                        recordInteraction() // Record interaction
+                        // Log.d("SwipeCard", "Drag started")
+                    },
+                    onDragEnd = {
+                        isDragging = false
+                        // Log.d("SwipeCard", "Drag ended")
+                        // Trigger action if swiped far enough - update threshold to 0.5f to match SwipeableTokenCard
+                        if (offsetX > maxSwipe * 0.5f) {  // Changed from 0.6f to 0.5f
+                            onSendClick()
+                        } else if (offsetX < -maxSwipe * 0.5f) {  // Changed from 0.6f to 0.5f
+                            onReceiveClick()
+                        }
+                        // Animate back to center
+                        offsetX = 0f
+                        recordInteraction() // Record interaction end
+                    },
+                    onDragCancel = {
+                        isDragging = false
+                        // Log.d("SwipeCard", "Drag canceled")
+                        offsetX = 0f
+                        recordInteraction() // Record interaction cancel
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        // Apply the same constraints as SwipeableTokenCard
+                        offsetX = (offsetX + dragAmount.x).coerceIn(-maxSwipe, maxSwipe)
+                        // Continuously record interaction during drag to prevent demo start
+                        recordInteraction()
+                    }
+                )
+            }
+    ) {        // --- Backgrounds (Remain underneath) with Action Labels inside ---
+        // Left swipe background (Receive) - Blue
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clip(RoundedCornerShape(8.dp)) // Add rounded corners to match card
+                .background(XianBlue.copy(alpha = (-animatedOffsetX / maxSwipe).coerceIn(0f, 1f)))
+        ) {
+            // Mostrar solo si se desliza a la izquierda
+            if (animatedOffsetX < 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .wrapContentWidth()
+                        .align(Alignment.CenterEnd)
+                        .padding(start = 0.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                        .background(XianBlue)
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.ArrowDropDown,
+                                contentDescription = "Receive",
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "RECEIVE",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Right swipe background (Send) - Yellow
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clip(RoundedCornerShape(8.dp)) // Add rounded corners to match card
+                .background(XianYellow.copy(alpha = (animatedOffsetX / maxSwipe).coerceIn(0f, 1f)))
+        ) {
+            // Mostrar solo si se desliza a la derecha
+            if (animatedOffsetX > 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .wrapContentWidth()
+                        .align(Alignment.CenterStart)
+                        .padding(end = 0.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                        .background(XianYellow)
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "SEND",
+                                color = Color.Black,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(
+                                Icons.Default.ArrowDropDown,
+                                contentDescription = "Send",
+                                tint = Color.Black,
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .rotate(270f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        
+        // The card with NO horizontal swipe handling - will allow parent scroll to work
+        Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp)
+                .offset { IntOffset(animatedOffsetX.roundToInt(), 0) }
+                // Update the width calculation to use the new maxSwipe value
+                .width(with(LocalDensity.current) { (maxSwipe * 0.9f).toDp() })
+                // Remove clickable/pointerInput from Card, handle in outer Box
+                .shadow(4.dp, RoundedCornerShape(8.dp)),
+             shape = RoundedCornerShape(8.dp),
+             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = record.type, // "Sent" or "Received"
-                    fontWeight = FontWeight.Bold,
-                    color = if (record.type == "Sent") Color(0xFFE57373) else Color(0xFF81C784), // Red for Sent, Green for Received
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    text = formattedTimestamp,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "${if (record.type == "Sent") "-" else "+"}${record.amount} ${record.symbol}",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Medium
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            if (record.type == "Sent" && record.recipient != null) {
-                Text("To: ${record.recipient.take(8)}...${record.recipient.takeLast(6)}", fontSize = 12.sp)
-            }
-            
-            // TODO: Add 'From' if needed for received transactions (requires storing sender)
-            Spacer(modifier = Modifier.height(2.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                 Text(
-                    text = "Tx: ${record.txHash.take(10)}...",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.primary, // Change color to indicate link
-                    textDecoration = TextDecoration.Underline, // Add underline
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable {
-                            val url = "https://explorer.xian.org/tx/${record.txHash}"
-                            try {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                context.startActivity(intent)
-                            } catch (e: Exception) {
-                                android.util.Log.e("WalletScreen", "Failed to open URL: $url", e)
-                                // Optionally show a toast or snackbar on failure
-                                android.widget.Toast.makeText(context, "Could not open link", android.widget.Toast.LENGTH_SHORT).show()
-                            }
+            // Main card content
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    // Remove pointerInput from Column, handle in outer Box
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Token icon using AsyncImage
+                    AsyncImage(
+                        model = logoUrl,
+                        contentDescription = "$name Logo",
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Inside,
+                        error = painterResource(id = R.drawable.xian_logo), // Generic fallback for other tokens
+                        placeholder = painterResource(id = R.drawable.xian_logo)
+                    )
+
+                    // Token details
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 16.dp)
+                    ) {
+                        Text(
+                            text = "XIAN Currency",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                        Text(
+                            text = symbol,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 14.sp
+                        )
+                    }
+
+                    // Token balance and USD value
+                    Column(horizontalAlignment = Alignment.End, modifier = Modifier.weight(0.4f)) { // Give some weight to prevent overlap
+                        Text(
+                            text = "%.1f".format(balance),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (xianPrice != null) {
+                            val usdValue = balance * xianPrice
+                            Text(
+                                text = "$%.2f".format(usdValue),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.Gray,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
                         }
-                )
-                // IconButton removed
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // Hint text for gestures
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "← Swipe to Receive | Swipe to Send →",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }
 }
 
-// CustomNavItem se ha movido al componente XianBottomNavBar
+/**
+ * A unified swipeable card for all tokens with gesture animations, USD value display and removal option
+ */
+@Composable
+fun SwipeableTokenCard(
+    name: String,
+    symbol: String,
+    logoUrl: String?,
+    balance: Float,
+    usdValue: Float? = null,
+    onSendClick: () -> Unit,
+    onReceiveClick: () -> Unit,
+    onRemoveClick: (() -> Unit)? = null
+) {
+    var offsetX by remember { mutableStateOf(0f) }
+    // Increase maximum swipe distance significantly - at least double the original value
+    val maxSwipe = 300f // Increased from 150f to 300f
+    val animatedOffsetX by animateFloatAsState(targetValue = offsetX, label = "offsetXAnimation")
+    
+    // Use specific touch area for horizontal swipes
+    var isSwipeActive by remember { mutableStateOf(false) }
+    
+    // Measure the card width to potentially make swipe distance relative to card size
+    var cardWidthPx by remember { mutableStateOf(0) }
+    val density = LocalDensity.current
+    
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+            .onGloballyPositioned { coordinates ->
+                cardWidthPx = coordinates.size.width
+            }
+    ) {
+        // Left swipe background (Receive) - Blue with rounded corners
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clip(RoundedCornerShape(8.dp)) // Add rounded corners to match card
+                .background(XianBlue.copy(alpha = (-animatedOffsetX / maxSwipe).coerceIn(0f, 1f)))
+        ) {
+            // Show only if swiping left
+            if (animatedOffsetX < 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .wrapContentWidth()
+                        .align(Alignment.CenterEnd)
+                        // Remove right padding completely
+                        .padding(start = 0.dp, end = 0.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp)) // Rounded corners only on left side
+                            .background(XianBlue)
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.ArrowDropDown,
+                                contentDescription = "Receive",
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "RECEIVE",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Right swipe background (Send) - Yellow with rounded corners
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clip(RoundedCornerShape(8.dp)) // Add rounded corners to match card
+                .background(XianYellow.copy(alpha = (animatedOffsetX / maxSwipe).coerceIn(0f, 1f)))
+        ) {
+            // Show only if swiping right
+            if (animatedOffsetX > 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .wrapContentWidth()
+                        .align(Alignment.CenterStart)
+                        // Remove left padding completely
+                        .padding(end = 0.dp, start = 0.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(topEnd = 4.dp, bottomEnd = 4.dp)) // Rounded corners only on right side
+                            .background(XianYellow)
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "SEND",
+                                color = Color.Black,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(
+                                Icons.Default.ArrowDropDown,
+                                contentDescription = "Send",
+                                tint = Color.Black,
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .rotate(270f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        
+        // The card with NO horizontal swipe handling - will allow parent scroll to work
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset { IntOffset(animatedOffsetX.roundToInt(), 0) }
+                .shadow(4.dp, RoundedCornerShape(8.dp)),
+            shape = RoundedCornerShape(8.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface, // Fully opaque
+                contentColor = MaterialTheme.colorScheme.onSurface
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                // Card contents - TOP ROW (Icon, Name, Balance)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        // Add horizontal swipe handling ONLY to the token info row
+                        .pointerInput(Unit) {
+                            var totalDragX = 0f
+                            var initialDragY = 0f
+                            var isDragHorizontal = false
+                            
+                            detectDragGestures(
+                                onDragStart = { offset ->
+                                    totalDragX = 0f
+                                    initialDragY = 0f
+                                    isDragHorizontal = false
+                                    isSwipeActive = false
+                                },
+                                onDragEnd = {
+                                    if (isDragHorizontal) {
+                                        if (offsetX > maxSwipe * 0.5f) { // Changed from 0.6f to 0.5f - easier trigger
+                                            onSendClick()
+                                        } else if (offsetX < -maxSwipe * 0.5f) { // Changed from 0.6f to 0.5f - easier trigger
+                                            onReceiveClick()
+                                        }
+                                    }
+                                    offsetX = 0f
+                                    isSwipeActive = false
+                                },
+                                onDragCancel = {
+                                    offsetX = 0f
+                                    isSwipeActive = false
+                                },
+                                onDrag = { change, dragAmount ->
+                                    // First movements are critical for determining direction
+                                    if (totalDragX == 0f && initialDragY == 0f) {
+                                        initialDragY = dragAmount.y
+                                    }
+                                    
+                                    totalDragX += dragAmount.x
+                                    
+                                    // Determine if this is primarily a horizontal drag
+                                    // Use a higher threshold for horizontal recognition
+                                    if (!isDragHorizontal) {
+                                        // We want to be VERY sure it's horizontal before taking over
+                                        isDragHorizontal = kotlin.math.abs(totalDragX) > 15f && 
+                                            kotlin.math.abs(dragAmount.x) > kotlin.math.abs(dragAmount.y) * 2f
+                                        
+                                        if (isDragHorizontal) {
+                                            isSwipeActive = true
+                                        }
+                                    }
+                                    
+                                    // Only handle horizontal drags after confirming it's horizontal
+                                    if (isDragHorizontal) {
+                                        // Allow for longer swipes by using the new maxSwipe value
+                                        offsetX = (offsetX + dragAmount.x).coerceIn(-maxSwipe, maxSwipe)
+                                        change.consume() // Only consume for horizontal
+                                    }
+                                    // If not horizontal, don't consume the change to allow parent scroll
+                                }
+                            )
+                        },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Token icon using AsyncImage
+                    AsyncImage(
+                        model = logoUrl,
+                        contentDescription = "$name Logo",
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Inside,
+                        error = painterResource(id = R.drawable.xian_logo), // Generic fallback for other tokens
+                        placeholder = painterResource(id = R.drawable.xian_logo)
+                    )
 
+                    // Token details
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 16.dp)
+                    ) {
+                        Text(
+                            text = name,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                        Text(
+                            text = symbol,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 14.sp
+                        )
+                    }
+
+                    // Token balance and USD value
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            text = "%.1f".format(balance),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (usdValue != null) {
+                            Text(
+                                text = "$%.2f".format(usdValue),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.Gray,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
+                        }
+                    }
+                }
+                
+                // Only keep the remove button if provided, and align to end
+                if (onRemoveClick != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        contentAlignment = Alignment.CenterEnd
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.error.copy(alpha = 0.1f))
+                                .border(1.dp, MaterialTheme.colorScheme.error, CircleShape)
+                                .clickable(onClick = onRemoveClick),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "−", // Unicode minus sign
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+                
+                // Update the hint text to better reflect the longer swipe distance
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "← Swipe to Receive | Swipe to Send →",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}

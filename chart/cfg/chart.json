@@ -1,0 +1,6 @@
+{
+    "category": "Xian",
+    "description": "Display DEX candlestick charts",
+    "whitelist": [{"group": -1002119335225, "thread": 4615}],
+    "whitelist_msg": "This command can only be used in the topic 'Bot Spam'"
+}

@@ -4,9 +4,12 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -105,6 +108,9 @@ def transfer_from(amount: float, to: str, main_account: str):
     TransferEvent({"from": main_account, "to": to, "amount": amount})
 """
 
+// Define enum class for card types at the file level
+enum class ExpandedCard { CREATE_TOKEN, ADVANCED_TRANSACTION, NONE }
+
 /**
  * Screen for advanced functionalities like token creation.
  */
@@ -148,6 +154,11 @@ fun AdvancedScreen(
     var advShowPasswordDialog by remember { mutableStateOf(false) }
     var debounceJob by remember { mutableStateOf<Job?>(null) } // For debouncing network calls
     var feeEstimationJob by remember { mutableStateOf<Job?>(null) } // Separate job for fee estimation debounce
+    
+    // --- Expansion State ---
+    // State for tracking which card is currently expanded (default to CREATE_TOKEN)
+    var expandedCard by remember { mutableStateOf(ExpandedCard.CREATE_TOKEN) } // Solo una tarjeta expandida inicialmente
+    
     // --- General State ---
     var errorMessage by remember { mutableStateOf<String?>(null) } // General error for password/unlock issues
     var successMessage by remember { mutableStateOf<String?>(null) } // General success message
@@ -366,10 +377,28 @@ fun AdvancedScreen(
          }
     }
     Scaffold(
-        contentWindowInsets = WindowInsets.navigationBars,
-        topBar = {
+        contentWindowInsets = WindowInsets.navigationBars,        topBar = {
             TopAppBar(
-                title = { Text("Advanced") },                navigationIcon = {
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent, // Hacer la barra transparente
+                    titleContentColor = MaterialTheme.colorScheme.primary
+                ),
+                title = {
+                    Surface(
+                        modifier = Modifier
+                            // Borde eliminado
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface
+                    ) {
+                        Text(
+                            text = "Advanced",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
+                },
+                navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
@@ -431,111 +460,136 @@ fun AdvancedScreen(
                         .fillMaxWidth()
                         .padding(16.dp)
                 ) {
-                    Text("Create Token", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(bottom = 8.dp))
-                    Text("Create a new fungible token on the blockchain.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 16.dp))
-
-                    OutlinedTextField(
-                        value = tokenName,
-                        onValueChange = { tokenName = it; errorMessage = null; successMessage = null },
-                        label = { Text("Token Name (*)") },
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = tokenSymbol,
-                        onValueChange = { tokenSymbol = it; errorMessage = null; successMessage = null },
-                        label = { Text("Token Symbol (*)") },
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = tokenSupply,
-                        onValueChange = { tokenSupply = it.filter { char -> char.isDigit() }; errorMessage = null; successMessage = null },
-                        label = { Text("Token Supply (*)") },
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                    )
-                    // Wrap the Logo URL field and the preview in a Row
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically // Align items vertically
-                    ) {
-                        OutlinedTextField(
-                            value = tokenLogoUrl,
-                            onValueChange = { tokenLogoUrl = it },
-                            label = { Text("Token Logo URL") },
-                            modifier = Modifier.weight(1f), // TextField takes available space
-                            singleLine = true
-                        )
-                        Spacer(modifier = Modifier.width(8.dp)) // Add space between field and image
-                        // Image Preview
-                        AsyncImage(
-                            model = tokenLogoUrl,
-                            contentDescription = "Token Logo Preview",
-                            modifier = Modifier
-                                .size(40.dp) // Set a small size for the preview
-                                .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape) // Add a background shape
-                                .clip(CircleShape),
-                            placeholder = painterResource(id = R.drawable.ic_launcher_foreground), // Placeholder image
-                            error = painterResource(id = R.drawable.ic_launcher_background), // Error image
-                            contentScale = androidx.compose.ui.layout.ContentScale.Crop // Crop image to fit
-                        )
-                    }
-                    OutlinedTextField(
-                        value = tokenWebsiteUrl,
-                        onValueChange = { tokenWebsiteUrl = it },
-                        label = { Text("Token Website URL") },
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = tokenContractName,
-                        onValueChange = { /* Read Only */ },
-                        label = { Text("Token Contract Name (*)") },
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                        readOnly = true,
-                        enabled = false
-                    )
-                    Text("(*) Required fields", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 4.dp))
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Create Token Action Buttons
+                    // Card Header with expand/collapse icon
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center // Center the remaining button
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Button(
-                            onClick = {
-                                // --- Input Validation ---
-                                errorMessage = null
-                                successMessage = null
-                                if (tokenName.isBlank() || tokenSymbol.isBlank() || tokenSupply.isBlank() || tokenContractName.isBlank()) {
-                                    errorMessage = "Please fill out all required (*) fields for Create Token."
-                                    return@Button
-                                }
-                                val supplyAmount = tokenSupply.toBigDecimalOrNull()
-                                if (supplyAmount == null || supplyAmount <= BigDecimal.ZERO) {
-                                    errorMessage = "Token supply must be a positive number."
-                                    return@Button
-                                }
-                                val publicKey = walletManager.getPublicKey()
-                                if (publicKey == null) {
+                        Text("Create Token", style = MaterialTheme.typography.headlineSmall)
+                        IconButton(onClick = {
+                            expandedCard = if (expandedCard == ExpandedCard.CREATE_TOKEN) 
+                                ExpandedCard.NONE else ExpandedCard.CREATE_TOKEN
+                        }) {
+                            Icon(
+                                if (expandedCard == ExpandedCard.CREATE_TOKEN) 
+                                    Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (expandedCard == ExpandedCard.CREATE_TOKEN) 
+                                    "Collapse" else "Expand"
+                            )
+                        }
+                    }
+                    
+                    Text(
+                        "Create a new fungible token on the blockchain.", 
+                        style = MaterialTheme.typography.bodyMedium, 
+                        modifier = Modifier.padding(bottom = if (expandedCard == ExpandedCard.CREATE_TOKEN) 16.dp else 0.dp)
+                    )
+
+                    // Expanded content
+                    if (expandedCard == ExpandedCard.CREATE_TOKEN) {
+                        OutlinedTextField(
+                            value = tokenName,
+                            onValueChange = { tokenName = it; errorMessage = null; successMessage = null },
+                            label = { Text("Token Name (*)") },
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = tokenSymbol,
+                            onValueChange = { tokenSymbol = it; errorMessage = null; successMessage = null },
+                            label = { Text("Token Symbol (*)") },
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = tokenSupply,
+                            onValueChange = { tokenSupply = it.filter { char -> char.isDigit() }; errorMessage = null; successMessage = null },
+                            label = { Text("Token Supply (*)") },
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        )
+                        // Wrap the Logo URL field and the preview in a Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically // Align items vertically
+                        ) {
+                            OutlinedTextField(
+                                value = tokenLogoUrl,
+                                onValueChange = { tokenLogoUrl = it },
+                                label = { Text("Token Logo URL") },
+                                modifier = Modifier.weight(1f), // TextField takes available space
+                                singleLine = true
+                            )
+                            Spacer(modifier = Modifier.width(8.dp)) // Add space between field and image
+                            // Image Preview
+                            AsyncImage(
+                                model = tokenLogoUrl,
+                                contentDescription = "Token Logo Preview",
+                                modifier = Modifier
+                                    .size(40.dp) // Set a small size for the preview
+                                    .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape) // Add a background shape
+                                    .clip(CircleShape),
+                                placeholder = painterResource(id = R.drawable.ic_launcher_foreground), // Placeholder image
+                                error = painterResource(id = R.drawable.ic_launcher_background), // Error image
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop // Crop image to fit
+                            )
+                        }
+                        OutlinedTextField(
+                            value = tokenWebsiteUrl,
+                            onValueChange = { tokenWebsiteUrl = it },
+                            label = { Text("Token Website URL") },
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = tokenContractName,
+                            onValueChange = { /* Read Only */ },
+                            label = { Text("Token Contract Name (*)") },
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            readOnly = true,
+                            enabled = false
+                        )
+                        Text("(*) Required fields", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 4.dp))
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Create Token Action Buttons
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center // Center the remaining button
+                        ) {
+                            Button(
+                                onClick = {
+                                    // --- Input Validation ---
+                                    errorMessage = null
+                                    successMessage = null
+                                    if (tokenName.isBlank() || tokenSymbol.isBlank() || tokenSupply.isBlank() || tokenContractName.isBlank()) {
+                                        errorMessage = "Please fill out all required (*) fields for Create Token."
+                                        return@Button
+                                    }
+                                    val supplyAmount = tokenSupply.toBigDecimalOrNull()
+                                    if (supplyAmount == null || supplyAmount <= BigDecimal.ZERO) {
+                                        errorMessage = "Token supply must be a positive number."
+                                        return@Button
+                                    }
+                                    val publicKey = walletManager.getPublicKey()
+                                    if (publicKey == null) {
                                      errorMessage = "Public key not found. Cannot proceed."
                                      return@Button
-                                }
-                                showPasswordDialog = true // Show dialog for confirmation/password
-                            },
-                            enabled = !isLoading
-                        ) {
-                            if (isLoading) { // Use general isLoading for now
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                                    }
+                                    showPasswordDialog = true // Show dialog for confirmation/password
+                                },
+                                enabled = !isLoading
+                            ) {
+                                if (isLoading) { // Use general isLoading for now
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                             } else {
                                 Text("Create Token")
                             }
                         }
-                        // Removed the "Cancel Create" Button
+                    } // Removed the "Cancel Create" Button
                     }
                 }
             } // End of Create Token Card
@@ -557,40 +611,65 @@ fun AdvancedScreen(
                         .fillMaxWidth()
                         .padding(16.dp)
                 ) {
-                    Text("Advanced Transaction", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(bottom = 8.dp))
-                    Text("Directly interact with a smart contract.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 16.dp))
-
-                    // Contract Name Input
-                    OutlinedTextField(
-                        value = advContractName,
-                        onValueChange = {
-                            advContractName = it
-                            advSelectedFunction = null // Reset function when contract changes
-                            advFunctionList = emptyList()
-                            // TODO: Trigger function fetching logic here (debounced)
-                            advErrorMessage = null
-                            advSuccessMessage = null
-                        },
-                        label = { Text("Contract Name") },
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                        singleLine = true
+                    // Card Header with expand/collapse icon
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Advanced Transaction", style = MaterialTheme.typography.headlineSmall)
+                        IconButton(onClick = {
+                            expandedCard = if (expandedCard == ExpandedCard.ADVANCED_TRANSACTION) 
+                                ExpandedCard.NONE else ExpandedCard.ADVANCED_TRANSACTION
+                        }) {
+                            Icon(
+                                if (expandedCard == ExpandedCard.ADVANCED_TRANSACTION) 
+                                    Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (expandedCard == ExpandedCard.ADVANCED_TRANSACTION) 
+                                    "Collapse" else "Expand"
+                            )
+                        }
+                    }
+                    
+                    Text(
+                        "Directly interact with a smart contract.", 
+                        style = MaterialTheme.typography.bodyMedium, 
+                        modifier = Modifier.padding(bottom = if (expandedCard == ExpandedCard.ADVANCED_TRANSACTION) 16.dp else 0.dp)
                     )
 
-                    // Function Dropdown
-                    var functionDropdownExpanded by remember { mutableStateOf(false) }
-
-                    ExposedDropdownMenuBox(
-                        expanded = functionDropdownExpanded,
-                        onExpandedChange = { functionDropdownExpanded = !functionDropdownExpanded },
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                    ) {
+                    // Expanded content
+                    if (expandedCard == ExpandedCard.ADVANCED_TRANSACTION) {
+                        // Contract Name Input
                         OutlinedTextField(
-                            value = advSelectedFunction?.name ?: "",
-                            onValueChange = { }, // Input field is read-only in dropdown mode
-                            label = { Text("Function") },
-                            readOnly = true,
-                            trailingIcon = {
-                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = functionDropdownExpanded)
+                            value = advContractName,
+                            onValueChange = {
+                                advContractName = it
+                                advSelectedFunction = null // Reset function when contract changes
+                                advFunctionList = emptyList()
+                                // TODO: Trigger function fetching logic here (debounced)
+                                advErrorMessage = null
+                                advSuccessMessage = null
+                            },
+                            label = { Text("Contract Name") },
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            singleLine = true
+                        )
+
+                        // Function Dropdown
+                        var functionDropdownExpanded by remember { mutableStateOf(false) }
+
+                        ExposedDropdownMenuBox(
+                            expanded = functionDropdownExpanded,
+                            onExpandedChange = { functionDropdownExpanded = !functionDropdownExpanded },
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = advSelectedFunction?.name ?: "",
+                                onValueChange = { }, // Input field is read-only in dropdown mode
+                                label = { Text("Function") },
+                                readOnly = true,
+                                trailingIcon = {
+                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = functionDropdownExpanded)
                             },
                             modifier = Modifier.menuAnchor().fillMaxWidth(), // Important for anchoring the dropdown
                             enabled = advFunctionList.isNotEmpty() || advIsLoadingFunctions // Enable if loading or list has items
@@ -731,12 +810,12 @@ fun AdvancedScreen(
                             enabled = !advIsSubmitting // Use specific loading state
                         ) {
                              if (advIsSubmitting) {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                            } else {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)                            } else {
                                 Text("Send Advanced Tx")
                             }
                         }
                     }
+                    } // Cierre del bloque if (expandedCard == ExpandedCard.ADVANCED_TRANSACTION)
                 }
             } // End of Advanced Transaction Card
 
@@ -962,7 +1041,7 @@ fun AdvancedScreen(
              )
          }
     }
-}
+} // End of AdvancedScreen function
 
 
 @Composable
@@ -989,8 +1068,7 @@ private fun PasswordPromptDialog(
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
                     )
-                } else {
-                    Text("Confirm token creation transaction?") // Confirmation text when unlocked
+                } else {                    Text("Confirm token creation transaction?") // Confirmation text when unlocked
                 }
             }
         },
@@ -1003,6 +1081,6 @@ private fun PasswordPromptDialog(
             Button(onClick = onDismiss) {
                 Text("Cancel")
             }
-        }
-    )
-}
+        } // Closing brace for dismissButton lambda
+    ) // Closing parenthesis for AlertDialog call
+} // Closing brace for PasswordPromptDialog function

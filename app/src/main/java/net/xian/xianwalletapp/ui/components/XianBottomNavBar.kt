@@ -87,7 +87,7 @@ fun XianBottomNavBar(
                                 navController.navigate(XianDestinations.WALLET) {
                                     // Prevent multiple copies of the destination on the backstack
                                     popUpTo(navController.graph.startDestinationId) {
-                                        saveState = true
+                                        saveState = false // Changed from true to false
                                     }
                                     // Restore state when returning to this destination
                                     restoreState = true
@@ -105,7 +105,7 @@ fun XianBottomNavBar(
                             onClick = { 
                                 navigationViewModel.setSelectedNavItem(1)
                                 navController.navigate(XianDestinations.WEB_BROWSER) {
-                                    popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                    popUpTo(navController.graph.startDestinationId) { saveState = false } // Changed from true to false
                                     restoreState = true
                                     launchSingleTop = true
                                 }
@@ -120,7 +120,7 @@ fun XianBottomNavBar(
                             onClick = { 
                                 navigationViewModel.setSelectedNavItem(2)
                                 navController.navigate(XianDestinations.ADVANCED) {
-                                    popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                    popUpTo(navController.graph.startDestinationId) { saveState = false } // Changed from true to false
                                     restoreState = true
                                     launchSingleTop = true
                                 }
@@ -135,7 +135,7 @@ fun XianBottomNavBar(
                             onClick = { 
                                 navigationViewModel.setSelectedNavItem(3)
                                 navController.navigate(XianDestinations.NEWS) {
-                                    popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                    popUpTo(navController.graph.startDestinationId) { saveState = false } // Changed from true to false
                                     restoreState = true
                                     launchSingleTop = true
                                 }

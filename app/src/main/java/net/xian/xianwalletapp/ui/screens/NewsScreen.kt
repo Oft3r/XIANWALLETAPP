@@ -16,6 +16,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import net.xian.xianwalletapp.network.XianNetworkService // Keep for now, review later
@@ -58,10 +60,28 @@ fun NewsScreen(
     val isRefreshing = uiState is NewsUiState.Loading
     val swipeRefreshState = rememberSwipeRefreshState(isRefreshing)
       Scaffold(
-        contentWindowInsets = WindowInsets.navigationBars,
-        topBar = {
+        contentWindowInsets = WindowInsets.navigationBars,        topBar = {
             TopAppBar(
-                title = { Text("Ecosystem News") },                navigationIcon = {
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent, // Hacer la barra transparente
+                    titleContentColor = MaterialTheme.colorScheme.primary
+                ),
+                title = {
+                    Surface(
+                        modifier = Modifier
+                            // Borde eliminado
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface
+                    ) {
+                        Text(
+                            text = "Ecosystem News",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
+                },
+                navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
