@@ -76,8 +76,10 @@ class XianPriceWidgetProvider : AppWidgetProvider() {
                 val priceInfo = networkService.getXianPriceInfo()
 
                 val priceText = if (priceInfo != null) {
-                    val (reserve0, reserve1) = priceInfo
-                    val price = if (reserve1 != 0f) reserve0 / reserve1 else 0f
+                    val reserves = priceInfo.second // Extract the reserves pair
+
+                    // Use .first for reserve0 (USDC) and .second for reserve1 (XIAN)
+                    val price = if (reserves!!.second != 0f) reserves!!.first / reserves!!.second else 0f
                     // Format the price to 3 decimal places with $ symbol
                     val format = DecimalFormat("$#,##0.000", java.text.DecimalFormatSymbols(Locale.US))
                     format.format(price)

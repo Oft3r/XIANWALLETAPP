@@ -99,6 +99,22 @@ class WalletViewModel(
     private val _xianPrice = MutableStateFlow<Float?>(null)
     val xianPrice: StateFlow<Float?> = _xianPrice.asStateFlow()
 
+    // --- POOP Price State Flows ---
+    private val _poopPriceInfo = MutableStateFlow<Pair<Float, Float>?>(null)
+    val poopPriceInfo: StateFlow<Pair<Float, Float>?> = _poopPriceInfo.asStateFlow()
+
+    private val _poopPrice = MutableStateFlow<Float?>(null)
+    val poopPrice: StateFlow<Float?> = _poopPrice.asStateFlow()
+    // --- End POOP Price State Flows ---
+
+    // --- XTFU Price State Flows ---
+    private val _xtfuPriceInfo = MutableStateFlow<Pair<Float, Float>?>(null)
+    val xtfuPriceInfo: StateFlow<Pair<Float, Float>?> = _xtfuPriceInfo.asStateFlow()
+
+    private val _xtfuPrice = MutableStateFlow<Float?>(null)
+    val xtfuPrice: StateFlow<Float?> = _xtfuPrice.asStateFlow()
+    // --- End XTFU Price State Flows ---
+
     // --- NFT List Flow from Database --- //
     // Use flatMapLatest to switch the underlying Flow when the public key changes
     val nftList: StateFlow<List<NftCacheEntity>> = _publicKeyFlow.flatMapLatest { key ->
@@ -564,15 +580,51 @@ class WalletViewModel(
             _tokenInfoMap.value = newTokenInfoMap
             _balanceMap.value = newBalanceMap
 
-            // Fetch XIAN price info (unchanged)
+            // Fetch XIAN price info
             try {
-                val priceInfo = networkService.getXianPriceInfo()
-                _xianPriceInfo.value = priceInfo
-                _xianPrice.value = priceInfo?.let { (reserve0, reserve1) -> if (reserve1 != 0f) reserve0 / reserve1 else 0f }
-                Log.d("WalletViewModel", "Fetched XIAN Price: ${_xianPrice.value} (Reserves: $priceInfo)")
+                val xianPriceResult = networkService.getXianPriceInfo()
+                val reserves = xianPriceResult.second // Extract the reserves pair
+                _xianPriceInfo.value = reserves // Assign the reserves pair
+                // Calculate XIAN price (USDC / XIAN)
+                _xianPrice.value = reserves?.let { 
+                    // Use .first for reserve0 (USDC) and .second for reserve1 (XIAN)
+                    if (it.second != 0f) it.first / it.second else 0f
+                }
+                Log.d("WalletViewModel", "Fetched XIAN Price: ${_xianPrice.value} (Reserves: $reserves)")
             } catch (e: Exception) {
                  Log.e("WalletViewModel", "Error fetching XIAN price info", e)
             }
+
+            // --- Fetch POOP Price Info --- 
+            try {
+                val poopInfo = networkService.getPoopPriceInfo()
+                _poopPriceInfo.value = poopInfo
+                // Calculate POOP price (XIAN / POOP)
+                _poopPrice.value = poopInfo?.let { (reserve0_poop, reserve1_xian) ->
+                    if (reserve0_poop != 0f) reserve1_xian / reserve0_poop else 0f // Note: XIAN / POOP
+                }
+                Log.d("WalletViewModel", "Fetched POOP Price: ${_poopPrice.value} (Reserves: $poopInfo)")
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error fetching POOP price info", e)
+                _poopPrice.value = null // Ensure price is null on error
+            }
+            // --- End Fetch POOP Price Info ---
+            
+            // --- Fetch XTFU Price Info --- 
+            try {
+                val xtfuInfo = networkService.getXtfuPriceInfo()
+                _xtfuPriceInfo.value = xtfuInfo
+                // Calculate XTFU price (XIAN / XTFU)
+                _xtfuPrice.value = xtfuInfo?.let { (reserve0_xtfu, reserve1_xian) ->
+                    if (reserve0_xtfu != 0f) reserve1_xian / reserve0_xtfu else 0f // Note: XIAN / XTFU
+                }
+                Log.d("WalletViewModel", "Fetched XTFU Price: ${_xtfuPrice.value} (Reserves: $xtfuInfo)")
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error fetching XTFU price info", e)
+                _xtfuPrice.value = null // Ensure price is null on error
+            }
+            // --- End Fetch XTFU Price Info ---
+
 
             // --- Fetch NFTs and XNS Names & Expirations --- //
             var fetchedNetworkNfts: List<NftInfo> = emptyList()

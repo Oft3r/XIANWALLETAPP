@@ -165,6 +165,8 @@ fun WalletScreen(
     val tokenInfoMap by viewModel.tokenInfoMap.collectAsStateWithLifecycle()
     val balanceMap by viewModel.balanceMap.collectAsStateWithLifecycle()
     val xianPrice by viewModel.xianPrice.collectAsStateWithLifecycle()
+    val poopPrice by viewModel.poopPrice.collectAsStateWithLifecycle() // Collect POOP price state
+    val xtfuPrice by viewModel.xtfuPrice.collectAsStateWithLifecycle() // Collect XTFU price state
     
     // Special handling for XIAN price - only load once at startup, not during refresh
     // Store the first non-null price we receive
@@ -351,6 +353,7 @@ fun WalletScreen(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 170.dp, max = 190.dp) // Set both min and max height constraints
                         .padding(bottom = 16.dp),
                     border = BorderStroke(
                         width = 2.dp,
@@ -361,18 +364,25 @@ fun WalletScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally // Center items horizontally
+                            .padding(vertical = 14.dp, horizontal = 16.dp), // Keep padding as is
+                        horizontalAlignment = Alignment.CenterHorizontally, // Center items horizontally
+                        verticalArrangement = Arrangement.Top // Changed from Center to Top to allow manual spacing
                     ) {
+                        // Add spacing at the top to push content lower
+                        Spacer(modifier = Modifier.height(10.dp))
+                        
                         // Label
                         Text(
-                            text = "XIAN Price", // Changed Label again as requested
+                            text = "Total Balance", 
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
 
-                        Spacer(modifier = Modifier.height(8.dp)) // Add space between label and balance                        // Display balance or loading indicator
+                        // Use a larger spacer between label and balance for better visual balance
+                        Spacer(modifier = Modifier.height(15.dp)) 
+                        
+                        // Calculate total balance across all tokens
                         if (staticXianPrice == null) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(24.dp),
@@ -380,21 +390,38 @@ fun WalletScreen(
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         } else {
-                            // Display the static price that doesn't update with refresh
-                            val priceText = staticXianPrice?.let { "%.6f".format(it) } ?: "---" // Format to 6 decimals or show placeholder
+                            // Calculate total balance using:
+                            // 1. XIAN: amount × price
+                            // 2. POOP: amount × price in XIAN × XIAN price
+                            // 3. XTFU: amount × price in XIAN × XIAN price
+                            // 4. USDC: direct USD value
+                            
+                            // Store delegated properties in local variables to avoid smart cast issues
+                            val currentXianPrice = staticXianPrice ?: 0f
+                            val currentPoopPrice = poopPrice
+                            val currentXtfuPrice = xtfuPrice
+                            
+                            val xianUsdValue = balanceMap["currency"]?.let { it * currentXianPrice } ?: 0f
+                            val poopUsdValue = if (currentPoopPrice != null && balanceMap["con_poop_coin"] != null) {
+                                balanceMap["con_poop_coin"]!! * currentPoopPrice * currentXianPrice
+                            } else 0f
+                            val xtfuUsdValue = if (currentXtfuPrice != null && balanceMap["con_xtfu"] != null) {
+                                balanceMap["con_xtfu"]!! * currentXtfuPrice * currentXianPrice
+                            } else 0f
+                            val usdcValue = balanceMap["con_usdc"] ?: 0f // Direct USD value
+                            
+                            val totalBalance = xianUsdValue + poopUsdValue + xtfuUsdValue + usdcValue
+                            
                             Text(
-                                text = priceText,
-                                fontSize = 40.sp, // Set specific larger font size
+                                text = "$%.2f".format(totalBalance),
+                                fontSize = 55.sp, // Set specific larger font size
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 textAlign = TextAlign.Center
                             )
                         }
-                        // Removed Spacer and Row from inside the card
                     }
                 } // End of Card
-
-                Spacer(modifier = Modifier.height(16.dp)) // Add space after the card
 
                 // Row moved outside the Card and text changed to English
                 Row(
@@ -543,6 +570,8 @@ fun WalletScreen(
                                             logoUrl = tokenInfo?.logoUrl,
                                             balance = balance,
                                             xianPrice = if (contract == "currency") xianPrice else null,
+                                            poopPrice = if (contract == "con_poop_coin") poopPrice else null, // Pasar el precio de POOP
+                                            xtfuPrice = if (contract == "con_xtfu") xtfuPrice else null, // Pasar el precio de XTFU
                                             onSendClick = {
                                                 navController.navigate(
                                                     "${XianDestinations.SEND_TOKEN}?${XianNavArgs.TOKEN_CONTRACT}=$contract&${XianNavArgs.TOKEN_SYMBOL}=${tokenInfo?.symbol ?: ""}"
@@ -843,7 +872,9 @@ fun TokenItem(
     symbol: String,
     logoUrl: String?, // Added logo URL parameter
     balance: Float,
-    xianPrice: Float? = null, // Added optional price parameter
+    xianPrice: Float? = null, // Para token XIAN - precio en USD
+    poopPrice: Float? = null, // Añadir precio de POOP en XIAN
+    xtfuPrice: Float? = null, // Añadir precio de XTFU en XIAN
     onSendClick: () -> Unit,
     onReceiveClick: () -> Unit,
     onRemoveClick: () -> Unit
@@ -867,6 +898,12 @@ fun TokenItem(
             symbol = symbol,
             logoUrl = logoUrl,
             balance = balance,
+            usdValue = if (contract == "con_poop_coin") null else null, // No mostrar USD para otros tokens por ahora
+            xianPrice = when (contract) {
+                "con_poop_coin" -> poopPrice
+                "con_xtfu" -> xtfuPrice
+                else -> null
+            }, // Mostrar precio en XIAN cuando corresponda
             onSendClick = onSendClick,
             onReceiveClick = onReceiveClick,
             onRemoveClick = onRemoveClick
@@ -1154,18 +1191,16 @@ fun SwipeableXianCard(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         if (xianPrice != null) {
-                            val usdValue = balance * xianPrice
+                            // Mostrar el precio en USD para XIAN con formato "$"
                             Text(
-                                text = "$%.2f".format(usdValue),
+                                text = "$%.6f".format(xianPrice),
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = Color.Gray,
+                                color = Color(0xFF8BC34A), // Verde limón más oscuro para el precio en USD
                                 modifier = Modifier.padding(top = 2.dp)
                             )
                         }
                     }
                 }
-                
-                Spacer(modifier = Modifier.height(16.dp))
                 
                 // Hint text for gestures
                 Row(
@@ -1193,6 +1228,7 @@ fun SwipeableTokenCard(
     logoUrl: String?,
     balance: Float,
     usdValue: Float? = null,
+    xianPrice: Float? = null, // Añadir parámetro xianPrice para el token POOP
     onSendClick: () -> Unit,
     onReceiveClick: () -> Unit,
     onRemoveClick: (() -> Unit)? = null
@@ -1433,18 +1469,41 @@ fun SwipeableTokenCard(
                                 color = Color.Gray,
                                 modifier = Modifier.padding(top = 2.dp)
                             )
+                        } else if (xianPrice != null) {
+                            // Mostrar el precio en XIAN para POOP y XTFU con formato "X*"
+                            Text(
+                                text = "X*%.6f".format(xianPrice),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFF8BC34A), // Verde limón más oscuro para el precio
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
                         }
                     }
                 }
+                  // Update the hint text to better reflect the longer swipe distance
+                Spacer(modifier = Modifier.height(8.dp))
                 
-                // Only keep the remove button if provided, and align to end
-                if (onRemoveClick != null) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        contentAlignment = Alignment.CenterEnd
-                    ) {
+                // Row that contains both the swipe text and remove button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween // Distribute items along the row
+                ) {
+                    // Add empty spacer if there's no remove button to keep swipe text centered
+                    if (onRemoveClick == null) {
+                        Spacer(modifier = Modifier.width(20.dp))
+                    }
+                    
+                    Text(
+                        text = "← Swipe to Receive | Swipe to Send →",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f)
+                    )
+                    
+                    // Only show remove button if provided
+                    if (onRemoveClick != null) {
                         Box(
                             modifier = Modifier
                                 .size(20.dp)
@@ -1464,16 +1523,6 @@ fun SwipeableTokenCard(
                         }
                     }
                 }
-                
-                // Update the hint text to better reflect the longer swipe distance
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "← Swipe to Receive | Swipe to Send →",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
             }
         }
     }
