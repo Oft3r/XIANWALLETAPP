@@ -64,6 +64,7 @@ import androidx.compose.material.icons.filled.Person // Import Person icon
 import androidx.compose.material.icons.filled.ArrowDropDown // Import for dropdown arrow down
 import androidx.compose.material.icons.filled.ArrowDropUp // Import for dropdown arrow up
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material.DismissValue
 import androidx.compose.material.DismissDirection
 import androidx.compose.material.SwipeToDismiss
@@ -167,6 +168,7 @@ fun WalletScreen(
     val xianPrice by viewModel.xianPrice.collectAsStateWithLifecycle()
     val poopPrice by viewModel.poopPrice.collectAsStateWithLifecycle() // Collect POOP price state
     val xtfuPrice by viewModel.xtfuPrice.collectAsStateWithLifecycle() // Collect XTFU price state
+    val activeWalletName by viewModel.activeWalletName.collectAsStateWithLifecycle()
     
     // Special handling for XIAN price - only load once at startup, not during refresh
     // Store the first non-null price we receive
@@ -372,15 +374,22 @@ fun WalletScreen(
                         Spacer(modifier = Modifier.height(10.dp))
                         
                         // Label
-                        Text(
-                            text = "Total Balance", 
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(percent = 50),
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(bottom = 0.dp) // Adjusted to ensure alignment with balance
+                        ) {
+                            Text(
+                                text = activeWalletName?.takeIf { it.isNotBlank() } ?: "My Wallet",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                            )
+                        }
 
                         // Use a larger spacer between label and balance for better visual balance
-                        Spacer(modifier = Modifier.height(15.dp)) 
+                        Spacer(modifier = Modifier.height(15.dp))
                         
                         // Calculate total balance across all tokens
                         if (staticXianPrice == null) {
@@ -502,21 +511,45 @@ fun WalletScreen(
 
                 // Tabs for Tokens/NFTs
                 var selectedTabIndex by remember { mutableStateOf(0) }
-                TabRow(selectedTabIndex = selectedTabIndex) {
+                TabRow(
+                    selectedTabIndex = selectedTabIndex,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp)), // Rounded corners for the TabRow, border removed
+                    indicator = { tabPositions ->
+                        // Custom outline indicator
+                        Box(
+                            Modifier
+                                .tabIndicatorOffset(tabPositions[selectedTabIndex])
+                                .fillMaxHeight()
+                                .padding(vertical = 4.dp, horizontal = 4.dp) // Add padding to make the outline visible
+                                .border(BorderStroke(2.dp, MaterialTheme.colorScheme.primary), RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(12.dp)) // Clip the box itself
+                        )
+                    },
+                    divider = {} // Remove the default divider
+                ) {
                     Tab(
                         selected = selectedTabIndex == 0,
                         onClick = { selectedTabIndex = 0 },
-                        text = { Text("Tokens") }
+                        text = { Text("Tokens") },
+                        modifier = Modifier.clip(RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)),
+                        selectedContentColor = MaterialTheme.colorScheme.primary, // Ensure text is readable
+                        unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Tab(
                         selected = selectedTabIndex == 1,
                         onClick = { selectedTabIndex = 1 },
-                        text = { Text("Collectibles") } // Changed from "NFTs"
+                        text = { Text("Collectibles") }, // Changed from "NFTs"
+                        selectedContentColor = MaterialTheme.colorScheme.primary, // Ensure text is readable
+                        unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Tab(
                         selected = selectedTabIndex == 2,
                         onClick = { selectedTabIndex = 2 },
-                        text = { Text("Local Activity") }
+                        text = { Text("Local Activity") },
+                        modifier = Modifier.clip(RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)),
+                        selectedContentColor = MaterialTheme.colorScheme.primary, // Ensure text is readable
+                        unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 

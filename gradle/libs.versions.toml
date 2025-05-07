@@ -1,5 +1,5 @@
 [versions]
-agp = "8.10.0-rc04"
+agp = "8.10.0"
 kotlin = "2.0.21"
 # KSP version temporarily removed
 # ksp = "2.0.0-1.0.17" # More widely available version that works with Kotlin 2.0.x

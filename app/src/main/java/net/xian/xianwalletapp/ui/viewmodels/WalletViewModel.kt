@@ -99,6 +99,9 @@ class WalletViewModel(
     private val _xianPrice = MutableStateFlow<Float?>(null)
     val xianPrice: StateFlow<Float?> = _xianPrice.asStateFlow()
 
+    private val _activeWalletName = MutableStateFlow<String?>(null)
+    val activeWalletName: StateFlow<String?> = _activeWalletName.asStateFlow()
+
     // --- POOP Price State Flows ---
     private val _poopPriceInfo = MutableStateFlow<Pair<Float, Float>?>(null)
     val poopPriceInfo: StateFlow<Pair<Float, Float>?> = _poopPriceInfo.asStateFlow()
@@ -179,6 +182,7 @@ class WalletViewModel(
         // Observe the active wallet public key flow from WalletManager
         // Ensure the initial public key state is set correctly
         _publicKeyFlow.value = walletManager.getActiveWalletPublicKey() ?: ""
+        _activeWalletName.value = walletManager.getActiveWalletName() // Initialize active wallet name
         
         // Cargar información adicional de los tokens predefinidos (logos, etc)
         loadPredefinedTokensInfo()
@@ -195,6 +199,7 @@ class WalletViewModel(
                     val currentKey = _publicKeyFlow.value
                     if (newKey != currentKey) {
                         _publicKeyFlow.value = newKey // Update the ViewModel's public key flow
+                        _activeWalletName.value = walletManager.getActiveWalletName() // Update active wallet name
                         hasLoadedInitialData = false // Reset flag to force reload for the new wallet
                         _ownedXnsNames.value = EMPTY_XNS_NAME_LIST // Clear XNS names
                         _xnsNameExpirations.value = EMPTY_XNS_EXPIRATIONS // Clear expirations
@@ -211,6 +216,9 @@ class WalletViewModel(
                             _isLoading.value = false
                             _isNftLoading.value = false
                         }
+                    } else {
+                        // Key hasn't changed, but name might have (e.g., rename)
+                        _activeWalletName.value = walletManager.getActiveWalletName()
                     }
                 }
                 isInitialValue = false // Mark initial value as processed
