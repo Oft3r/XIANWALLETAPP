@@ -56,6 +56,7 @@ import androidx.compose.material.icons.filled.Download // Added import
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Newspaper
 import androidx.compose.material.icons.filled.Visibility // For View icon
+import androidx.compose.material.icons.filled.VisibilityOff // For Hide icon
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.AccountBalance
@@ -420,14 +421,25 @@ fun WalletScreen(
                             val usdcValue = balanceMap["con_usdc"] ?: 0f // Direct USD value
                             
                             val totalBalance = xianUsdValue + poopUsdValue + xtfuUsdValue + usdcValue
-                            
-                            Text(
-                                text = "$%.2f".format(totalBalance),
-                                fontSize = 55.sp, // Set specific larger font size
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                textAlign = TextAlign.Center
-                            )
+                            // var isBalanceVisible by remember { mutableStateOf(true) } // Replaced by ViewModel state
+                            val isBalanceVisible by viewModel.isBalanceVisible.collectAsStateWithLifecycle()
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = if (isBalanceVisible) "$%.2f".format(totalBalance) else "$***.**",
+                                    fontSize = 55.sp, // Set specific larger font size
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    textAlign = TextAlign.Center
+                                )
+                                IconButton(onClick = { viewModel.toggleBalanceVisibility() }) { // Call ViewModel function
+                                    Icon(
+                                        imageVector = if (isBalanceVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                                        contentDescription = if (isBalanceVisible) "Hide balance" else "Show balance",
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+                            }
                         }
                     }
                 } // End of Card

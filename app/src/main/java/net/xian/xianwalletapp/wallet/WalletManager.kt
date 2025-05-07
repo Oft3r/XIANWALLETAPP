@@ -87,6 +87,7 @@ class WalletManager private constructor(context: Context) {
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val BIOMETRIC_KEY_ALIAS = "xian_biometric_key"
         private const val KEY_FAVORITE_XAPPS = "favorite_xapps_list" // Restore for deprecated function
+        private const val KEY_BALANCE_VISIBLE = "balance_visible" // Key for balance visibility
 
         // DataStore Keys
         private val FAVORITE_XAPPS_KEY = stringPreferencesKey("favorite_xapps_list_datastore") // New key for DataStore
@@ -133,6 +134,15 @@ class WalletManager private constructor(context: Context) {
     // Helper function to create wallet-specific preference keys
 
     // --- Wallet Name Management --- 
+
+    fun isBalanceVisible(): Boolean {
+        // Default to true if not set
+        return prefs.getBoolean(KEY_BALANCE_VISIBLE, true) 
+    }
+
+    fun setBalanceVisible(isVisible: Boolean) {
+        prefs.edit().putBoolean(KEY_BALANCE_VISIBLE, isVisible).apply()
+    }
 
     private fun loadWalletNames(): MutableMap<String, String> {
         val jsonString = prefs.getString(KEY_WALLET_NAMES, null)

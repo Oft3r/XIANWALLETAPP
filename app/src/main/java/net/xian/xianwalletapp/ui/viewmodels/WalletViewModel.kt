@@ -161,6 +161,10 @@ class WalletViewModel(
     private val _isCheckingConnection = MutableStateFlow(false)
     val isCheckingConnection: StateFlow<Boolean> = _isCheckingConnection.asStateFlow()
 
+    // --- Balance Visibility State ---
+    private val _isBalanceVisible = MutableStateFlow(walletManager.isBalanceVisible())
+    val isBalanceVisible: StateFlow<Boolean> = _isBalanceVisible.asStateFlow()
+
     private val _resolvedXnsAddress = MutableStateFlow<String?>(null)
     val resolvedXnsAddress: StateFlow<String?> = _resolvedXnsAddress.asStateFlow()
 
@@ -231,6 +235,13 @@ class WalletViewModel(
     }
 
     // --- Public Functions for UI Interaction ---
+
+    fun toggleBalanceVisibility() {
+        val newVisibility = !_isBalanceVisible.value
+        _isBalanceVisible.value = newVisibility
+        walletManager.setBalanceVisible(newVisibility)
+        Log.d("WalletViewModel", "Balance visibility set to: $newVisibility")
+    }
 
     fun refreshData() {
         Log.d("WalletViewModel", "Manual refresh triggered.")
