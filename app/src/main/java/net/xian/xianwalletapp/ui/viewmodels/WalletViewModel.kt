@@ -27,6 +27,9 @@ import java.text.NumberFormat // For fee formatting
 import java.util.Locale // For fee formatting
 import java.time.Duration // Added for calculating remaining days
 import java.time.Instant // Already imported
+import net.xian.xianwalletapp.data.LocalTransactionRecord // For transaction history
+import net.xian.xianwalletapp.data.TransactionRepository // For transaction history
+import kotlinx.coroutines.flow.catch
 
 // Define default empty states
 private val EMPTY_TOKEN_INFO_MAP: Map<String, TokenInfo> = emptyMap()
@@ -35,6 +38,7 @@ private val EMPTY_BALANCE_MAP: Map<String, Float> = emptyMap()
 private val EMPTY_NFT_CACHE_LIST: List<NftCacheEntity> = emptyList() // Default for Flow
 private val EMPTY_XNS_NAME_LIST: List<String> = emptyList() // Added for XNS names
 private val EMPTY_XNS_EXPIRATIONS: Map<String, Long?> = emptyMap() // Added for expirations
+private val EMPTY_TRANSACTION_HISTORY: List<LocalTransactionRecord> = emptyList()
 
 // Data class to represent predefined tokens for easy selection
 data class PredefinedToken(
@@ -55,7 +59,8 @@ sealed class FeeEstimationState {
 class WalletViewModel(
     private val walletManager: WalletManager,
     private val networkService: XianNetworkService,
-    private val nftCacheDao: NftCacheDao // Add DAO as dependency
+    private val nftCacheDao: NftCacheDao, // Add DAO as dependency
+    private val transactionRepository: TransactionRepository // Added TransactionRepository
 ) : ViewModel() {    // List of predefined tokens that users can select from the dropdown
     private val _internalPredefinedTokens = listOf(
         PredefinedToken(
@@ -143,6 +148,17 @@ class WalletViewModel(
     val xnsNameExpirations: StateFlow<Map<String, Long?>> = _xnsNameExpirations.asStateFlow()
     // --- End of XNS States ---
 
+    // --- Transaction History States ---
+    private val _transactionHistory = MutableStateFlow<List<LocalTransactionRecord>>(EMPTY_TRANSACTION_HISTORY)
+    val transactionHistory: StateFlow<List<LocalTransactionRecord>> = _transactionHistory.asStateFlow()
+
+    private val _isTransactionHistoryLoading = MutableStateFlow(false)
+    val isTransactionHistoryLoading: StateFlow<Boolean> = _isTransactionHistoryLoading.asStateFlow()
+
+    private val _transactionHistoryError = MutableStateFlow<String?>(null)
+    val transactionHistoryError: StateFlow<String?> = _transactionHistoryError.asStateFlow()
+    // --- End of Transaction History States ---
+
     // --- Displayed NFT Info --- //
     // This needs adjustment. It should probably react to changes in nftList and preferred contract.
     // For simplicity now, we'll update it within loadData, but a more reactive approach is better.
@@ -207,10 +223,13 @@ class WalletViewModel(
                         hasLoadedInitialData = false // Reset flag to force reload for the new wallet
                         _ownedXnsNames.value = EMPTY_XNS_NAME_LIST // Clear XNS names
                         _xnsNameExpirations.value = EMPTY_XNS_EXPIRATIONS // Clear expirations
+                        _transactionHistory.value = EMPTY_TRANSACTION_HISTORY // Clear transaction history
+                        _transactionHistoryError.value = null // Clear errors
                         // No need to clear _nftList, the flatMapLatest will switch the source Flow
                         _displayedNftInfo.value = null // Clear displayed NFT
                         if (newKey.isNotEmpty()) {
                             loadData(force = true) // Trigger data load for the new active wallet
+                            loadTransactionHistory() // Load transaction history for new key
                         } else {
                             // Handle case where all wallets might be deleted
                             Log.w("WalletViewModel", "Active wallet key became null.")
@@ -219,6 +238,8 @@ class WalletViewModel(
                             _balanceMap.value = EMPTY_BALANCE_MAP
                             _isLoading.value = false
                             _isNftLoading.value = false
+                            _transactionHistory.value = EMPTY_TRANSACTION_HISTORY
+                            _isTransactionHistoryLoading.value = false
                         }
                     } else {
                         // Key hasn't changed, but name might have (e.g., rename)
@@ -230,6 +251,7 @@ class WalletViewModel(
         }
         // Trigger initial data load explicitly after setting up observer
         loadDataIfNotLoaded()
+        loadTransactionHistory() // Load initial transaction history
         // Start periodic connectivity check
         startConnectivityChecks()
     }
@@ -249,6 +271,7 @@ class WalletViewModel(
         _tokens.value = walletManager.getTokenList().toList().sortedWith(compareBy<String> { it != "currency" }.thenBy { it })
         // Force load data
         loadData(force = true)
+        loadTransactionHistory(force = true) // Refresh transaction history
     }
 
     // Updated to accept NftCacheEntity
@@ -748,6 +771,44 @@ class WalletViewModel(
         }
     }
 
+    // --- Transaction History Loading Function ---
+    fun loadTransactionHistory(force: Boolean = false) {
+        val currentKey = _publicKeyFlow.value
+        if (currentKey.isEmpty()) {
+            Log.w("WalletViewModel", "Cannot load transaction history, public key is empty.")
+            _transactionHistory.value = EMPTY_TRANSACTION_HISTORY
+            _isTransactionHistoryLoading.value = false
+            return
+        }
+
+        if (!force && _transactionHistory.value.isNotEmpty() && _transactionHistoryError.value == null) {
+            Log.d("WalletViewModel", "Transaction history already loaded and no error, skipping reload unless forced.")
+            return
+        }
+
+        viewModelScope.launch {
+            Log.d("WalletViewModel", "Loading transaction history for key: $currentKey")
+            _isTransactionHistoryLoading.value = true
+            _transactionHistoryError.value = null
+            try {
+                val history = transactionRepository.getNetworkTransactions(currentKey)
+                _transactionHistory.value = history
+                if (history.isEmpty()) {
+                    Log.d("WalletViewModel", "No transaction history found for key: $currentKey")
+                } else {
+                    Log.d("WalletViewModel", "Loaded ${history.size} transactions for key: $currentKey")
+                }
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error loading transaction history", e)
+                _transactionHistoryError.value = "Failed to load transaction history: ${e.localizedMessage}"
+                _transactionHistory.value = EMPTY_TRANSACTION_HISTORY // Clear history on error
+            } finally {
+                _isTransactionHistoryLoading.value = false
+            }
+        }
+    }
+
+    // --- Private Helper Functions ---
     private fun startConnectivityChecks() {
         viewModelScope.launch {
             delay(10000) // Initial delay

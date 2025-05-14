@@ -205,6 +205,11 @@ fun WalletScreen(
     val ownedXnsNames by viewModel.ownedXnsNames.collectAsStateWithLifecycle() // Collect owned XNS names
     val xnsNameExpirations by viewModel.xnsNameExpirations.collectAsStateWithLifecycle() // Collect expirations
 
+    // --- Collect Transaction History State from ViewModel ---
+    val transactionHistory by viewModel.transactionHistory.collectAsStateWithLifecycle()
+    val isTransactionHistoryLoading by viewModel.isTransactionHistoryLoading.collectAsStateWithLifecycle()
+    val transactionHistoryError by viewModel.transactionHistoryError.collectAsStateWithLifecycle()
+
     // --- Local UI State (Dialogs, Snackbar, etc.) ---
     var showAddTokenDialog by remember { mutableStateOf(false) }
     var newTokenContract by remember { mutableStateOf("") }
@@ -214,8 +219,9 @@ fun WalletScreen(
     
     // State for NFTs
     var showNftDropdown by remember { mutableStateOf(false) } // Control dropdown visibility    // State for Local Activity
-    var transactionHistory by remember { mutableStateOf<List<LocalTransactionRecord>>(emptyList()) }
-    var isHistoryLoading by remember { mutableStateOf(false) }
+    // REMOVE these local states as they are now handled by ViewModel
+    // var transactionHistory by remember { mutableStateOf<List<LocalTransactionRecord>>(emptyList()) }
+    // var isHistoryLoading by remember { mutableStateOf(false) }
     
     Scaffold(
         topBar = {            TopAppBar(
@@ -523,6 +529,32 @@ fun WalletScreen(
 
                 // Tabs for Tokens/NFTs
                 var selectedTabIndex by remember { mutableStateOf(0) }
+                // When selectedTabIndex changes, update the NavigationViewModel
+                // REMOVED: This LaunchedEffect was incorrectly updating the main navigation state
+                // based on internal tab selection within WalletScreen.
+                // WalletScreen as a whole corresponds to the "Portfolio" (index 0) main navigation item.
+                // Internal tab changes should not affect the main bottom bar's selected item.
+                /*
+                LaunchedEffect(selectedTabIndex) {
+                    when (selectedTabIndex) {
+                        0 -> navigationViewModel.setSelectedNavItem(0) // Use setSelectedNavItem
+                        1 -> navigationViewModel.setSelectedNavItem(1) // Use setSelectedNavItem
+                        2 -> navigationViewModel.setSelectedNavItem(2) // Use setSelectedNavItem
+                    }
+                }
+                */
+
+                // Sync selectedTabIndex from NavigationViewModel when the screen is first composed or recomposed
+                // This ensures tab selection is persistent across navigation events if needed
+                LaunchedEffect(navigationViewModel.selectedNavItem) { // Observe selectedNavItem
+                    selectedTabIndex = when (navigationViewModel.selectedNavItem.value) { // Access value of StateFlow
+                        0 -> 0 // "wallet_tokens" -> 0
+                        1 -> 1 // "wallet_collectibles" -> 1
+                        2 -> 2 // "wallet_activity" -> 2
+                        else -> selectedTabIndex // Keep current if no match or initial state
+                    }
+                }
+
                 TabRow(
                     selectedTabIndex = selectedTabIndex,
                     modifier = Modifier
@@ -558,24 +590,24 @@ fun WalletScreen(
                     Tab(
                         selected = selectedTabIndex == 2,
                         onClick = { selectedTabIndex = 2 },
-                        text = { Text("Local Activity") },
+                        text = { Text("Activity") },
                         modifier = Modifier.clip(RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)),
                         selectedContentColor = MaterialTheme.colorScheme.primary, // Ensure text is readable
                         unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
-                // Load Local Activity data when tab is selected (NFTs are loaded earlier now)
-                LaunchedEffect(selectedTabIndex) {
-                     if (selectedTabIndex == 2) {
-                        // Load transaction history when tab is selected
-                        isHistoryLoading = true
-                        val historyManager = TransactionHistoryManager(context)
-                        transactionHistory = historyManager.loadRecords()
-                        android.util.Log.d("WalletScreen", "Loaded ${transactionHistory.size} history records.")
-                        isHistoryLoading = false
-                    }
-                }
+                // REMOVE LaunchedEffect for selectedTabIndex == 2 that loads history manually
+                // LaunchedEffect(selectedTabIndex) {
+                //      if (selectedTabIndex == 2) {
+                //         // Load transaction history when tab is selected
+                //         isHistoryLoading = true
+                //         val historyManager = TransactionHistoryManager(context)
+                //         transactionHistory = historyManager.loadRecords()
+                //         android.util.Log.d("WalletScreen", "Loaded ${transactionHistory.size} history records.")
+                //         isHistoryLoading = false
+                //     }
+                // }
 
                 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -753,27 +785,52 @@ fun WalletScreen(
                         }
                     }
                     2 -> {
-                        // Local Activity tab
-                        // Use isLoading state from ViewModel
-                        if (isLoading) { // Changed from isHistoryLoading
+                        // Local Activity tab - Now uses ViewModel states
+                        if (isTransactionHistoryLoading) {
                              Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator()
+                            }
+                        } else if (transactionHistoryError != null) {
+                            Column(
+                                modifier = Modifier.fillMaxSize().padding(16.dp),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Error: $transactionHistoryError",
+                                    color = MaterialTheme.colorScheme.error,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Button(onClick = { viewModel.loadTransactionHistory(force = true) }) {
+                                    Text("Retry")
+                                }
                             }
                         } else if (transactionHistory.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text(
-                                    text = "No local transaction history found.",
+                                    text = "No transaction history found.", // Updated message
                                     textAlign = TextAlign.Center,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         } else {
+                            // Filter out consecutive duplicates
+                            val distinctTransactionHistory = transactionHistory.fold(mutableListOf<LocalTransactionRecord>()) { acc, record ->
+                                if (acc.isEmpty() || acc.last() != record) {
+                                    acc.add(record)
+                                }
+                                acc
+                            }
+
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(bottom = 80.dp) // Add padding for FAB
                             ) {
-                                items(transactionHistory) { record: LocalTransactionRecord -> // Keep explicit type
-                                    TransactionRecordItem(record = record)
+                                items(distinctTransactionHistory) { record: LocalTransactionRecord -> // Keep explicit type
+                                    // Display the transaction record (e.g., using a TransactionHistoryItem composable)
+                                    // For now, let's assume a simple Text display or a placeholder
+                                    // Replace this with your actual TransactionHistoryItem composable
+                                    TransactionRecordItem(record = record, navController = navController) // Pass navController
                                 }
                             }
                         }

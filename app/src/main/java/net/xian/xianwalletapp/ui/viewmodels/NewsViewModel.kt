@@ -2,9 +2,8 @@ package net.xian.xianwalletapp.ui.viewmodels
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import net.xian.xianwalletapp.network.RetrofitClient
+import net.xian.xianwalletapp.network.reddit.RedditRetrofitClient // Changed import
 import net.xian.xianwalletapp.network.reddit.RedditPostData
-// Removed import from ui.screens - NewsItem is now defined below
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -34,7 +33,7 @@ class NewsViewModel : ViewModel() {
     private val _uiState = MutableStateFlow<NewsUiState>(NewsUiState.Loading)
     val uiState: StateFlow<NewsUiState> = _uiState
 
-    private val redditApiService = RetrofitClient.redditApiService
+    private val redditApiService = RedditRetrofitClient.instance // Changed to use RedditRetrofitClient
 
     init {
         fetchNews()
@@ -44,8 +43,8 @@ class NewsViewModel : ViewModel() {
         _uiState.value = NewsUiState.Loading
         viewModelScope.launch {
             try {
-                val response = redditApiService.getNews()
-                val filteredPosts = response.data.children
+                val response = redditApiService.getNews() // This should now work
+                val filteredPosts = response.data.children // This should be fine if redditApiService is resolved
                     .map { it.data }
                     .filter { it.author == "lorythril" && it.removedByCategory == null }
                     .map { mapRedditPostToNewsItem(it) }

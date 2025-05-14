@@ -3,43 +3,43 @@ package net.xian.xianwalletapp.ui.components
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.ClipboardManager
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.launch
 import net.xian.xianwalletapp.data.LocalTransactionRecord
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import android.util.Log
+import androidx.navigation.NavController
+import net.xian.xianwalletapp.navigation.XianDestinations
 
 /**
  * Composable function to display a single local transaction record.
  */
 @Composable
-fun TransactionRecordItem(record: LocalTransactionRecord) {
+fun TransactionRecordItem(
+    record: LocalTransactionRecord,
+    navController: NavController
+) {
     val formatter = remember { DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault()) }
     val formattedTimestamp = remember(record.timestamp) { formatter.format(Instant.ofEpochMilli(record.timestamp)) }
-    val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
-    val coroutineScope = rememberCoroutineScope()
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 6.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
+            containerColor = MaterialTheme.colorScheme.surface // Changed from surfaceVariant to surface
         ),
         shape = RoundedCornerShape(8.dp)
     ) {
@@ -64,57 +64,66 @@ fun TransactionRecordItem(record: LocalTransactionRecord) {
             }
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "${if (record.type == "Sent") "-" else "+"}${record.amount} ${record.symbol}",
+                text = "${if (record.type == "Sent") "-" else "+"}${
+                    try {
+                        String.format("%.2f", record.amount.toDouble())
+                    } catch (e: NumberFormatException) {
+                        record.amount // Fallback to original amount if not a valid double
+                    }
+                } ${record.symbol}",
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Medium
             )
             Spacer(modifier = Modifier.height(4.dp))
-            if (record.type == "Sent" && record.recipient != null) {
+
+            val otherPartyAddress = if (record.type == "Sent") record.recipient else record.sender
+            val addressLabel = if (record.type == "Sent") "To: " else "From: "
+
+            if (otherPartyAddress != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "To: ${record.recipient.take(8)}...${record.recipient.takeLast(6)}", 
+                        text = "$addressLabel${otherPartyAddress.take(8)}...${otherPartyAddress.takeLast(6)}",
                         fontSize = 12.sp,
-                        modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        textDecoration = TextDecoration.Underline,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable {
+                                val url = "https://explorer.xian.org/addresses/$otherPartyAddress"
+                                try {
+                                    val encodedUrl = URLEncoder.encode(url, StandardCharsets.UTF_8.toString())
+                                    navController.navigate("${XianDestinations.WEB_BROWSER}?url=$encodedUrl")
+                                } catch (e: Exception) {
+                                    Log.e("TransactionRecordItem", "Error encoding address URL: $url", e)
+                                }
+                            },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    IconButton(
-                        onClick = {
-                            clipboardManager.setText(AnnotatedString(record.recipient))
-                            coroutineScope.launch {
-                                // Optionally show a snackbar
-                                // snackbarHostState.showSnackbar("Address copied to clipboard")
-                            }
-                        },
-                        modifier = Modifier.size(24.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.ContentCopy, 
-                            contentDescription = "Copy Address",
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
                 }
             }
             
-            // TODO: Add 'From' if needed for received transactions (requires storing sender)
             Spacer(modifier = Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "TX: ${record.txHash.take(8)}...${record.txHash.takeLast(6)}",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textDecoration = TextDecoration.Underline,
                     modifier = Modifier
                         .weight(1f)
                         .clickable {
-                            clipboardManager.setText(AnnotatedString(record.txHash))
-                            coroutineScope.launch {
-                                // Optionally show a snackbar
-                                // snackbarHostState.showSnackbar("Transaction hash copied")
+                            val url = "https://explorer.xian.org/tx/${record.txHash}"
+                            try {
+                                val encodedUrl = URLEncoder.encode(url, StandardCharsets.UTF_8.toString())
+                                navController.navigate("${XianDestinations.WEB_BROWSER}?url=$encodedUrl")
+                            } catch (e: Exception) {
+                                Log.e("TransactionRecordItem", "Error encoding tx URL: $url", e)
                             }
-                        }
+                        },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                // IconButton removed to match the current design
             }
         }
     }
