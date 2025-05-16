@@ -94,8 +94,7 @@ fun XnsNameItem(
                     color = textColor,
                     textAlign = TextAlign.Center,
                     fontSize = 12.sp // Tamaño de fuente explícito para mejor ajuste
-                )
-            } else {
+                )            } else {
                 Spacer(modifier = Modifier.height(6.dp)) // Reducido de 8dp a 6dp                
                 Text(
                     text = "Expiration unknown",
@@ -105,7 +104,7 @@ fun XnsNameItem(
                     fontSize = 12.sp // Tamaño de fuente explícito para mantener coherencia
                 )
             }
-
+            
             Spacer(modifier = Modifier.weight(1f)) // Pushes the button to the bottom
 
             // Re-add the Button
@@ -128,7 +127,12 @@ fun XnsNameItem(
             ) {
                 // Use a more descriptive icon or text if desired
                 // Icon(Icons.Default.Language, contentDescription = "View", modifier = Modifier.size(ButtonDefaults.IconSize))
-                Text("View", fontSize = 12.sp) // Match NftItem button text
+                Text(
+                    text = "View", 
+                    fontSize = 12.sp,
+                    color = Color.Black,
+                    fontWeight = FontWeight.Bold
+                ) // Texto negro y en negrita
             }
         }
     }

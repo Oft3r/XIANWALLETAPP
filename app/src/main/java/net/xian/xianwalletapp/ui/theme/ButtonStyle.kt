@@ -9,8 +9,8 @@ import androidx.compose.ui.graphics.Color
  * Button types for Xian Wallet app
  */
 enum class XianButtonType {
-    PRIMARY,    // Yellow buttons
-    SECONDARY,  // Blue buttons
+    PRIMARY,    // Teal buttons (#56D5C9)
+    SECONDARY,  // Light teal buttons (#8CDDD8)
     OUTLINED    // Outlined buttons
 }
 
@@ -19,18 +19,17 @@ enum class XianButtonType {
  * Provides options for yellow (primary), blue (secondary), and outlined buttons
  */
 @Composable
-fun xianButtonColors(buttonType: XianButtonType = XianButtonType.PRIMARY): ButtonColors {
-    return when (buttonType) {
+fun xianButtonColors(buttonType: XianButtonType = XianButtonType.PRIMARY): ButtonColors {    return when (buttonType) {
         XianButtonType.PRIMARY -> ButtonDefaults.buttonColors(
-            containerColor = XianButtonColor,
-            contentColor = Color.Black
+            containerColor = XianPrimary,
+            contentColor = XianDarkBackground
         )
         XianButtonType.SECONDARY -> ButtonDefaults.buttonColors(
-            containerColor = XianBlue,
-            contentColor = Color.White
+            containerColor = XianPrimaryVariant,
+            contentColor = XianDarkBackground
         )
         XianButtonType.OUTLINED -> ButtonDefaults.outlinedButtonColors(
-            contentColor = XianBlue
+            contentColor = XianPrimary
         )
     }
 }

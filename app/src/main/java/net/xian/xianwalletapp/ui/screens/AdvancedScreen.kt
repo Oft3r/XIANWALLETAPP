@@ -23,7 +23,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.navigation.NavController
 import net.xian.xianwalletapp.network.XianNetworkService
 import net.xian.xianwalletapp.wallet.WalletManager
-import net.xian.xianwalletapp.ui.theme.XianBlue // Import XianBlue
+import net.xian.xianwalletapp.ui.theme.XianPrimary
+import net.xian.xianwalletapp.ui.theme.XianPrimaryVariant
 // CryptoUtils import might be needed later for token creation
 // import net.xian.xianwalletapp.utils.CryptoUtils
 import kotlinx.coroutines.launch
@@ -443,16 +444,14 @@ fun AdvancedScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(bottom = 16.dp) // Add some space below the text
             )
-            Spacer(modifier = Modifier.height(8.dp)) // Add a small spacer before the first card
-
-            // --- Create Token Card ---
+            Spacer(modifier = Modifier.height(8.dp)) // Add a small spacer before the first card            // --- Create Token Card ---
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 16.dp),
                 border = BorderStroke(
                     width = 2.dp,
-                    brush = Brush.horizontalGradient(colors = listOf(Color.Yellow, XianBlue))
+                    brush = Brush.horizontalGradient(colors = listOf(XianPrimary, XianPrimaryVariant))
                 )
             ) {
                 Column(
@@ -600,10 +599,9 @@ fun AdvancedScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                border = BorderStroke(
+                    .padding(bottom = 16.dp),                border = BorderStroke(
                     width = 2.dp,
-                    brush = Brush.horizontalGradient(colors = listOf(Color.Yellow, XianBlue))
+                    brush = Brush.horizontalGradient(colors = listOf(XianPrimary, XianPrimaryVariant))
                 )
             ) {
                 Column(

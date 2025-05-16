@@ -18,22 +18,18 @@
         android:orientation="vertical"
         android:gravity="center"
         android:padding="8dp">
-        &lt;!-- Padding inside content area --&gt;
-
-    <TextView
+        &lt;!-- Padding inside content area --&gt;    <TextView
         android:id="@+id/widget_title"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="XIAN Price"
-        android:textColor="@android:color/white"
-        android:textSize="14sp" />
-
-    <TextView
+        android:textColor="@color/text_primary"
+        android:textSize="14sp" />    <TextView
         android:id="@+id/widget_price_text"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Loading..."
-        android:textColor="@android:color/white"
+        android:textColor="@color/text_primary"
         android:textSize="18sp"
         android:textStyle="bold" />
 
@@ -49,7 +45,7 @@
         android:layout_margin="4dp"
         android:src="@android:drawable/ic_popup_sync"
         android:contentDescription="Refresh Price"
-        android:tint="@android:color/white"
+        android:tint="@color/primary"
         tools:ignore="UseAppTint" />
 
 </FrameLayout>

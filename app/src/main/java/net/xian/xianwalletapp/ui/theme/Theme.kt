@@ -18,33 +18,33 @@ import androidx.compose.ui.graphics.Color
 import androidx.core.view.WindowCompat
 
 private val DarkColorScheme = darkColorScheme(
-    primary = XianBlue,
-    secondary = XianGreen,
-    tertiary = XianOrange,
+    primary = XianPrimary,
+    secondary = XianSecondary,
+    tertiary = XianPrimaryVariant,
     background = XianDarkBackground,
     surface = XianDarkSurface,
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
+    onPrimary = XianDarkBackground,
+    onSecondary = XianPrimaryText,
+    onTertiary = XianDarkBackground,
     onBackground = XianPrimaryText,
-    onSurface = XianSecondaryText,
+    onSurface = XianPrimaryText,
     error = XianErrorColor,
-    onError = Color.White
+    onError = XianPrimaryText
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = XianBlue,
-    secondary = XianGreen,
-    tertiary = XianOrange,
+    primary = XianPrimary,
+    secondary = XianSecondary,
+    tertiary = XianPrimaryVariant,
     background = XianDarkBackground,
     surface = XianDarkSurface,
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
+    onPrimary = XianDarkBackground,
+    onSecondary = XianPrimaryText,
+    onTertiary = XianDarkBackground,
     onBackground = XianPrimaryText,
-    onSurface = XianSecondaryText,
+    onSurface = XianPrimaryText,
     error = XianErrorColor,
-    onError = Color.White
+    onError = XianPrimaryText
 )
 
 @Composable
@@ -67,8 +67,7 @@ fun XIANWALLETAPPTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            // Set status bar color
-            window.statusBarColor = colorScheme.primary.toArgb()
+            // Status bar color is now set in the XML theme
             
             // Enable edge-to-edge display
             WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -78,9 +77,9 @@ fun XIANWALLETAPPTheme(
         }
     }
     
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
+    // Use our Material theme bridge for compatibility
+    XianMaterialTheme(
+        darkTheme = darkTheme,
         content = content
     )
 }

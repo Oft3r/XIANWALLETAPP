@@ -51,7 +51,8 @@ import kotlinx.coroutines.delay // Added for debounce
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import org.json.JSONObject
-import net.xian.xianwalletapp.ui.theme.XianBlue
+import net.xian.xianwalletapp.ui.theme.XianPrimary
+import net.xian.xianwalletapp.ui.theme.XianPrimaryVariant
 
 import net.xian.xianwalletapp.data.LocalTransactionRecord // Added
 import net.xian.xianwalletapp.data.TransactionHistoryManager // Added
@@ -286,11 +287,10 @@ fun SendTokenScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 24.dp),
-                // Removed background color
+                    .padding(bottom = 24.dp),                // Removed background color
                 border = BorderStroke(
                     width = 2.dp,
-                    brush = Brush.horizontalGradient(colors = listOf(Color.Yellow, XianBlue)) // Use XianBlue
+                    brush = Brush.horizontalGradient(colors = listOf(XianPrimary, XianPrimaryVariant)) // Use new teal colors
                 )
             ) {
                 Column(

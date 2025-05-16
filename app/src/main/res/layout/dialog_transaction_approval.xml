@@ -17,11 +17,10 @@
     <TextView
         android:id="@+id/tv_error_message"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textColor="#D32F2F"
+        android:layout_height="wrap_content"        android:textColor="@color/text_primary"
         android:textStyle="bold"
         android:visibility="gone"
-        android:background="#FFEBEE"
+        android:background="@color/secondary"
         android:padding="8dp"
         android:layout_marginBottom="8dp" />
 
@@ -73,13 +72,14 @@
         android:layout_height="wrap_content"
         android:layout_marginBottom="4dp" /> <!-- Reduced margin -->
 
-    <!-- Button to trigger fee estimation -->
-    <Button
+    <!-- Button to trigger fee estimation -->    <Button
         android:id="@+id/btn_estimate_fee"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Estimate Fee"
         android:layout_gravity="start"
+        android:backgroundTint="@color/primary"
+        android:textColor="@color/background"
         android:layout_marginBottom="4dp"/>
 
     <!-- TextView to display the estimated fee result -->

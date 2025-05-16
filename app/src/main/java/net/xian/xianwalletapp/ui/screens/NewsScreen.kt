@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
@@ -30,6 +32,11 @@ import com.google.accompanist.swiperefresh.SwipeRefresh
 import com.google.accompanist.swiperefresh.rememberSwipeRefreshState
 // Removed unused SimpleDateFormat and java.util.* imports
 import net.xian.xianwalletapp.ui.components.XianBottomNavBar // Import the shared navigation bar
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModel // Import NavigationViewModel 
 import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModelFactory // Import NavigationViewModelFactory
 import androidx.lifecycle.SavedStateHandle
@@ -49,18 +56,24 @@ fun NewsScreen(
     navigationViewModel: NavigationViewModel = viewModel(
         factory = NavigationViewModelFactory(SavedStateHandle())
     )
-) {    // Ensure navigation state is synchronized with current screen
+) {
+    // Estado para mostrar/ocultar la barra inferior según el scroll
+    var showBottomBar by remember { mutableStateOf(true) }
+    var lastScrollIndex by remember { mutableStateOf(0) }
+    var lastScrollOffset by remember { mutableStateOf(0) }
+
     LaunchedEffect(Unit) {
         // Use 3 for News screen based on bottom nav order (WALLET=0, WEB=1, ADVANCED=2, NEWS=3)
         navigationViewModel.syncSelectedItemWithRoute("news")
     }
-    
+
     val uiState by newsViewModel.uiState.collectAsStateWithLifecycle()
     // Link refresh state to loading state, but only show SwipeRefresh indicator
     val isRefreshing = uiState is NewsUiState.Loading
     val swipeRefreshState = rememberSwipeRefreshState(isRefreshing)
-      Scaffold(
-        contentWindowInsets = WindowInsets.navigationBars,        topBar = {
+    Scaffold(
+        contentWindowInsets = WindowInsets.navigationBars,
+        topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent, // Hacer la barra transparente
@@ -89,17 +102,22 @@ fun NewsScreen(
             )
         },
         bottomBar = {
-            // Use the shared navigation bar component
-            XianBottomNavBar(
-                navController = navController,
-                navigationViewModel = navigationViewModel
-            )
+            AnimatedVisibility(
+                visible = showBottomBar,
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+            ) {
+                XianBottomNavBar(
+                    navController = navController,
+                    navigationViewModel = navigationViewModel
+                )
+            }
         }
     ) { paddingValues ->
         SwipeRefresh(
             state = swipeRefreshState,
             onRefresh = { newsViewModel.fetchNews() }, // Trigger fetch on refresh
-            modifier = Modifier.padding(paddingValues) // Apply padding from Scaffold
+            modifier = Modifier.padding(top = paddingValues.calculateTopPadding())
         ) {
             // Use Box to allow content to be scrollable even when SwipeRefresh is active
             // and to center loading/error messages
@@ -132,7 +150,22 @@ fun NewsScreen(
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.padding(vertical = 16.dp) // Add padding around title
                                 )
+                                val listState = rememberLazyListState()
+                                LaunchedEffect(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
+                                    val index = listState.firstVisibleItemIndex
+                                    val offset = listState.firstVisibleItemScrollOffset
+                                    if (index > lastScrollIndex || (index == lastScrollIndex && offset > lastScrollOffset + 10)) {
+                                        // Scroll hacia abajo (usuario baja la lista)
+                                        if (showBottomBar) showBottomBar = false
+                                    } else if (index < lastScrollIndex || (index == lastScrollIndex && offset < lastScrollOffset - 10)) {
+                                        // Scroll hacia arriba (usuario sube la lista)
+                                        if (!showBottomBar) showBottomBar = true
+                                    }
+                                    lastScrollIndex = index
+                                    lastScrollOffset = offset
+                                }
                                 LazyColumn(
+                                    state = listState,
                                     modifier = Modifier.fillMaxSize(),
                                     contentPadding = PaddingValues(bottom = 16.dp) // Padding at the bottom of the list
                                 ) {

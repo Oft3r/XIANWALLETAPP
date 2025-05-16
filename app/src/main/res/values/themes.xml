@@ -1,11 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>    <style name="Theme.XianWalletApp" parent="Theme.AppCompat.Light.NoActionBar">
+<resources>
+    <style name="Theme.XianWalletApp" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <!-- Window behavior -->
         <item name="android:windowTranslucentStatus">true</item>
-        <item name="android:windowTranslucentNavigation">true</item> <!-- Cambiado a true para hacer la barra de navegación translúcida -->
+        <item name="android:windowTranslucentNavigation">true</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item> <!-- Añadido para manejar recortes de pantalla -->
-        <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <item name="android:windowLightStatusBar">false</item> <!-- Changed to false for dark theme -->
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>        <!-- Material color attributes - use Material 2 compatible attributes -->
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorPrimaryDark">@color/primary_variant</item>
+        <item name="colorAccent">@color/primary</item>
+        <item name="android:colorBackground">@color/background</item>
+        <item name="android:textColorPrimary">@color/text_primary</item>
+        <item name="android:textColorSecondary">@color/text_secondary</item>
     </style>
 </resources>

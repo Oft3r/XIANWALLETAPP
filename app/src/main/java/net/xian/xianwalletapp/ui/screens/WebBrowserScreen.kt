@@ -37,6 +37,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Language // Placeholder icon
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material.icons.filled.RemoveCircleOutline // Import Remove icon
 import androidx.compose.material.icons.filled.Star // Import Star icon
@@ -77,8 +78,15 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.border
 import net.xian.xianwalletapp.ui.components.XianBottomNavBar // Import the shared navigation bar
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModel // Import NavigationViewModel 
 import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModelFactory // Import NavigationViewModelFactory
+import net.xian.xianwalletapp.ui.theme.XianPrimary
+import net.xian.xianwalletapp.ui.theme.XianPrimaryVariant
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.collectAsState // Import collectAsState
@@ -179,9 +187,9 @@ fun DashboardContent(
     // State to hold the dynamically fetched favicon URLs, keyed by the app's main URL
     val faviconUrls = remember { mutableStateMapOf<String, String?>() }
 
-    // Define the gradient brush for the border (adjust colors as needed)
+    // Define the gradient brush for the border using the new color palette
     val borderBrush = Brush.horizontalGradient(
-        colors = listOf(Color(0xFFFFEB3B), Color(0xFF2196F3)) // Yellow and Blue
+        colors = listOf(XianPrimary, XianPrimaryVariant) // Teal color scheme
     )
 
     // Main Column to hold both sections
@@ -464,218 +472,212 @@ fun WebBrowserScreen(
         XAppInfo(name = "Xian Block Explorer", url = "https://explorer.xian.org", icon = Icons.Default.Language, faviconUrl = "https://explorer.xian.org/img/logo.bf1eed5b.png") // Manual URL
         // Add more apps here later (just name, url, placeholder icon)
     )
-      Scaffold(
+
+    // Estado para mostrar/ocultar la barra inferior según el scroll
+    var showBottomBar by remember { mutableStateOf(true) }
+
+    Scaffold(
         contentWindowInsets = WindowInsets.navigationBars,
         topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent, // Hacer la barra transparente
-                    titleContentColor = MaterialTheme.colorScheme.primary
-                ),
-                title = {                    Surface(
-                        modifier = Modifier
-                            // Borde eliminado
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surface
-                    ) {
-                        Text(
-                            text = "Web Browser",
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        val webView = webViewRef.value
-                        if (!showDashboard) { // If WebView is currently showing
-                            if (webView?.canGoBack() == true) {
-                                // If WebView can go back, navigate within WebView
-                                webView.goBack()
+            // Barra de URL y navegación, ahora respeta el insets del sistema
+            Surface(
+                color = Color.Transparent,
+                shadowElevation = 0.dp
+            ) {
+                // Usar el padding de statusBars para evitar que la barra quede detrás del reloj
+                val insets = WindowInsets.statusBars.asPaddingValues()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(insets)
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Botón de retroceso
+                    IconButton(
+                        onClick = {
+                            val webView = webViewRef.value
+                            if (!showDashboard) {
+                                if (webView?.canGoBack() == true) {
+                                    webView.goBack()
+                                } else {
+                                    showDashboard = true
+                                    isLoading = false
+                                }
                             } else {
-                                // If WebView cannot go back, show the dashboard
-                                showDashboard = true
-                                // Reset loading state when returning to dashboard
-                                isLoading = false
+                                navController.popBackStack()
                             }
-                        } else {
-                            // If Dashboard is showing, pop the screen
-                            navController.popBackStack()
-                        }
-                    }) {                        
+                        },
+                        modifier = Modifier
+                            .size(40.dp)
+                            .padding(end = 4.dp)
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                }
-            )
-        },
-        bottomBar = {        // Use the shared navigation bar component
-        XianBottomNavBar(
-            navController = navController,
-            navigationViewModel = viewModel(
-                factory = NavigationViewModelFactory(SavedStateHandle())
-            )
-        )
-    }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            // --- Always Visible URL Bar ---
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                    .shadow(
-                        elevation = 2.dp,
-                        shape = RoundedCornerShape(28.dp),
-                        clip = false
-                    ),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = urlInput,
-                    onValueChange = { urlInput = it },
-                    label = { Text("URL", fontSize = 12.sp) }, // Etiqueta más pequeña
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                    keyboardActions = KeyboardActions(
-                        onGo = {
+                    // Campo de URL
+                    OutlinedTextField(
+                        value = urlInput,
+                        onValueChange = { urlInput = it },
+                        label = { Text("URL", fontSize = 12.sp) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                        keyboardActions = KeyboardActions(
+                            onGo = {
+                                val formattedUrl = if (!urlInput.startsWith("http://") && !urlInput.startsWith("https://")) {
+                                    "https://$urlInput"
+                                } else {
+                                    urlInput
+                                }
+                                urlInput = formattedUrl
+                                currentWebViewUrl = formattedUrl
+                                showDashboard = false
+                                isLoading = true
+                                focusManager.clearFocus()
+                            }
+                        ),
+                        modifier = Modifier
+                            .padding(end = 4.dp)
+                            .heightIn(min = 40.dp)
+                            .widthIn(max = 320.dp)
+                            .weight(1f, fill = false),
+                        shape = RoundedCornerShape(30.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
+                            focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface
+                        ),
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface)
+                    )
+                    // Botón Go compacto
+                    IconButton(
+                        onClick = {
                             val formattedUrl = if (!urlInput.startsWith("http://") && !urlInput.startsWith("https://")) {
                                 "https://$urlInput"
                             } else {
                                 urlInput
                             }
-                            urlInput = formattedUrl // Update input field immediately
-                            currentWebViewUrl = formattedUrl // Set the target URL
-                            showDashboard = false // Ensure WebView is shown
-                            isLoading = true // Show loading indicator
-                            // loadUrl will be handled by AndroidView factory/update
+                            urlInput = formattedUrl
+                            currentWebViewUrl = formattedUrl
+                            showDashboard = false
+                            isLoading = true
                             focusManager.clearFocus()
-                        }
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(end = 8.dp)
-                        .height(56.dp), // Altura fija más compacta
-                    shape = RoundedCornerShape(30.dp), // Igualar al radio de la sombra del Row
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
-                        focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)
-                    ),
-                    textStyle = MaterialTheme.typography.bodyMedium
-                )                // Go button estilizado
-                Button(
-                    onClick = {
-                        val formattedUrl = if (!urlInput.startsWith("http://") && !urlInput.startsWith("https://")) {
-                            "https://$urlInput"
-                        } else {
-                            urlInput
-                        }
-                        urlInput = formattedUrl // Update input field immediately
-                        currentWebViewUrl = formattedUrl // Set the target URL
-                        showDashboard = false // Ensure WebView is shown
-                        isLoading = true // Show loading indicator
-                        // loadUrl will be handled by AndroidView factory/update
-                        focusManager.clearFocus()
-                    },
-                    modifier = Modifier
-                        .padding(end = 8.dp)
-                        .height(48.dp), // Altura más compacta para el botón
-                    shape = RoundedCornerShape(24.dp), // Bordes redondeados para combinar con la barra
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                ) {
-                    Text("Ir", fontWeight = FontWeight.Bold) // Texto en español y negrita
-                }                // Refresh button estilizado
-                IconButton(
-                    onClick = { webViewRef.value?.reload() },
-                    enabled = !showDashboard, // Enable only when WebView is visible
-                    modifier = Modifier
-                        .padding(horizontal = 4.dp)
-                        .size(48.dp)
-                        .border(
-                            width = 1.dp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
-                            shape = CircleShape
+                        },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                                shape = CircleShape
+                            )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowForward,
+                            contentDescription = "Go",
+                            tint = MaterialTheme.colorScheme.primary
                         )
-                ) {
-                    Icon(
-                        Icons.Default.Refresh, 
-                        contentDescription = "Actualizar",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-                // Determine if the current URL (normalized) is already a favorite
-                // Use the collected state directly here
-                val isFavorited = remember(urlInput, favoriteXApps) { // Depend on the list itself
-                    val normalizedInput = normalizeUrlForComparison(urlInput)
-                    val result = normalizedInput != null && favoriteXApps.any { normalizeUrlForComparison(it.url) == normalizedInput }
-                    Log.d("WebBrowserScreen", "Recalculating isFavorited: urlInput='$urlInput', normalizedInput='$normalizedInput', result=$result")
-                    result
-                }                // Add/Remove Favorites Toggle Button (estilizado)
-                IconButton(
-                    modifier = Modifier
-                        .padding(horizontal = 4.dp)
-                        .size(48.dp)
-                        .border(
-                            width = 1.dp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
-                            shape = CircleShape
-                        ),
-                    enabled = !isFavorited, // Deshabilitar si ya está en favoritos
-                    onClick = {
-                        val originalUrl = urlInput
-                        val normalizedUrl = normalizeUrlForComparison(originalUrl)
-
-                        // Check if the URL is valid and not already favorited
-                        if (normalizedUrl != null && !isFavorited) { // Solo añadir si no está ya
-                            // Add to favorites (Keep existing add logic)
-                            try {
-                                val urlObject = URL(originalUrl)
-                                val host = urlObject.host ?: originalUrl
-                                val name = host.uppercase()
-
-                                val newFavorite = XAppInfo(
-                                    name = name,
-                                    url = originalUrl,
-                                    icon = Icons.Default.Language
-                                )
-                                val updatedList = favoriteXApps + newFavorite
-
-                                Log.d("WebBrowserScreen", "Adding favorite: $originalUrl (Normalized: $normalizedUrl)")
-                                coroutineScope.launch {
-                                    walletManager.saveFavorites(updatedList)
+                    }
+                    //
+                    // Botón Refresh
+                    IconButton(
+                        onClick = { webViewRef.value?.reload() },
+                        enabled = !showDashboard,
+                        modifier = Modifier
+                            .padding(end = 4.dp)
+                            .size(36.dp)
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
+                                shape = CircleShape
+                            )
+                    ) {
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = "Actualizar",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    //
+                    // Botón Favorito
+                    val isFavorited = remember(urlInput, favoriteXApps) {
+                        val normalizedInput = normalizeUrlForComparison(urlInput)
+                        val result = normalizedInput != null && favoriteXApps.any { normalizeUrlForComparison(it.url) == normalizedInput }
+                        Log.d("WebBrowserScreen", "Recalculating isFavorited: urlInput='$urlInput', normalizedInput='$normalizedInput', result=$result")
+                        result
+                    }
+                    IconButton(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
+                                shape = CircleShape
+                            ),
+                        enabled = !isFavorited,
+                        onClick = {
+                            val originalUrl = urlInput
+                            val normalizedUrl = normalizeUrlForComparison(originalUrl)
+                            if (normalizedUrl != null && !isFavorited) {
+                                try {
+                                    val urlObject = URL(originalUrl)
+                                    val host = urlObject.host ?: originalUrl
+                                    val name = host.uppercase()
+                                    val newFavorite = XAppInfo(
+                                        name = name,
+                                        url = originalUrl,
+                                        icon = Icons.Default.Language
+                                    )
+                                    val updatedList = favoriteXApps + newFavorite
+                                    Log.d("WebBrowserScreen", "Adding favorite: $originalUrl (Normalized: $normalizedUrl)")
+                                    coroutineScope.launch {
+                                        walletManager.saveFavorites(updatedList)
+                                    }
+                                    Toast.makeText(context, "Added to Favorites", Toast.LENGTH_SHORT).show()
+                                } catch (e: MalformedURLException) {
+                                    Log.e("WebBrowserScreen", "Invalid URL for favorite add: $originalUrl", e)
+                                    Toast.makeText(context, "URL inválida", Toast.LENGTH_SHORT).show()
+                                } catch (e: Exception) {
+                                    Log.e("WebBrowserScreen", "Error adding favorite: $originalUrl", e)
+                                    Toast.makeText(context, "Error Adding Favorite", Toast.LENGTH_SHORT).show()
                                 }
-                                Toast.makeText(context, "Added to Favorites", Toast.LENGTH_SHORT).show() // Mensaje en español
-
-                            } catch (e: MalformedURLException) {
-                                Log.e("WebBrowserScreen", "Invalid URL for favorite add: $originalUrl", e)
-                                Toast.makeText(context, "URL inválida", Toast.LENGTH_SHORT).show() // Mensaje en español
-                            } catch (e: Exception) {
-                                Log.e("WebBrowserScreen", "Error adding favorite: $originalUrl", e)
-                                Toast.makeText(context, "Error Adding Favorite", Toast.LENGTH_SHORT).show() // Mensaje en español
+                            } else if (normalizedUrl == null) {
+                                Log.w("WebBrowserScreen", "Attempted to add favorite with blank or invalid URL: $originalUrl")
+                                Toast.makeText(context, "URL inválida", Toast.LENGTH_SHORT).show()
                             }
-                        } else if (normalizedUrl == null) {
-                            // URL is blank or invalid for normalization
-                            Log.w("WebBrowserScreen", "Attempted to add favorite with blank or invalid URL: $originalUrl")
-                            Toast.makeText(context, "URL inválida", Toast.LENGTH_SHORT).show() // Mensaje en español
-                        } // No hacer nada si ya es favorito (el botón está deshabilitado)
-                    },
-                ) {
-                    Icon(
-                        imageVector = if (isFavorited) Icons.Filled.Star else Icons.Outlined.Star,
-                        contentDescription = if (isFavorited) "Already in favorites" else "Add to favorites",
-                        tint = if (isFavorited) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f) // Colores más consistentes
-                    )
+                        },
+                    ) {
+                        Icon(
+                            imageVector = if (isFavorited) Icons.Filled.Star else Icons.Outlined.Star,
+                            contentDescription = if (isFavorited) "Already in favorites" else "Add to favorites",
+                            tint = if (isFavorited) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        )
+                    }
                 }
-            } // End Row for URL Bar
+            }
+        },
+        bottomBar = {
+            AnimatedVisibility(
+                visible = showBottomBar,
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+            ) {
+                XianBottomNavBar(
+                    navController = navController,
+                    navigationViewModel = viewModel(
+                        factory = NavigationViewModelFactory(SavedStateHandle())
+                    )
+                )
+            }
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = paddingValues.calculateTopPadding())
+        ) {
 
             // --- Conditional Content (Dashboard or WebView) ---
             if (showDashboard) {
@@ -698,10 +700,15 @@ fun WebBrowserScreen(
                     }
                 )
             } else {
-               // WebView
-                AndroidView(
-                    factory = { context ->
-                        // --- Create AuthRequestListener Implementation ---
+               // WebView                // Apply a clipped container for the WebView with rounded corners
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(8.dp)) // Add rounded corners to the WebView container
+                ) {
+                    AndroidView(
+                        factory = { context ->
+                            // --- Create AuthRequestListener Implementation ---
                         val authListener = object : AuthRequestListener {
                             override fun requestAuth(
                                 txDetailsJson: String,
@@ -724,6 +731,22 @@ fun WebBrowserScreen(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
                             )
+
+                            // --- Scroll listener para mostrar/ocultar la barra inferior ---
+                            var lastScrollY = 0
+                            setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
+                                if (scrollY > oldScrollY + 10) {
+                                    // Scroll hacia arriba (usuario baja)
+                                    if (showBottomBar) showBottomBar = false
+                                } else if (scrollY < oldScrollY - 10) {
+                                    // Scroll hacia abajo (usuario sube)
+                                    if (!showBottomBar) showBottomBar = true
+                                }
+                                lastScrollY = scrollY
+                            }
+
+                            // Remove WebView border
+                            setBackgroundColor(android.graphics.Color.TRANSPARENT)
                             webViewClient = object : WebViewClient() {
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                                     super.onPageStarted(view, url, favicon)
@@ -917,10 +940,10 @@ fun WebBrowserScreen(
                         if (currentActualUrl != currentWebViewUrl) {
                              Log.d("WebBrowserScreen", "AndroidView.update: Loading URL: $currentWebViewUrl (current: $currentActualUrl)")
                              webView.loadUrl(currentWebViewUrl)
-                        }
-                    },
+                        }                    },
                     modifier = Modifier.fillMaxSize()
                 )
+                } // Close the Box with the clip modifier
             } // End of if/else for Dashboard/WebView
 
             // --- Dialogs and Loading Indicator (Now outside the if/else) ---

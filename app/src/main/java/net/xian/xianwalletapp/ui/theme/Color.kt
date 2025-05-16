@@ -2,31 +2,32 @@ package net.xian.xianwalletapp.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Vibrant color palette for Xian Wallet
+// Modern color palette for Xian Wallet (based on design)
 // Primary colors
-val XianBlue = Color(0xFF1E88E5)       // Vibrant blue for text
-val XianYellow = Color(0xFFFFC107)     // Bright yellow for buttons
-val XianGreen = Color.White            // Was green, now changed to white
-val XianOrange = Color(0xFFFF9800)     // Bright orange for highlights and warnings
+val XianPrimary = Color(0xFF56D5C9)       // Teal primary color
+val XianPrimaryVariant = Color(0xFF8CDDD8) // Light teal primary variant
+val XianSecondary = Color(0xFF1F1F1F)     // Dark gray for surfaces
+val XianSecondaryVariant = Color(0xFF333333) // Slightly lighter dark gray
 
 // Background and surface colors
-val XianDarkBackground = Color(0xFF1E1E1E)  // Dark background
-val XianDarkSurface = Color(0xFF2D2D2D)    // Slightly lighter dark for surfaces
+val XianDarkBackground = Color(0xFF121212)  // Dark background
+val XianDarkSurface = Color(0xFF1F1F1F)     // Dark surface color
+val XianSurfaceElevated = Color(0xFF2D2D2D) // Slightly elevated surface color
 
 // Text and UI element colors
-val XianPrimaryText = XianBlue          // Blue for primary text
-val XianSecondaryText = Color.White     // Was green, now white
-val XianTertiaryText = XianOrange       // Orange for tertiary text
-val XianButtonColor = XianYellow        // Yellow for buttons
-val XianErrorColor = Color(0xFFF44336)  // Red for errors
+val XianPrimaryText = Color(0xFFF5F5F5)     // Light text for primary content
+val XianSecondaryText = Color(0xFF999999)   // Gray text for secondary content
+val XianTertiaryText = XianPrimaryVariant   // Light teal for highlights
+val XianButtonColor = XianPrimary           // Teal for buttons
+val XianErrorColor = Color(0xFFF44336)      // Keeping red for errors
 
 // Legacy colors (keeping for backward compatibility)
-val PythonBlue = XianBlue
-val PythonYellow = XianYellow
-val PythonDarkBlue = Color(0xFF0D47A1)  // Darker blue
+val PythonBlue = XianPrimary         // Changed to teal
+val PythonYellow = XianPrimaryVariant // Changed to light teal
+val PythonDarkBlue = Color(0xFF2C8C84) // Darker teal variant
 val PythonBlack = XianDarkBackground
 val PythonDarkGrey = XianDarkSurface
-val PythonKeyword = XianBlue
-val PythonString = XianOrange
-val PythonComment = XianGreen
-val PythonFunction = XianYellow
+val PythonKeyword = XianPrimary
+val PythonString = XianPrimaryVariant
+val PythonComment = XianPrimaryText
+val PythonFunction = XianPrimary

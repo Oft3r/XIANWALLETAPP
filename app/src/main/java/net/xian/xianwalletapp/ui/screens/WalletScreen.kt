@@ -1,5 +1,17 @@
 package net.xian.xianwalletapp.ui.screens
-
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import android.util.Log
 import androidx.compose.animation.animateColorAsState // Added import
 import androidx.compose.ui.graphics.graphicsLayer
@@ -113,10 +125,10 @@ import net.xian.xianwalletapp.ui.components.NftItem // Keep this import
 import net.xian.xianwalletapp.ui.components.XnsNameItem // Keep this import
 import net.xian.xianwalletapp.ui.components.TransactionRecordItem // Keep this import
 import net.xian.xianwalletapp.ui.components.XianBottomNavBar
-import net.xian.xianwalletapp.ui.theme.XianBlue
 // import net.xian.xianwalletapp.ui.theme.XianButtonType // Remove duplicate
-import net.xian.xianwalletapp.ui.theme.XianYellow
 import net.xian.xianwalletapp.ui.theme.xianButtonColors
+import net.xian.xianwalletapp.ui.theme.XianPrimary
+import net.xian.xianwalletapp.ui.theme.XianPrimaryVariant
 
 import com.google.accompanist.swiperefresh.SwipeRefresh
 import com.google.accompanist.swiperefresh.rememberSwipeRefreshState
@@ -223,6 +235,11 @@ fun WalletScreen(
     // var transactionHistory by remember { mutableStateOf<List<LocalTransactionRecord>>(emptyList()) }
     // var isHistoryLoading by remember { mutableStateOf(false) }
     
+    // Estado para mostrar/ocultar la barra inferior según el scroll en Collectibles
+    var showBottomBar by remember { mutableStateOf(true) }
+    var lastCollectiblesScrollIndex by remember { mutableStateOf(0) }
+    var lastCollectiblesScrollOffset by remember { mutableStateOf(0) }
+
     Scaffold(
         topBar = {            TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -288,8 +305,7 @@ fun WalletScreen(
                                 }
                             }
                         }
-                        
-                        // Original Title Text
+                          // Original Title Text
                         Text(
                             text = "XIAN",
                             color = MaterialTheme.colorScheme.primary,
@@ -297,16 +313,16 @@ fun WalletScreen(
                         )
                         Text(
                             text = " WALLET",
-                            color = Color.Yellow,
+                            color = XianPrimaryVariant,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 },
                 actions = {
                     // Connection status indicator
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(end = 8.dp)                    ) {
+                    Row(                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
                         // Status text
                         Text(
                             text = if (isNodeConnected) "Connected" else "Disconnected",
@@ -341,17 +357,23 @@ fun WalletScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         // Remove floatingActionButton parameter here
         bottomBar = {
-            // Usar el componente XianBottomNavBar para la barra de navegación
-            XianBottomNavBar(
-                navController = navController,
-                navigationViewModel = navigationViewModel
-            )
-        }) { paddingValues ->        SwipeRefresh(
+            AnimatedVisibility(
+                visible = showBottomBar,
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+            ) {
+                XianBottomNavBar(
+                    navController = navController,
+                    navigationViewModel = navigationViewModel
+                )
+            }
+        }) { paddingValues ->
+        SwipeRefresh(
             state = rememberSwipeRefreshState(isLoading),
             onRefresh = { viewModel.refreshData() },
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                .padding(top = paddingValues.calculateTopPadding())
         ) {
             Column(
                 modifier = Modifier
@@ -363,10 +385,9 @@ fun WalletScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 170.dp, max = 190.dp) // Set both min and max height constraints
-                        .padding(bottom = 16.dp),
-                    border = BorderStroke(
+                        .padding(bottom = 16.dp),                    border = BorderStroke(
                         width = 2.dp,
-                        brush = Brush.horizontalGradient(colors = listOf(Color.Yellow, XianBlue)) // Use XianBlue
+                        brush = Brush.horizontalGradient(colors = listOf(XianPrimary, XianPrimaryVariant)) // Use new teal palette
                     )
                     // Removed background color
                 ) {
@@ -675,7 +696,7 @@ fun WalletScreen(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .padding(vertical = 12.dp, horizontal = 16.dp),
-                                            shape = RoundedCornerShape(24.dp), // Pill/capsule shape
+                                            shape = RoundedCornerShape(8.dp), // Less rounded corners
                                             colors = ButtonDefaults.buttonColors(
                                                 containerColor = MaterialTheme.colorScheme.primary
                                             )
@@ -684,17 +705,18 @@ fun WalletScreen(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.Center,
                                                 modifier = Modifier.padding(vertical = 8.dp)
-                                            ) {
-                                                Icon(
+                                            ) {                                                Icon(
                                                     Icons.Default.Add,
                                                     contentDescription = "Add Token",
-                                                    modifier = Modifier.size(20.dp)
+                                                    modifier = Modifier.size(20.dp),
+                                                    tint = Color.Black
                                                 )
                                                 Spacer(modifier = Modifier.width(8.dp))
                                                 Text(
                                                     "Add New Token",
-                                                    fontWeight = FontWeight.Medium,
-                                                    fontSize = 16.sp
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 16.sp,
+                                                    color = Color.Black
                                                 )
                                             }
                                         }
@@ -725,10 +747,26 @@ fun WalletScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                        } else {                            // Combine NFTs and XNS names for the grid
+                        } else { // Combine NFTs and XNS names for the grid
                             val totalItems = nftList.size + ownedXnsNames.size
 
+                            val collectiblesGridState = rememberLazyGridState()
+                            LaunchedEffect(collectiblesGridState.firstVisibleItemIndex, collectiblesGridState.firstVisibleItemScrollOffset) {
+                                val index = collectiblesGridState.firstVisibleItemIndex
+                                val offset = collectiblesGridState.firstVisibleItemScrollOffset
+                                if (index > lastCollectiblesScrollIndex || (index == lastCollectiblesScrollIndex && offset > lastCollectiblesScrollOffset + 10)) {
+                                    // Scroll hacia abajo (usuario baja la lista)
+                                    if (showBottomBar) showBottomBar = false
+                                } else if (index < lastCollectiblesScrollIndex || (index == lastCollectiblesScrollIndex && offset < lastCollectiblesScrollOffset - 10)) {
+                                    // Scroll hacia arriba (usuario sube la lista)
+                                    if (!showBottomBar) showBottomBar = true
+                                }
+                                lastCollectiblesScrollIndex = index
+                                lastCollectiblesScrollOffset = offset
+                            }
+
                             LazyVerticalGrid(
+                                state = collectiblesGridState,
                                 columns = GridCells.Fixed(3), // Cambiado de 2 a 3 columnas
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(bottom = 80.dp),
@@ -764,8 +802,6 @@ fun WalletScreen(
 
                                 // Render XNS Names after NFTs
                                 items(ownedXnsNames) { xnsName: String ->
-                                     // *** ADD LOGGING HERE (Optional) ***
-                                     // Log.d("WalletScreen", "Rendering XnsNameItem for: $xnsName")
                                     val expiration = xnsNameExpirations[xnsName]
                                     // Calculate remaining days from expiration Instant
                                     val remainingDays = expiration?.let { timestamp: Long ->
@@ -786,8 +822,25 @@ fun WalletScreen(
                     }
                     2 -> {
                         // Local Activity tab - Now uses ViewModel states
+                        var lastActivityScrollIndex by remember { mutableStateOf(0) }
+                        var lastActivityScrollOffset by remember { mutableStateOf(0) }
+                        val activityListState = rememberLazyListState()
+                        LaunchedEffect(activityListState.firstVisibleItemIndex, activityListState.firstVisibleItemScrollOffset) {
+                            val index = activityListState.firstVisibleItemIndex
+                            val offset = activityListState.firstVisibleItemScrollOffset
+                            if (index > lastActivityScrollIndex || (index == lastActivityScrollIndex && offset > lastActivityScrollOffset + 10)) {
+                                // Scroll down (hide bar)
+                                if (showBottomBar) showBottomBar = false
+                            } else if (index < lastActivityScrollIndex || (index == lastActivityScrollIndex && offset < lastActivityScrollOffset - 10)) {
+                                // Scroll up (show bar)
+                                if (!showBottomBar) showBottomBar = true
+                            }
+                            lastActivityScrollIndex = index
+                            lastActivityScrollOffset = offset
+                        }
+
                         if (isTransactionHistoryLoading) {
-                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator()
                             }
                         } else if (transactionHistoryError != null) {
@@ -823,14 +876,12 @@ fun WalletScreen(
                             }
 
                             LazyColumn(
+                                state = activityListState,
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(bottom = 80.dp) // Add padding for FAB
                             ) {
                                 items(distinctTransactionHistory) { record: LocalTransactionRecord -> // Keep explicit type
-                                    // Display the transaction record (e.g., using a TransactionHistoryItem composable)
-                                    // For now, let's assume a simple Text display or a placeholder
-                                    // Replace this with your actual TransactionHistoryItem composable
-                                    TransactionRecordItem(record = record, navController = navController) // Pass navController
+                                    TransactionRecordItem(record = record, navController = navController)
                                 }
                             }
                         }
@@ -1142,13 +1193,12 @@ fun SwipeableXianCard(
                     }
                 )
             }
-    ) {        // --- Backgrounds (Remain underneath) with Action Labels inside ---
-        // Left swipe background (Receive) - Blue
+    ) {        // --- Backgrounds (Remain underneath) with Action Labels inside ---        // Left swipe background (Receive) - Teal
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .clip(RoundedCornerShape(8.dp)) // Add rounded corners to match card
-                .background(XianBlue.copy(alpha = (-animatedOffsetX / maxSwipe).coerceIn(0f, 1f)))
+                .background(XianPrimary.copy(alpha = (-animatedOffsetX / maxSwipe).coerceIn(0f, 1f)))
         ) {
             // Mostrar solo si se desliza a la izquierda
             if (animatedOffsetX < 0f) {
@@ -1162,7 +1212,7 @@ fun SwipeableXianCard(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
-                        .background(XianBlue)
+                        .background(XianPrimary)
                             .padding(horizontal = 12.dp, vertical = 8.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1184,13 +1234,12 @@ fun SwipeableXianCard(
                 }
             }
         }
-        
-        // Right swipe background (Send) - Yellow
+          // Right swipe background (Send) - Light Teal
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .clip(RoundedCornerShape(8.dp)) // Add rounded corners to match card
-                .background(XianYellow.copy(alpha = (animatedOffsetX / maxSwipe).coerceIn(0f, 1f)))
+                .background(XianPrimaryVariant.copy(alpha = (animatedOffsetX / maxSwipe).coerceIn(0f, 1f)))
         ) {
             // Mostrar solo si se desliza a la derecha
             if (animatedOffsetX > 0f) {
@@ -1204,7 +1253,7 @@ fun SwipeableXianCard(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
-                        .background(XianYellow)
+                        .background(XianPrimaryVariant)
                             .padding(horizontal = 12.dp, vertical = 8.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1354,13 +1403,12 @@ fun SwipeableTokenCard(
             .onGloballyPositioned { coordinates ->
                 cardWidthPx = coordinates.size.width
             }
-    ) {
-        // Left swipe background (Receive) - Blue with rounded corners
+    ) {        // Left swipe background (Receive) - Teal with rounded corners
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .clip(RoundedCornerShape(8.dp)) // Add rounded corners to match card
-                .background(XianBlue.copy(alpha = (-animatedOffsetX / maxSwipe).coerceIn(0f, 1f)))
+                .background(XianPrimary.copy(alpha = (-animatedOffsetX / maxSwipe).coerceIn(0f, 1f)))
         ) {
             // Show only if swiping left
             if (animatedOffsetX < 0f) {
@@ -1371,11 +1419,10 @@ fun SwipeableTokenCard(
                         .align(Alignment.CenterEnd)
                         // Remove right padding completely
                         .padding(start = 0.dp, end = 0.dp)
-                ) {
-                    Box(
+                ) {                    Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp)) // Rounded corners only on left side
-                            .background(XianBlue)
+                            .background(XianPrimary)
                             .padding(horizontal = 12.dp, vertical = 8.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1399,11 +1446,10 @@ fun SwipeableTokenCard(
         }
         
         // Right swipe background (Send) - Yellow with rounded corners
-        Box(
-            modifier = Modifier
+        Box(            modifier = Modifier
                 .matchParentSize()
                 .clip(RoundedCornerShape(8.dp)) // Add rounded corners to match card
-                .background(XianYellow.copy(alpha = (animatedOffsetX / maxSwipe).coerceIn(0f, 1f)))
+                .background(XianPrimaryVariant.copy(alpha = (animatedOffsetX / maxSwipe).coerceIn(0f, 1f)))
         ) {
             // Show only if swiping right
             if (animatedOffsetX > 0f) {
@@ -1414,11 +1460,10 @@ fun SwipeableTokenCard(
                         .align(Alignment.CenterStart)
                         // Remove left padding completely
                         .padding(end = 0.dp, start = 0.dp)
-                ) {
-                    Box(
+                ) {                    Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(topEnd = 4.dp, bottomEnd = 4.dp)) // Rounded corners only on right side
-                            .background(XianYellow)
+                            .background(XianPrimary)
                             .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {

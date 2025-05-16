@@ -87,9 +87,7 @@ fun NftItem(
                 overflow = TextOverflow.Ellipsis
             )            
             // Eliminamos la descripción y añadimos un espaciador para mantener el layout balanceado
-            Spacer(modifier = Modifier.height(10.dp)) // Espaciador más grande para compensar
-
-            // View Button
+            Spacer(modifier = Modifier.height(10.dp)) // Espaciador más grande para compensar            // View Button
             Button(
                 onClick = { onViewClick(nftInfo.imageUrl) },
                 modifier = Modifier.align(Alignment.End),
@@ -98,7 +96,12 @@ fun NftItem(
                 ),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp) // Botón más compacto
             ) {
-                Text("View", fontSize = 12.sp) // Texto más pequeño
+                Text(
+                    text = "View", 
+                    fontSize = 12.sp,
+                    color = Color.Black,
+                    fontWeight = FontWeight.Bold
+                ) // Texto negro y en negrita
             }
         }
     }
