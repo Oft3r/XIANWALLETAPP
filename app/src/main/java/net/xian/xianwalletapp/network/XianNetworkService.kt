@@ -42,6 +42,9 @@ class XianNetworkService private constructor(private val context: Context) {
         }
     }
 
+    // Public property to expose the XianApiService instance for use in workers, etc.
+    val apiService: XianApiService = RetrofitClient.instance
+
     // Referencia al WalletManager con contexto
     private val walletManager = WalletManager.getInstance(context)
 

@@ -1,4 +1,7 @@
+
 package net.xian.xianwalletapp
+
+import net.xian.xianwalletapp.workers.scheduleTransactionMonitor
 
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
@@ -50,8 +53,12 @@ class MainActivity : AppCompatActivity() { // Changed inheritance
         
         // Set RPC and explorer URLs from wallet manager
         networkService.setRpcUrl(walletManager.getRpcUrl())
-        networkService.setExplorerUrl(walletManager.getExplorerUrl())        // Configuración edge-to-edge para tener en cuenta la barra de navegación del sistema
-        // Usamos enableEdgeToEdge() con parámetros para un mejor control
+        networkService.setExplorerUrl(walletManager.getExplorerUrl())
+
+        // Iniciar el monitoreo de transacciones con WorkManager
+        scheduleTransactionMonitor(this)
+
+        // Configuración edge-to-edge para tener en cuenta la barra de navegación del sistema
         enableEdgeToEdge(
             statusBarStyle = androidx.activity.SystemBarStyle.auto(
                 android.graphics.Color.TRANSPARENT,
@@ -62,15 +69,14 @@ class MainActivity : AppCompatActivity() { // Changed inheritance
                 android.graphics.Color.TRANSPARENT
             )
         )
-        
+
         setContent {
             XIANWALLETAPPTheme {
-                // El Surface usará la configuración del tema para manejar los insets del sistema
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    XianWalletApp(walletManager, networkService, faviconCacheManager) // Pass FaviconCacheManager
+                    XianWalletApp(walletManager, networkService, faviconCacheManager)
                 }
             }
         }
