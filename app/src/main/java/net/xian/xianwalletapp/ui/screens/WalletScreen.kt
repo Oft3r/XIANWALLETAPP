@@ -1311,7 +1311,7 @@ fun SwipeableXianCard(
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
                         contentScale = androidx.compose.ui.layout.ContentScale.Inside,
-                        error = painterResource(id = R.drawable.xian_logo), // Generic fallback for other tokens
+                        error = painterResource(id = R.drawable.xian_logo), // Fallback: logo Xian solo para currency
                         placeholder = painterResource(id = R.drawable.xian_logo)
                     )
 
@@ -1579,8 +1579,8 @@ fun SwipeableTokenCard(
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
                         contentScale = androidx.compose.ui.layout.ContentScale.Inside,
-                        error = painterResource(id = R.drawable.xian_logo), // Generic fallback for other tokens
-                        placeholder = painterResource(id = R.drawable.xian_logo)
+                        error = painterResource(id = R.drawable.ic_question_mark), // Fallback: signo de interrogación
+                        placeholder = painterResource(id = R.drawable.ic_question_mark)
                     )
 
                     // Token details
