@@ -14,8 +14,8 @@ android {
         applicationId = "net.xian.xianwalletapp"
         minSdk = 26
         targetSdk = 35
-        versionCode = 15 // Cambia este valor al nuevo código de versión
-        versionName = "1.5" // Cambia este valor a la nueva versión
+        versionCode = 16 // Cambia este valor al nuevo código de versión
+        versionName = "1.5.1" // Cambia este valor a la nueva versión
 
         // Aquí configuras el nombre del APK
         setProperty("archivesBaseName", "Xian Wallet-$versionName")

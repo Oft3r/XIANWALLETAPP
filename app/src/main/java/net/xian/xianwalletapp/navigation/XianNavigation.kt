@@ -8,6 +8,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import net.xian.xianwalletapp.ui.screens.WebBrowserScreen // Import the screen
 import net.xian.xianwalletapp.ui.screens.AdvancedScreen // Import the new screen
+import net.xian.xianwalletapp.ui.screens.TokenDetailScreen // Import the token detail screen
 // AboutXianScreen import removed as it's no longer navigated to directly
 // SnakeGameScreen import removed
 import net.xian.xianwalletapp.wallet.WalletManager // Assuming you need these
@@ -24,6 +25,7 @@ object XianDestinations {
     const val WALLET = "wallet"
     const val SEND_TOKEN = "send_token"
     const val RECEIVE_TOKEN = "receive_token"
+    const val TOKEN_DETAIL = "token_detail"
     const val WEB_BROWSER = "web_browser"
     const val ADVANCED = "advanced"
     const val NEWS = "news"
@@ -94,6 +96,31 @@ fun XianNavGraph(
         // Receive token screen
         composable(XianDestinations.RECEIVE_TOKEN) {
             // TODO: Implement receive token screen
+        }
+
+        // Token detail screen
+        composable(
+            route = "${XianDestinations.TOKEN_DETAIL}?${XianNavArgs.TOKEN_CONTRACT}={${XianNavArgs.TOKEN_CONTRACT}}&${XianNavArgs.TOKEN_SYMBOL}={${XianNavArgs.TOKEN_SYMBOL}}",
+            arguments = listOf(
+                navArgument(XianNavArgs.TOKEN_CONTRACT) {
+                    type = NavType.StringType
+                    nullable = false
+                },
+                navArgument(XianNavArgs.TOKEN_SYMBOL) {
+                    type = NavType.StringType
+                    nullable = false
+                }
+            )
+        ) { backStackEntry ->
+            val tokenContract = backStackEntry.arguments?.getString(XianNavArgs.TOKEN_CONTRACT) ?: "currency"
+            val tokenSymbol = backStackEntry.arguments?.getString(XianNavArgs.TOKEN_SYMBOL) ?: "XIAN"
+            TokenDetailScreen(
+                navController = navController,
+                walletManager = walletManager,
+                networkService = networkService,
+                tokenContract = tokenContract,
+                tokenSymbol = tokenSymbol
+            )
         }
 
         // Web Browser screen

@@ -661,6 +661,7 @@ fun WalletScreen(
                                     items(tokens) { contract ->
                                         val tokenInfo = tokenInfoMap[contract]
                                         val balance = balanceMap[contract] ?: 0f
+                                        
                                         TokenItem(
                                             contract = contract, 
                                             name = tokenInfo?.name ?: contract,
@@ -685,6 +686,11 @@ fun WalletScreen(
                                                         snackbarHostState.showSnackbar("Token removal initiated")
                                                     }
                                                 }
+                                            },
+                                            onCardClick = {
+                                                navController.navigate(
+                                                    "${XianDestinations.TOKEN_DETAIL}?${XianNavArgs.TOKEN_CONTRACT}=$contract&${XianNavArgs.TOKEN_SYMBOL}=${tokenInfo?.symbol ?: ""}"
+                                                )
                                             }
                                         )
                                     }
@@ -1030,9 +1036,9 @@ fun TokenItem(
     xtfuPrice: Float? = null, // Añadir precio de XTFU en XIAN
     onSendClick: () -> Unit,
     onReceiveClick: () -> Unit,
-    onRemoveClick: () -> Unit
-) {
-    // Use different UI for XIAN currency (contract == "currency")
+    onRemoveClick: () -> Unit,
+    onCardClick: () -> Unit = {} // Add card click handler
+) {    // Use different UI for XIAN currency (contract == "currency")
     if (contract == "currency") {
         // Use SwipeableXianCard for XIAN token only
         SwipeableXianCard(
@@ -1042,11 +1048,13 @@ fun TokenItem(
             balance = balance,
             xianPrice = xianPrice,
             onSendClick = onSendClick,
-            onReceiveClick = onReceiveClick
+            onReceiveClick = onReceiveClick,
+            onCardClick = onCardClick
         )
     } else {
         // Regular card UI for other tokens
         SwipeableTokenCard(
+            contract = contract, // Pass the contract here
             name = name,
             symbol = symbol,
             logoUrl = logoUrl,
@@ -1059,18 +1067,17 @@ fun TokenItem(
             }, // Mostrar precio en XIAN cuando corresponda
             onSendClick = onSendClick,
             onReceiveClick = onReceiveClick,
-            onRemoveClick = onRemoveClick
+            onRemoveClick = onRemoveClick,
+            onCardClick = onCardClick
         )
     }
 }
 
 /**
- * @deprecated Use SwipeableTokenCard instead
- * A swipeable card specifically for the XIAN token with gesture animations
+ * A card specifically for the XIAN token
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-@Deprecated("Use SwipeableTokenCard instead", ReplaceWith("SwipeableTokenCard(name, symbol, logoUrl, balance, xianPrice?.let { balance * it }, onSendClick, onReceiveClick)"))
 fun SwipeableXianCard(
     name: String,
     symbol: String,
@@ -1078,214 +1085,21 @@ fun SwipeableXianCard(
     balance: Float,
     xianPrice: Float? = null,
     onSendClick: () -> Unit,
-    onReceiveClick: () -> Unit
+    onReceiveClick: () -> Unit,
+    onCardClick: () -> Unit = {} // Add card click handler
 ) {
-    // Swipe state variables and animation
-    var offsetX by remember { mutableStateOf(0f) }
-    val maxSwipe = 300f // Increased from 150f to 300f to match SwipeableTokenCard
-    val animatedOffsetX by animateFloatAsState(targetValue = offsetX, label = "offsetXAnimation")
-
-    // Auto-demo animation state
-    val idleTimeInMillis = 5000L // 5 seconds of inactivity (use Long)
-    var lastInteractionTime by remember { mutableStateOf(System.currentTimeMillis()) } // Use mutableLongStateOf
-    var isDragging by remember { mutableStateOf(false) }
-    val coroutineScope = rememberCoroutineScope()
-    var demoJob by remember { mutableStateOf<Job?>(null) } // Job reference for the demo
-
-    // Function to reset timer and cancel any ongoing demo
-    fun recordInteraction() {
-        lastInteractionTime = System.currentTimeMillis()
-        demoJob?.cancel() // Cancel any active demo job
-        demoJob = null
-        // Log.d("SwipeCard", "Interaction recorded. Demo cancelled.")
-    }
-
-    // Auto-demo effect: launched when lastInteractionTime changes
-    LaunchedEffect(lastInteractionTime) {
-        // Log.d("SwipeCard", "LaunchedEffect triggered by interaction time change.")
-        // Cancel any previous demo job before starting a new delay cycle
-        demoJob?.cancel()
-        demoJob = coroutineScope.launch {
-            delay(idleTimeInMillis) // Wait for the idle period
-
-            // After delay, check if still idle and not dragging
-            val now = System.currentTimeMillis()
-            if (!isDragging && (now - lastInteractionTime >= idleTimeInMillis)) {
-                // Log.d("SwipeCard", "Starting demo animation after idle.")
-                // Perform the demo animation
-                try {
-                    // Demo right swipe (Send)
-                    for (i in 0..40) { offsetX = i * 2.5f; delay(5) }
-                    delay(400)
-                    for (i in 40 downTo 0) { offsetX = i * 2.5f; delay(5) }
-                    delay(200)
-
-                    // Demo left swipe (Receive)
-                    for (i in 0..40) { offsetX = -i * 2.5f; delay(5) }
-                    delay(400)
-                    for (i in 40 downTo 0) { offsetX = -i * 2.5f; delay(5) }
-
-                    // Reset and schedule next check (if needed, or just let LaunchedEffect handle it)
-                    offsetX = 0f
-                    // No need to reset lastInteractionTime here, let user interaction do it
-                } catch (e: CancellationException) {
-                    // Log.d("SwipeCard", "Demo animation cancelled.")
-                    offsetX = 0f // Ensure reset if cancelled mid-animation
-                } finally {
-                     // Log.d("SwipeCard", "Demo animation finished or cancelled.")
-                     if (demoJob?.isActive == true) { // Check if the specific demo job wasn't cancelled
-                         offsetX = 0f // Ensure reset at the end
-                     }
-                }
-            } else {
-                 // Log.d("SwipeCard", "Idle period finished, but interaction occurred or dragging. No demo.")
-            }
-        }
-    }
-
     // Outer Box - Consolidate pointer input here
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp)
             .clip(CardDefaults.shape)
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onPress = { /* Called when a gesture starts */
-                        recordInteraction() // Record interaction on press down
-                        awaitRelease() // Wait until finger is lifted
-                    }
-                    // onTap is implicitly handled by onPress + awaitRelease resetting the timer
-                )
-            }
-            .pointerInput(Unit) {
-                 detectDragGestures(
-                    onDragStart = {
-                        isDragging = true
-                        recordInteraction() // Record interaction
-                        // Log.d("SwipeCard", "Drag started")
-                    },
-                    onDragEnd = {
-                        isDragging = false
-                        // Log.d("SwipeCard", "Drag ended")
-                        // Trigger action if swiped far enough - update threshold to 0.5f to match SwipeableTokenCard
-                        if (offsetX > maxSwipe * 0.5f) {  // Changed from 0.6f to 0.5f
-                            onSendClick()
-                        } else if (offsetX < -maxSwipe * 0.5f) {  // Changed from 0.6f to 0.5f
-                            onReceiveClick()
-                        }
-                        // Animate back to center
-                        offsetX = 0f
-                        recordInteraction() // Record interaction end
-                    },
-                    onDragCancel = {
-                        isDragging = false
-                        // Log.d("SwipeCard", "Drag canceled")
-                        offsetX = 0f
-                        recordInteraction() // Record interaction cancel
-                    },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        // Apply the same constraints as SwipeableTokenCard
-                        offsetX = (offsetX + dragAmount.x).coerceIn(-maxSwipe, maxSwipe)
-                        // Continuously record interaction during drag to prevent demo start
-                        recordInteraction()
-                    }
-                )
-            }
-    ) {        // --- Backgrounds (Remain underneath) with Action Labels inside ---        // Left swipe background (Receive) - Teal
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .clip(RoundedCornerShape(8.dp)) // Add rounded corners to match card
-                .background(XianPrimary.copy(alpha = (-animatedOffsetX / maxSwipe).coerceIn(0f, 1f)))
-        ) {
-            // Mostrar solo si se desliza a la izquierda
-            if (animatedOffsetX < 0f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .wrapContentWidth()
-                        .align(Alignment.CenterEnd)
-                        .padding(start = 0.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                        .background(XianPrimary)
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Default.ArrowDropDown,
-                                contentDescription = "Receive",
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                "RECEIVE",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 20.sp
-                            )
-                        }
-                    }
-                }
-            }
-        }
-          // Right swipe background (Send) - Light Teal
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .clip(RoundedCornerShape(8.dp)) // Add rounded corners to match card
-                .background(XianPrimaryVariant.copy(alpha = (animatedOffsetX / maxSwipe).coerceIn(0f, 1f)))
-        ) {
-            // Mostrar solo si se desliza a la derecha
-            if (animatedOffsetX > 0f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .wrapContentWidth()
-                        .align(Alignment.CenterStart)
-                        .padding(end = 0.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                        .background(XianPrimaryVariant)
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                "SEND",
-                                color = Color.Black,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 20.sp
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Icon(
-                                Icons.Default.ArrowDropDown,
-                                contentDescription = "Send",
-                                tint = Color.Black,
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .rotate(270f)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        
+            .clickable { onCardClick() } // Keep clickable for card click
+    ) {
         // The card with NO horizontal swipe handling - will allow parent scroll to work
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .offset { IntOffset(animatedOffsetX.roundToInt(), 0) }
-                // Update the width calculation to use the new maxSwipe value
-                .width(with(LocalDensity.current) { (maxSwipe * 0.9f).toDp() })
-                // Remove clickable/pointerInput from Card, handle in outer Box
                 .shadow(4.dp, RoundedCornerShape(8.dp)),
              shape = RoundedCornerShape(8.dp),
              colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -1296,23 +1110,21 @@ fun SwipeableXianCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp)
-                    // Remove pointerInput from Column, handle in outer Box
+                    // REMOVED: pointerInput from Column
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Token icon using AsyncImage
-                    AsyncImage(
-                        model = logoUrl,
+                    // Token icon using AsyncImage - ALWAYS use xian_logo for currency
+                    Image(
+                        painter = painterResource(id = R.drawable.xian_logo), // Use local resource directly
                         contentDescription = "$name Logo",
                         modifier = Modifier
                             .size(40.dp)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
-                        contentScale = androidx.compose.ui.layout.ContentScale.Inside,
-                        error = painterResource(id = R.drawable.xian_logo), // Fallback: logo Xian solo para currency
-                        placeholder = painterResource(id = R.drawable.xian_logo)
+                        contentScale = androidx.compose.ui.layout.ContentScale.Inside
                     )
 
                     // Token details
@@ -1352,18 +1164,8 @@ fun SwipeableXianCard(
                         }
                     }
                 }
-                
-                // Hint text for gestures
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = "← Swipe to Receive | Swipe to Send →",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+
+                // REMOVED: Hint text for gestures
             }
         }
     }
@@ -1382,117 +1184,20 @@ fun SwipeableTokenCard(
     xianPrice: Float? = null, // Añadir parámetro xianPrice para el token POOP
     onSendClick: () -> Unit,
     onReceiveClick: () -> Unit,
-    onRemoveClick: (() -> Unit)? = null
+    onRemoveClick: (() -> Unit)? = null,
+    onCardClick: () -> Unit = {}, // Add card click handler
+    contract: String // Add contract parameter here
 ) {
-    var offsetX by remember { mutableStateOf(0f) }
-    // Increase maximum swipe distance significantly - at least double the original value
-    val maxSwipe = 300f // Increased from 150f to 300f
-    val animatedOffsetX by animateFloatAsState(targetValue = offsetX, label = "offsetXAnimation")
-    
-    // Use specific touch area for horizontal swipes
-    var isSwipeActive by remember { mutableStateOf(false) }
-    
-    // Measure the card width to potentially make swipe distance relative to card size
-    var cardWidthPx by remember { mutableStateOf(0) }
-    val density = LocalDensity.current
-    
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp)
-            .onGloballyPositioned { coordinates ->
-                cardWidthPx = coordinates.size.width
-            }
-    ) {        // Left swipe background (Receive) - Teal with rounded corners
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .clip(RoundedCornerShape(8.dp)) // Add rounded corners to match card
-                .background(XianPrimary.copy(alpha = (-animatedOffsetX / maxSwipe).coerceIn(0f, 1f)))
-        ) {
-            // Show only if swiping left
-            if (animatedOffsetX < 0f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .wrapContentWidth()
-                        .align(Alignment.CenterEnd)
-                        // Remove right padding completely
-                        .padding(start = 0.dp, end = 0.dp)
-                ) {                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp)) // Rounded corners only on left side
-                            .background(XianPrimary)
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Default.ArrowDropDown,
-                                contentDescription = "Receive",
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                "RECEIVE",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 20.sp
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Right swipe background (Send) - Yellow with rounded corners
-        Box(            modifier = Modifier
-                .matchParentSize()
-                .clip(RoundedCornerShape(8.dp)) // Add rounded corners to match card
-                .background(XianPrimaryVariant.copy(alpha = (animatedOffsetX / maxSwipe).coerceIn(0f, 1f)))
-        ) {
-            // Show only if swiping right
-            if (animatedOffsetX > 0f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .wrapContentWidth()
-                        .align(Alignment.CenterStart)
-                        // Remove left padding completely
-                        .padding(end = 0.dp, start = 0.dp)
-                ) {                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(topEnd = 4.dp, bottomEnd = 4.dp)) // Rounded corners only on right side
-                            .background(XianPrimary)
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                "SEND",
-                                color = Color.Black,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 20.sp
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Icon(
-                                Icons.Default.ArrowDropDown,
-                                contentDescription = "Send",
-                                tint = Color.Black,
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .rotate(270f)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        
+            .clickable { onCardClick() } // Keep clickable for card click
+    ) {
         // The card with NO horizontal swipe handling - will allow parent scroll to work
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .offset { IntOffset(animatedOffsetX.roundToInt(), 0) }
                 .shadow(4.dp, RoundedCornerShape(8.dp)),
             shape = RoundedCornerShape(8.dp),
             colors = CardDefaults.cardColors(
@@ -1510,64 +1215,8 @@ fun SwipeableTokenCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        // Add horizontal swipe handling ONLY to the token info row
-                        .pointerInput(Unit) {
-                            var totalDragX = 0f
-                            var initialDragY = 0f
-                            var isDragHorizontal = false
-                            
-                            detectDragGestures(
-                                onDragStart = { offset ->
-                                    totalDragX = 0f
-                                    initialDragY = 0f
-                                    isDragHorizontal = false
-                                    isSwipeActive = false
-                                },
-                                onDragEnd = {
-                                    if (isDragHorizontal) {
-                                        if (offsetX > maxSwipe * 0.5f) { // Changed from 0.6f to 0.5f - easier trigger
-                                            onSendClick()
-                                        } else if (offsetX < -maxSwipe * 0.5f) { // Changed from 0.6f to 0.5f - easier trigger
-                                            onReceiveClick()
-                                        }
-                                    }
-                                    offsetX = 0f
-                                    isSwipeActive = false
-                                },
-                                onDragCancel = {
-                                    offsetX = 0f
-                                    isSwipeActive = false
-                                },
-                                onDrag = { change, dragAmount ->
-                                    // First movements are critical for determining direction
-                                    if (totalDragX == 0f && initialDragY == 0f) {
-                                        initialDragY = dragAmount.y
-                                    }
-                                    
-                                    totalDragX += dragAmount.x
-                                    
-                                    // Determine if this is primarily a horizontal drag
-                                    // Use a higher threshold for horizontal recognition
-                                    if (!isDragHorizontal) {
-                                        // We want to be VERY sure it's horizontal before taking over
-                                        isDragHorizontal = kotlin.math.abs(totalDragX) > 15f && 
-                                            kotlin.math.abs(dragAmount.x) > kotlin.math.abs(dragAmount.y) * 2f
-                                        
-                                        if (isDragHorizontal) {
-                                            isSwipeActive = true
-                                        }
-                                    }
-                                    
-                                    // Only handle horizontal drags after confirming it's horizontal
-                                    if (isDragHorizontal) {
-                                        // Allow for longer swipes by using the new maxSwipe value
-                                        offsetX = (offsetX + dragAmount.x).coerceIn(-maxSwipe, maxSwipe)
-                                        change.consume() // Only consume for horizontal
-                                    }
-                                    // If not horizontal, don't consume the change to allow parent scroll
-                                }
-                            )
-                        },
+                        // REMOVED: Add horizontal swipe handling ONLY to the token info row
+                        ,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Token icon using AsyncImage
@@ -1579,8 +1228,8 @@ fun SwipeableTokenCard(
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
                         contentScale = androidx.compose.ui.layout.ContentScale.Inside,
-                        error = painterResource(id = R.drawable.ic_question_mark), // Fallback: signo de interrogación
-                        placeholder = painterResource(id = R.drawable.ic_question_mark)
+                        error = if (contract == "currency") painterResource(id = R.drawable.xian_logo) else painterResource(id = R.drawable.ic_question_mark), // Use xian_logo for currency, question mark otherwise
+                        placeholder = if (contract == "currency") painterResource(id = R.drawable.xian_logo) else painterResource(id = R.drawable.ic_question_mark) // Use xian_logo for currency, question mark otherwise
                     )
 
                     // Token details
@@ -1627,28 +1276,21 @@ fun SwipeableTokenCard(
                         }
                     }
                 }
-                  // Update the hint text to better reflect the longer swipe distance
+                
+                // Update the hint text to better reflect the longer swipe distance
                 Spacer(modifier = Modifier.height(8.dp))
                 
                 // Row that contains both the swipe text and remove button
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween // Distribute items along the row
+                    horizontalArrangement = Arrangement.End // Changed from SpaceBetween to End
                 ) {
-                    // Add empty spacer if there's no remove button to keep swipe text centered
+                    // Add empty spacer if there\'s no remove button to keep swipe text centered
                     if (onRemoveClick == null) {
                         Spacer(modifier = Modifier.width(20.dp))
                     }
-                    
-                    Text(
-                        text = "← Swipe to Receive | Swipe to Send →",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.weight(1f)
-                    )
-                    
+
                     // Only show remove button if provided
                     if (onRemoveClick != null) {
                         Box(

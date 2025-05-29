@@ -1,4 +1,3 @@
-
 package net.xian.xianwalletapp
 
 import net.xian.xianwalletapp.workers.scheduleTransactionMonitor
@@ -182,6 +181,31 @@ fun XianWalletApp(
         
         composable(XianDestinations.RECEIVE_TOKEN) {
             ReceiveTokenScreen(navController, walletManager)
+        }
+        
+        // Token detail screen
+        composable(
+            route = "${XianDestinations.TOKEN_DETAIL}?${XianNavArgs.TOKEN_CONTRACT}={${XianNavArgs.TOKEN_CONTRACT}}&${XianNavArgs.TOKEN_SYMBOL}={${XianNavArgs.TOKEN_SYMBOL}}",
+            arguments = listOf(
+                navArgument(XianNavArgs.TOKEN_CONTRACT) {
+                    type = NavType.StringType
+                    nullable = false
+                },
+                navArgument(XianNavArgs.TOKEN_SYMBOL) {
+                    type = NavType.StringType
+                    nullable = false
+                }
+            )
+        ) { backStackEntry ->
+            val tokenContract = backStackEntry.arguments?.getString(XianNavArgs.TOKEN_CONTRACT) ?: "currency"
+            val tokenSymbol = backStackEntry.arguments?.getString(XianNavArgs.TOKEN_SYMBOL) ?: "XIAN"
+            TokenDetailScreen(
+                navController = navController,
+                walletManager = walletManager,
+                networkService = networkService,
+                tokenContract = tokenContract,
+                tokenSymbol = tokenSymbol
+            )
         }
         
         composable(
