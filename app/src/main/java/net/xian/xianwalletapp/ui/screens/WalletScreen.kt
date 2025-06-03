@@ -62,6 +62,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit // Import for Edit icon
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Download // Added import
@@ -220,14 +221,13 @@ fun WalletScreen(
     // --- Collect Transaction History State from ViewModel ---
     val transactionHistory by viewModel.transactionHistory.collectAsStateWithLifecycle()
     val isTransactionHistoryLoading by viewModel.isTransactionHistoryLoading.collectAsStateWithLifecycle()
-    val transactionHistoryError by viewModel.transactionHistoryError.collectAsStateWithLifecycle()
-
-    // --- Local UI State (Dialogs, Snackbar, etc.) ---
+    val transactionHistoryError by viewModel.transactionHistoryError.collectAsStateWithLifecycle()    // --- Local UI State (Dialogs, Snackbar, etc.) ---
     var showAddTokenDialog by remember { mutableStateOf(false) }
     var newTokenContract by remember { mutableStateOf("") }
     var showSnackbar by remember { mutableStateOf(false) }
     var snackbarMessage by remember { mutableStateOf("") }
     val snackbarHostState = remember { SnackbarHostState() }
+    var isEditMode by remember { mutableStateOf(false) } // Estado para el modo edición
     
     // State for NFTs
     var showNftDropdown by remember { mutableStateOf(false) } // Control dropdown visibility    // State for Local Activity
@@ -240,6 +240,14 @@ fun WalletScreen(
     var lastCollectiblesScrollIndex by remember { mutableStateOf(0) }
     var lastCollectiblesScrollOffset by remember { mutableStateOf(0) }
 
+    // Desactivar modo edición automáticamente cuando no hay tokens editables
+    LaunchedEffect(tokens) {
+        val hasEditableTokens = tokens.any { it != "currency" }
+        if (!hasEditableTokens && isEditMode) {
+            isEditMode = false
+        }
+    }
+    
     Scaffold(
         topBar = {            TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -654,15 +662,36 @@ fun WalletScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                            }
-                            else -> {
+                            }                            else -> {
                                 // Always show the list when we have tokens, regardless of isLoading state
-                                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                // State variables for scroll tracking in tokens list
+                                var lastTokensScrollIndex by remember { mutableStateOf(0) }
+                                var lastTokensScrollOffset by remember { mutableStateOf(0) }
+                                val tokensListState = rememberLazyListState()
+                                
+                                // Scroll behavior effect for tokens list
+                                LaunchedEffect(tokensListState.firstVisibleItemIndex, tokensListState.firstVisibleItemScrollOffset) {
+                                    val index = tokensListState.firstVisibleItemIndex
+                                    val offset = tokensListState.firstVisibleItemScrollOffset
+                                    if (index > lastTokensScrollIndex || (index == lastTokensScrollIndex && offset > lastTokensScrollOffset + 10)) {
+                                        // Scroll down (hide bottom bar)
+                                        if (showBottomBar) showBottomBar = false
+                                    } else if (index < lastTokensScrollIndex || (index == lastTokensScrollIndex && offset < lastTokensScrollOffset - 10)) {
+                                        // Scroll up (show bottom bar)
+                                        if (!showBottomBar) showBottomBar = true
+                                    }
+                                    lastTokensScrollIndex = index
+                                    lastTokensScrollOffset = offset
+                                }
+                                  LazyColumn(
+                                    state = tokensListState,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentPadding = PaddingValues(bottom = 80.dp) // Add padding for bottom navigation bar
+                                ) {
                                     items(tokens) { contract ->
                                         val tokenInfo = tokenInfoMap[contract]
                                         val balance = balanceMap[contract] ?: 0f
-                                        
-                                        TokenItem(
+                                          TokenItem(
                                             contract = contract, 
                                             name = tokenInfo?.name ?: contract,
                                             symbol = tokenInfo?.symbol ?: "",
@@ -679,14 +708,14 @@ fun WalletScreen(
                                             onReceiveClick = {
                                                 navController.navigate(XianDestinations.RECEIVE_TOKEN)
                                             },
-                                            onRemoveClick = {
-                                                if (contract != "currency") {
+                                            onRemoveClick = if (isEditMode && contract != "currency") {
+                                                {
                                                     viewModel.removeToken(contract)
                                                     coroutineScope.launch {
                                                         snackbarHostState.showSnackbar("Token removal initiated")
                                                     }
                                                 }
-                                            },
+                                            } else null, // Solo mostrar botón de eliminar en modo edición y no para XIAN
                                             onCardClick = {
                                                 navController.navigate(
                                                     "${XianDestinations.TOKEN_DETAIL}?${XianNavArgs.TOKEN_CONTRACT}=$contract&${XianNavArgs.TOKEN_SYMBOL}=${tokenInfo?.symbol ?: ""}"
@@ -694,40 +723,81 @@ fun WalletScreen(
                                             }
                                         )
                                     }
-                                    
-                                    // Add capsule button at the end of the list
+                                      // Add capsule button at the end of the list
                                     item {
-                                        Button(
-                                            onClick = { showAddTokenDialog = true },
+                                        Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .padding(vertical = 12.dp, horizontal = 16.dp),
-                                            shape = RoundedCornerShape(8.dp), // Less rounded corners
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = MaterialTheme.colorScheme.primary
-                                            )
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.Center,
-                                                modifier = Modifier.padding(vertical = 8.dp)
-                                            ) {                                                Icon(
-                                                    Icons.Default.Add,
-                                                    contentDescription = "Add Token",
-                                                    modifier = Modifier.size(20.dp),
-                                                    tint = Color.Black
+                                            // Add New Token Button
+                                            Button(
+                                                onClick = { showAddTokenDialog = true },
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(8.dp),
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = MaterialTheme.colorScheme.primary
                                                 )
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(
-                                                    "Add New Token",
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 16.sp,
-                                                    color = Color.Black
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.Center,
+                                                    modifier = Modifier.padding(vertical = 8.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Add,
+                                                        contentDescription = "Add Token",
+                                                        modifier = Modifier.size(20.dp),
+                                                        tint = Color.Black
+                                                    )
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        "Add New Token",
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 16.sp,
+                                                        color = Color.Black
+                                                    )
+                                                }
+                                            }
+                                              // Edit Button
+                                            val hasEditableTokens = tokens.any { it != "currency" }
+                                            Button(
+                                                onClick = { 
+                                                    if (hasEditableTokens) {
+                                                        isEditMode = !isEditMode 
+                                                    }
+                                                },
+                                                modifier = Modifier.size(56.dp),
+                                                shape = RoundedCornerShape(8.dp),
+                                                enabled = hasEditableTokens,                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = when {
+                                                        !hasEditableTokens -> MaterialTheme.colorScheme.outline.copy(alpha = 0.06f)
+                                                        isEditMode -> MaterialTheme.colorScheme.primary // Mismo color que Add New Token
+                                                        else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
+                                                    },
+                                                    disabledContainerColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.06f)
+                                                ),
+                                                contentPadding = PaddingValues(0.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Edit,
+                                                    contentDescription = when {
+                                                        !hasEditableTokens -> "No editable tokens"
+                                                        isEditMode -> "Exit Edit Mode" 
+                                                        else -> "Edit Mode"
+                                                    },
+                                                    modifier = Modifier.size(24.dp),
+                                                    tint = when {
+                                                        !hasEditableTokens -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                                                        isEditMode -> Color.Black // Mismo color que el ícono de Add New Token
+                                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                                    }
                                                 )
                                             }
                                         }
                                         
-                                        // Add some bottom spacing to ensure the button isn't cut off
+                                        // Add some bottom spacing to ensure the buttons aren't cut off
                                         Spacer(modifier = Modifier.height(80.dp))
                                     }
                                 }
@@ -1036,9 +1106,9 @@ fun TokenItem(
     xtfuPrice: Float? = null, // Añadir precio de XTFU en XIAN
     onSendClick: () -> Unit,
     onReceiveClick: () -> Unit,
-    onRemoveClick: () -> Unit,
+    onRemoveClick: (() -> Unit)? = null, // Hacer opcional para el modo edición
     onCardClick: () -> Unit = {} // Add card click handler
-) {    // Use different UI for XIAN currency (contract == "currency")
+) {// Use different UI for XIAN currency (contract == "currency")
     if (contract == "currency") {
         // Use SwipeableXianCard for XIAN token only
         SwipeableXianCard(
