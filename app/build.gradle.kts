@@ -14,8 +14,8 @@ android {
         applicationId = "net.xian.xianwalletapp"
         minSdk = 26
         targetSdk = 35
-        versionCode = 16 // Cambia este valor al nuevo código de versión
-        versionName = "1.5.1" // Cambia este valor a la nueva versión
+        versionCode = 17 // Cambia este valor al nuevo código de versión
+        versionName = "1.5.2" // Cambia este valor a la nueva versión
 
         // Aquí configuras el nombre del APK
         setProperty("archivesBaseName", "Xian Wallet-$versionName")
@@ -113,9 +113,13 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.1.1") // Use the latest stable version    // Room Persistence Library
     val room_version = "2.6.1" // Use the latest stable version
     implementation("androidx.room:room-runtime:$room_version")
-    kapt("androidx.room:room-compiler:$room_version") // Change this line
-    // Optional - Kotlin Extensions and Coroutines support for Room
+    kapt("androidx.room:room-compiler:$room_version") // Change this line    // Optional - Kotlin Extensions and Coroutines support for Room
     implementation("androidx.room:room-ktx:$room_version")
+
+    // Vico Chart Library for price charts
+    implementation("com.patrykandpatrick.vico:compose:1.15.0")
+    implementation("com.patrykandpatrick.vico:compose-m3:1.15.0")
+    implementation("com.patrykandpatrick.vico:core:1.15.0")
 
     // Testing
     testImplementation(libs.junit)

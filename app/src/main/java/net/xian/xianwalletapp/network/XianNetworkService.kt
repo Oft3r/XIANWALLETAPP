@@ -1034,13 +1034,11 @@ class XianNetworkService private constructor(private val context: Context) {
             return@withContext null
         }
     }
-
-
     /**
      * Fetches all available trading pairs from the con_pairs contract events.
      * @return A list of PairInfo objects, or an empty list if fetching fails or no pairs are found.
      */
-    private suspend fun getAllPairs(): List<PairInfo> = withContext(Dispatchers.IO) {
+    suspend fun getAllPairs(): List<PairInfo> = withContext(Dispatchers.IO) {
         val graphQLEndpoint = "$rpcUrl/graphql"
         // Query to get PairCreated events from con_pairs
         val query = """
@@ -2189,4 +2187,155 @@ class XianNetworkService private constructor(private val context: Context) {
             null
         }
     }
+
+    /**
+     * Fetches swap events for a specific token pair from GraphQL
+     * Used for generating historical price charts
+     * @param pairId The pair ID to fetch swap events for
+     * @return List of swap events with timestamp, price data, etc.
+     */    suspend fun getSwapEventsForPair(pairId: String): List<SwapEvent> = withContext(Dispatchers.IO) {
+        try {
+            val graphQLEndpoint = "$rpcUrl/graphql"
+            
+            // Calculate timestamp for 30 days ago (720 hours)
+            val thirtyDaysAgo = java.time.Instant.now().minus(30, java.time.temporal.ChronoUnit.DAYS)
+            val thirtyDaysAgoISO = thirtyDaysAgo.toString()
+            
+            android.util.Log.d("XianNetworkService", "Fetching swap events for pair $pairId since $thirtyDaysAgoISO")
+            
+            val query = """
+                query GetSwapEvents {
+                    allEvents(
+                        condition: {contract: "con_pairs", event: "Swap"}
+                        filter: {
+                            dataIndexed: {contains: {pair: "$pairId"}},
+                            created: {greaterThan: "$thirtyDaysAgoISO"}
+                        }
+                        orderBy: CREATED_DESC
+                        first: 1000
+                    ) {
+                        edges {
+                            node {
+                                caller
+                                signer
+                                dataIndexed
+                                data
+                                created
+                            }
+                        }
+                    }
+                }
+            """.trimIndent()
+
+            val requestBody = JSONObject().apply {
+                put("query", query)
+            }
+
+            val request = Request.Builder()
+                .url(graphQLEndpoint)
+                .post(okhttp3.RequestBody.create("application/json".toMediaTypeOrNull(), requestBody.toString()))
+                .build()
+
+            val response = client.newCall(request).execute()
+            val responseBody = response.body?.string()
+
+            if (!response.isSuccessful || responseBody == null) {
+                android.util.Log.e("XianNetworkService", "Error fetching swap events: ${response.code}")
+                return@withContext emptyList()
+            }
+
+            val json = JSONObject(responseBody)
+            val data = json.optJSONObject("data")
+            val allEvents = data?.optJSONObject("allEvents")
+            val edges = allEvents?.optJSONArray("edges")
+
+            if (edges == null) {
+                android.util.Log.w("XianNetworkService", "No swap events found for pair: $pairId")
+                return@withContext emptyList()
+            }
+
+            val swapEvents = mutableListOf<SwapEvent>()
+            
+            for (i in 0 until edges.length()) {
+                try {
+                    val edge = edges.getJSONObject(i)
+                    val node = edge.getJSONObject("node")
+                    
+                    val caller = node.optString("caller")
+                    val signer = node.optString("signer") 
+                    val created = node.optString("created")
+                    val dataIndexedStr = node.optString("dataIndexed")
+                    val dataStr = node.optString("data")
+                    
+                    // Parse the data JSON strings
+                    val dataIndexed = JSONObject(dataIndexedStr)
+                    val data = JSONObject(dataStr)
+                    
+                    // Extract swap amounts
+                    val amount0In = data.optDouble("amount0In", 0.0)
+                    val amount0Out = data.optDouble("amount0Out", 0.0) 
+                    val amount1In = data.optDouble("amount1In", 0.0)
+                    val amount1Out = data.optDouble("amount1Out", 0.0)
+                    
+                    // Calculate price (token1/token0)
+                    var price: Double? = null
+                    if (amount0Out > 0 && amount1In > 0) {
+                        // Buying token0 with token1
+                        price = amount1In / amount0Out
+                    } else if (amount0In > 0 && amount1Out > 0) {
+                        // Selling token0 for token1  
+                        price = amount1Out / amount0In
+                    }
+                    
+                    if (price != null && price > 0) {
+                        swapEvents.add(
+                            SwapEvent(
+                                timestamp = created,
+                                price = price,
+                                volume = amount1In + amount1Out,
+                                amount0In = amount0In,
+                                amount0Out = amount0Out,
+                                amount1In = amount1In, 
+                                amount1Out = amount1Out,
+                                caller = caller,
+                                signer = signer
+                            )
+                        )
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("XianNetworkService", "Error parsing swap event: ${e.message}")
+                    continue
+                }            }
+            
+            android.util.Log.d("XianNetworkService", "Fetched ${swapEvents.size} swap events for pair $pairId in last 30 days")
+            
+            // Log date range of events for debugging
+            if (swapEvents.isNotEmpty()) {
+                val oldestEvent = swapEvents.minByOrNull { it.timestamp }
+                val newestEvent = swapEvents.maxByOrNull { it.timestamp }
+                android.util.Log.d("XianNetworkService", "Event date range: ${oldestEvent?.timestamp} to ${newestEvent?.timestamp}")
+            }
+            
+            return@withContext swapEvents
+            
+        } catch (e: Exception) {
+            android.util.Log.e("XianNetworkService", "Error fetching swap events: ${e.message}", e)
+            return@withContext emptyList()
+        }
+    }
 }
+
+/**
+ * Data class representing a swap event
+ */
+data class SwapEvent(
+    val timestamp: String,
+    val price: Double,
+    val volume: Double,
+    val amount0In: Double,
+    val amount0Out: Double, 
+    val amount1In: Double,
+    val amount1Out: Double,
+    val caller: String,
+    val signer: String
+)

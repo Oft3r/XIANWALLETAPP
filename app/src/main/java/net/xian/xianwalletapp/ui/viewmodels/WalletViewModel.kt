@@ -10,6 +10,8 @@ import net.xian.xianwalletapp.data.db.NftCacheDao // Import DAO
 import net.xian.xianwalletapp.data.db.NftCacheEntity // Import Entity
 import net.xian.xianwalletapp.network.TokenInfo
 import net.xian.xianwalletapp.network.XianNetworkService
+import net.xian.xianwalletapp.network.SwapEvent // Added for chart data
+import net.xian.xianwalletapp.network.XianNetworkService.PairInfo // Added for chart data
 import net.xian.xianwalletapp.wallet.WalletManager
 import net.xian.xianwalletapp.network.TransactionResult // Added import
 import kotlinx.coroutines.delay
@@ -30,6 +32,10 @@ import java.time.Instant // Already imported
 import net.xian.xianwalletapp.data.LocalTransactionRecord // For transaction history
 import net.xian.xianwalletapp.data.TransactionRepository // For transaction history
 import kotlinx.coroutines.flow.catch
+// Imports para Vico Chart
+import com.patrykandpatrick.vico.core.entry.ChartEntryModelProducer
+import com.patrykandpatrick.vico.core.entry.entryOf
+import com.patrykandpatrick.vico.core.entry.FloatEntry
 
 // Define default empty states
 private val EMPTY_TOKEN_INFO_MAP: Map<String, TokenInfo> = emptyMap()
@@ -39,6 +45,20 @@ private val EMPTY_NFT_CACHE_LIST: List<NftCacheEntity> = emptyList() // Default 
 private val EMPTY_XNS_NAME_LIST: List<String> = emptyList() // Added for XNS names
 private val EMPTY_XNS_EXPIRATIONS: Map<String, Long?> = emptyMap() // Added for expirations
 private val EMPTY_TRANSACTION_HISTORY: List<LocalTransactionRecord> = emptyList()
+
+// --- Chart Data State ---
+private val EMPTY_CHART_ENTRIES: List<com.patrykandpatrick.vico.core.entry.ChartEntry> = emptyList()
+
+// --- Chart Timeframe State ---
+enum class ChartTimeframe(val minutes: Int, val displayName: String) {
+    FIVE_MINUTES(5, "5m"),
+    FIFTEEN_MINUTES(15, "15m"),
+    ONE_HOUR(60, "1h"),
+    FOUR_HOURS(240, "4h")
+}
+
+private val _chartTimeframe = MutableStateFlow(ChartTimeframe.FIFTEEN_MINUTES)
+val chartTimeframe: StateFlow<ChartTimeframe> = _chartTimeframe.asStateFlow()
 
 // Data class to represent predefined tokens for easy selection
 data class PredefinedToken(
@@ -188,12 +208,30 @@ class WalletViewModel(
     val isXnsAddress: StateFlow<Boolean> = _isXnsAddress.asStateFlow()
 
     private val _isResolvingXns = MutableStateFlow(false)
-    val isResolvingXns: StateFlow<Boolean> = _isResolvingXns.asStateFlow()
-
-    // --- Fee Estimation State Flow ---
+    val isResolvingXns: StateFlow<Boolean> = _isResolvingXns.asStateFlow()    // --- Fee Estimation State Flow ---
     private val _estimatedFeeState = MutableStateFlow<FeeEstimationState>(FeeEstimationState.Idle)
     val estimatedFeeState: StateFlow<FeeEstimationState> = _estimatedFeeState.asStateFlow()
+    
     private var currentStampRate: Float? = null // Cache stamp rate
+    
+    // --- Chart Model Producer for Vico ---
+    val chartModelProducer = ChartEntryModelProducer(EMPTY_CHART_ENTRIES)
+    
+    private val _isChartLoading = MutableStateFlow(false)
+    val isChartLoading: StateFlow<Boolean> = _isChartLoading.asStateFlow()
+    
+    private val _chartError = MutableStateFlow<String?>(null)
+    val chartError: StateFlow<String?> = _chartError.asStateFlow()
+    private val _chartNormalizationType = MutableStateFlow<String?>(null)
+    val chartNormalizationType: StateFlow<String?> = _chartNormalizationType.asStateFlow()
+      // Chart Y-axis range states
+    private val _chartYAxisRange = MutableStateFlow<Pair<Float, Float>?>(null)
+    val chartYAxisRange: StateFlow<Pair<Float, Float>?> = _chartYAxisRange.asStateFlow()
+    
+    // Chart Y-axis offset for better scaling
+    private val _chartYAxisOffset = MutableStateFlow<Float?>(null)
+    val chartYAxisOffset: StateFlow<Float?> = _chartYAxisOffset.asStateFlow()
+    // --- End Chart ---
 
     // Flag to prevent initial load if data already exists (e.g., ViewModel survived)
     private var hasLoadedInitialData = false
@@ -239,7 +277,12 @@ class WalletViewModel(
                             _isLoading.value = false
                             _isNftLoading.value = false
                             _transactionHistory.value = EMPTY_TRANSACTION_HISTORY
-                            _isTransactionHistoryLoading.value = false
+                            _isTransactionHistoryLoading.value = false                            // Clear chart data as well
+                            chartModelProducer.setEntries(EMPTY_CHART_ENTRIES)
+                            _isChartLoading.value = false
+                            _chartError.value = null
+                            _chartYAxisRange.value = null
+                            _chartYAxisOffset.value = null
                         }
                     } else {
                         // Key hasn't changed, but name might have (e.g., rename)
@@ -251,12 +294,202 @@ class WalletViewModel(
         }
         // Trigger initial data load explicitly after setting up observer
         loadDataIfNotLoaded()
-        loadTransactionHistory() // Load initial transaction history
-        // Start periodic connectivity check
+        loadTransactionHistory() // Load initial transaction history        // Start periodic connectivity check
         startConnectivityChecks()
     }
 
     // --- Public Functions for UI Interaction ---
+      /**
+     * Loads historical price data for the given token contract and updates the chart.
+     * Fetches swap events from GraphQL and processes them into chart data.
+     */
+    fun loadHistoricalData(tokenContract: String) {
+        viewModelScope.launch {            _isChartLoading.value = true
+            _chartError.value = null
+            _chartNormalizationType.value = null // Reset normalization state
+            _chartYAxisRange.value = null // Reset Y-axis range
+            _chartYAxisOffset.value = null // Reset Y-axis offset
+            Log.d("WalletViewModel", "Loading historical data for chart: $tokenContract")
+
+            try {                // First, we need to find the trading pair for this token
+                val allPairs = networkService.getAllPairs()
+                val tokenPair = allPairs.find { pair ->
+                    pair.token0 == tokenContract || pair.token1 == tokenContract
+                }
+                
+                if (tokenPair == null) {
+                    _chartError.value = "No trading pair found for token $tokenContract"
+                    chartModelProducer.setEntries(EMPTY_CHART_ENTRIES)
+                    _chartNormalizationType.value = null
+                    _chartYAxisRange.value = null
+                    _chartYAxisOffset.value = null
+                    return@launch
+                }
+                
+                Log.d("WalletViewModel", "Found trading pair: ${tokenPair.id} for token $tokenContract")
+                
+                // Fetch swap events for this pair
+                val swapEvents = networkService.getSwapEventsForPair(tokenPair.id)
+                
+                if (swapEvents.isEmpty()) {
+                    _chartError.value = "No price data available for $tokenContract"
+                    chartModelProducer.setEntries(EMPTY_CHART_ENTRIES)
+                    _chartNormalizationType.value = null
+                    _chartYAxisRange.value = null
+                    _chartYAxisOffset.value = null
+                    return@launch
+                }
+
+                Log.d("WalletViewModel", "Processing ${swapEvents.size} swap events for chart")
+
+                // Process swap events into chart data
+                val chartEntries = processSwapEventsToChartData(swapEvents, tokenContract, tokenPair)
+
+                if (chartEntries.isNotEmpty()) {
+                    chartModelProducer.setEntries(chartEntries)
+                    Log.d("WalletViewModel", "Chart updated with ${chartEntries.size} data points")                } else {                    _chartError.value = "Could not process price data for $tokenContract"
+                    chartModelProducer.setEntries(EMPTY_CHART_ENTRIES)
+                    _chartNormalizationType.value = null
+                    _chartYAxisRange.value = null
+                    _chartYAxisOffset.value = null
+                }            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error loading historical chart data for $tokenContract", e)
+                _chartError.value = "Failed to load chart data: ${e.message}"
+                chartModelProducer.setEntries(EMPTY_CHART_ENTRIES)
+                _chartNormalizationType.value = null
+                _chartYAxisRange.value = null
+                _chartYAxisOffset.value = null
+            } finally {
+                _isChartLoading.value = false
+            }
+        }
+    }
+
+    /**
+     * Processes swap events into chart data points
+     */    private fun processSwapEventsToChartData(
+        swapEvents: List<SwapEvent>,
+        tokenContract: String,
+        tokenPair: PairInfo
+    ): List<FloatEntry> {        try {
+            // Sort events by timestamp (oldest first for processing, will be reversed for display)
+            val sortedEvents: List<SwapEvent> = swapEvents.sortedBy { event ->
+                // Parse timestamp string to compare
+                event.timestamp
+            }
+
+            // Use the selected timeframe
+            val currentTimeframe = _chartTimeframe.value
+            val candleIntervalMinutes = currentTimeframe.minutes
+            val candleIntervalSeconds = candleIntervalMinutes * 60
+            val timeCandles: MutableMap<Long, MutableList<SwapEvent>> = mutableMapOf()
+            
+            sortedEvents.forEach { event ->
+                try {
+                    // Parse timestamp and round to selected interval
+                    val timestamp = java.time.Instant.parse(event.timestamp + "Z")
+                    val candleKey = timestamp.epochSecond / candleIntervalSeconds
+                    
+                    timeCandles.getOrPut(candleKey) { mutableListOf() }.add(event)
+                } catch (e: Exception) {
+                    Log.w("WalletViewModel", "Could not parse timestamp: ${event.timestamp}")
+                }
+            }            // Convert candles to chart entries with volume-weighted average price (VWAP)
+            val priceList: MutableList<Double> = mutableListOf()
+            val chartEntries: MutableList<FloatEntry> = mutableListOf()
+            var xIndex = 0f
+
+            // Primera pasada: calcular todos los precios
+            timeCandles.toSortedMap().forEach { (candleKey, events) ->
+                if (events.isNotEmpty()) {
+                    // Calculate volume-weighted average price for better precision
+                    var totalValue = 0.0
+                    var totalVolume = 0.0
+                    
+                    events.forEach { event ->
+                        var price = event.price
+                        val volume = event.volume
+                        
+                        // If the selected token is token1 in the pair, invert the price
+                        if (tokenContract == tokenPair.token1) {
+                            price = 1.0 / price
+                        }
+                        
+                        totalValue += price * volume
+                        totalVolume += volume
+                    }
+                    
+                    // Use VWAP if we have volume, otherwise use the last price
+                    val finalPrice = if (totalVolume > 0) {
+                        totalValue / totalVolume
+                    } else {
+                        var lastPrice = events.last().price
+                        if (tokenContract == tokenPair.token1) {
+                            lastPrice = 1.0 / lastPrice
+                        }
+                        lastPrice
+                    }
+
+                    priceList.add(finalPrice)
+                }
+            }            // Calcular estadísticas para optimizar la escala
+            if (priceList.isNotEmpty()) {
+                val minPrice = priceList.minOrNull() ?: 0.0
+                val maxPrice = priceList.maxOrNull() ?: 0.0
+                val avgPrice = priceList.average()
+                val priceRange = maxPrice - minPrice
+                val relativeVariation = if (avgPrice > 0) (priceRange / avgPrice) else 0.0
+                
+                Log.d("WalletViewModel", "Price stats - Min: $minPrice, Max: $maxPrice, Avg: $avgPrice, Range: $priceRange, RelVar: ${relativeVariation * 100}%")
+                  // Usar normalización agresiva para pequeñas variaciones
+                val hasSmallVariation = relativeVariation < 0.05 && priceRange > 0 // 5% threshold
+                  // Calcular padding para mejor visualización (5% arriba y abajo)
+                val paddingPercent = 0.05
+                val padding = priceRange * paddingPercent
+                val displayMin = (minPrice - padding).coerceAtLeast(0.0) // No permitir valores negativos
+                val displayMax = maxPrice + padding
+                  // Set Y-axis range for the chart
+                _chartYAxisRange.value = Pair(displayMin.toFloat(), displayMax.toFloat())
+                    // Check if we need to use offset mapping for better Y-axis scaling
+                // If price range is small relative to minimum price, we'll offset the data
+                val shouldUseOffset = minPrice > 0 && relativeVariation < 0.5 && minPrice > 0.001
+                val offset = if (shouldUseOffset) displayMin else 0.0
+                
+                // Store the offset for the chart axis formatter
+                _chartYAxisOffset.value = if (shouldUseOffset) offset.toFloat() else null
+                
+                // Segunda pasada: crear entradas del gráfico con precios normalizados si es necesario
+                // Reverse the order so the most recent data appears first (right side of chart)
+                priceList.reversed().forEachIndexed { index, price ->
+                    // Apply offset if needed to center the chart around the actual price range
+                    val adjustedPrice = if (shouldUseOffset) (price - offset) else price
+                    chartEntries.add(entryOf(xIndex, adjustedPrice.toFloat()))
+                    xIndex += 1f
+                }
+                
+                // Establecer información de escala para el eje Y
+                if (shouldUseOffset) {
+                    val scaleInfo = "Range: ${"%.6f".format(displayMin)} - ${"%.6f".format(displayMax)} (offset applied)"
+                    _chartNormalizationType.value = scaleInfo
+                    Log.d("WalletViewModel", "Using offset mapping to center chart around price range: $scaleInfo")
+                } else if (hasSmallVariation) {
+                    val scaleInfo = "Real Prices: ${"%.6f".format(displayMin)} - ${"%.6f".format(displayMax)}"
+                    _chartNormalizationType.value = scaleInfo
+                    Log.d("WalletViewModel", "Using real prices with enhanced scale for small variation (${relativeVariation * 100}%): $scaleInfo")
+                } else {
+                    _chartNormalizationType.value = null
+                    Log.d("WalletViewModel", "Using real prices with normal scale (${relativeVariation * 100}% variation)")
+                }
+            }
+
+            Log.d("WalletViewModel", "Created ${chartEntries.size} chart entries (${currentTimeframe.displayName} candles) from ${sortedEvents.size} swap events - showing most recent first")
+            return chartEntries.toList()
+
+        } catch (e: Exception) {
+            Log.e("WalletViewModel", "Error processing swap events to chart data", e)
+            return emptyList<FloatEntry>()
+        }
+    }
 
     fun toggleBalanceVisibility() {
         val newVisibility = !_isBalanceVisible.value
@@ -508,6 +741,19 @@ class WalletViewModel(
                 _estimatedFeeState.value = FeeEstimationState.Failure
             }
         }
+    }    /**
+     * Changes the chart timeframe and reloads chart data
+     */
+    fun setChartTimeframe(timeframe: ChartTimeframe, tokenContract: String? = null) {
+        if (_chartTimeframe.value != timeframe) {
+            _chartTimeframe.value = timeframe
+            Log.d("WalletViewModel", "Chart timeframe changed to: ${timeframe.displayName}")
+            
+            // Reload chart data with new timeframe if we have a token contract
+            tokenContract?.let { contract ->
+                loadHistoricalData(contract)
+            }
+        }
     }
 
     // --- Private Data Loading Logic ---
@@ -697,7 +943,7 @@ class WalletViewModel(
                 val currentNftContracts = fetchedNetworkNfts.map { it.contractAddress }
                 nftCacheDao.deleteOrphanedNfts(currentPublicKey, currentNftContracts)
                 Log.d("WalletViewModel", "Deleted orphaned NFTs from cache for $currentPublicKey")
-                // --- Room Update Complete --- //
+                // --- Room Update Complete ---
 
             } catch (e: Exception) {
                 Log.e("WalletViewModel", "Error fetching NFTs from network or updating cache for $currentPublicKey", e)

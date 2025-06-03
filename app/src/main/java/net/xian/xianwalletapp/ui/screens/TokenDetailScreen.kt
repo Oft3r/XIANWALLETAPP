@@ -3,7 +3,10 @@ package net.xian.xianwalletapp.ui.screens
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -11,13 +14,18 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
+import androidx.compose.animation.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -26,15 +34,24 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+// Imports para Vico Chart
+import com.patrykandpatrick.vico.compose.axis.horizontal.bottomAxis
+import com.patrykandpatrick.vico.compose.axis.vertical.startAxis
+import com.patrykandpatrick.vico.compose.chart.Chart
+import com.patrykandpatrick.vico.compose.chart.line.lineChart
+import com.patrykandpatrick.vico.compose.chart.line.lineSpec
+import com.patrykandpatrick.vico.core.entry.ChartEntryModelProducer
+import com.patrykandpatrick.vico.core.component.text.TextComponent
+import com.patrykandpatrick.vico.core.component.text.textComponent
 import net.xian.xianwalletapp.R
 import net.xian.xianwalletapp.navigation.XianDestinations
 import net.xian.xianwalletapp.navigation.XianNavArgs
 import net.xian.xianwalletapp.network.XianNetworkService
 import net.xian.xianwalletapp.ui.theme.XianButtonType
 import net.xian.xianwalletapp.ui.theme.XianPrimary
+import net.xian.xianwalletapp.ui.viewmodels.WalletViewModel
 import net.xian.xianwalletapp.ui.theme.XianPrimaryVariant
 import net.xian.xianwalletapp.ui.theme.xianButtonColors
-import net.xian.xianwalletapp.ui.viewmodels.WalletViewModel
 import net.xian.xianwalletapp.ui.viewmodels.WalletViewModelFactory
 import net.xian.xianwalletapp.wallet.WalletManager
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -58,14 +75,20 @@ fun TokenDetailScreen(
         factory = WalletViewModelFactory(LocalContext.current, walletManager, networkService)
     )
 ) {
-    val context = LocalContext.current
-    
-    // Collect states from ViewModel
+    val context = LocalContext.current      // Collect states from ViewModel
     val tokenInfoMap by viewModel.tokenInfoMap.collectAsStateWithLifecycle()
     val balanceMap by viewModel.balanceMap.collectAsStateWithLifecycle()
     val xianPrice by viewModel.xianPrice.collectAsStateWithLifecycle()
     val poopPrice by viewModel.poopPrice.collectAsStateWithLifecycle()
     val xtfuPrice by viewModel.xtfuPrice.collectAsStateWithLifecycle()
+    val isChartLoading by viewModel.isChartLoading.collectAsStateWithLifecycle()
+    val chartError by viewModel.chartError.collectAsStateWithLifecycle()
+    val chartNormalizationType by viewModel.chartNormalizationType.collectAsStateWithLifecycle()
+    val chartYAxisRange by viewModel.chartYAxisRange.collectAsStateWithLifecycle()
+    val chartYAxisOffset by viewModel.chartYAxisOffset.collectAsStateWithLifecycle()
+    
+    // Estado para controlar si la tarjeta de precio está expandida
+    var isPriceCardExpanded by remember { mutableStateOf(false) }
     
     // Get token information
     val tokenInfo = tokenInfoMap[tokenContract]
@@ -83,6 +106,14 @@ fun TokenDetailScreen(
     val usdFormatter = DecimalFormat("#,##0.0000") // For USD values (4 decimals)
     val priceFormatter = DecimalFormat("#,##0.000000") // For token prices in XIAN (6 decimals)
     val balanceFormatter = DecimalFormat("#,##0.####")
+
+    // Obtener el ChartModelProducer del ViewModel
+    val chartModelProducer = viewModel.chartModelProducer
+
+    // Cargar datos históricos cuando el tokenContract cambie
+    LaunchedEffect(tokenContract) {
+        viewModel.loadHistoricalData(tokenContract)
+    }
     
     Scaffold(
         topBar = {
@@ -104,19 +135,20 @@ fun TokenDetailScreen(
                     }
                 }
             )
-        }
-    ) { paddingValues ->
+        }    ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(16.dp),
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
-        ) {            // Price Card (similar to total balance card)
+        ) {// Expandible Price Card with Chart
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 24.dp),
+                    .padding(bottom = 24.dp)
+                    .clickable { isPriceCardExpanded = !isPriceCardExpanded },
                 shape = RoundedCornerShape(16.dp),
                 border = BorderStroke(
                     width = 2.dp,
@@ -130,37 +162,205 @@ fun TokenDetailScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {                    Text(
-                        text = "Token Price",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.Medium
-                    )
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    if (tokenPrice != null) {
-                        Text(
-                            text = if (tokenContract == "currency") {
-                                "$${usdFormatter.format(tokenPrice)} USD"
+                        .padding(20.dp)
+                ) {
+                    // Cabecera con precio y flecha
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.Start
+                        ) {
+                            Text(
+                                text = "Token Price",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Medium
+                            )
+                            
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            if (tokenPrice != null) {
+                                Text(
+                                    text = if (tokenContract == "currency") {
+                                        "$${usdFormatter.format(tokenPrice)} USD"
+                                    } else {
+                                        "${priceFormatter.format(tokenPrice)} XIAN"
+                                    },
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.Bold
+                                )
                             } else {
-                                "${priceFormatter.format(tokenPrice)} XIAN"
-                            },
-                            style = MaterialTheme.typography.headlineMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.Bold
-                        )
-                    } else {
-                        Text(
-                            text = "Price not available",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                Text(
+                                    text = "Price not available",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                        
+                        // Icono de flecha indicando expansión
+                        Icon(
+                            imageVector = if (isPriceCardExpanded) 
+                                Icons.Default.KeyboardArrowUp 
+                            else 
+                                Icons.Default.KeyboardArrowDown,
+                            contentDescription = if (isPriceCardExpanded) "Collapse chart" else "Expand chart",
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                            modifier = Modifier.size(24.dp)
                         )
                     }
-                }
-            }
+                    
+                    // Gráfico expandible con animación
+                    AnimatedVisibility(
+                        visible = isPriceCardExpanded,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut()
+                    ) {                        Column(
+                            modifier = Modifier.padding(top = 16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "$tokenSymbol Price Chart",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                              // Indicador de escala mejorada si está activa
+                            if (chartNormalizationType != null) {
+                                Text(
+                                    text = chartNormalizationType!!,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = XianPrimary.copy(alpha = 0.8f),
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+                            } else {
+                                Spacer(modifier = Modifier.height(12.dp))
+                            }
+
+                            // Contenedor del gráfico con altura fija
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(250.dp)
+                            ) {
+                                if (isChartLoading) {
+                                    // Indicador de carga
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(32.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = "Loading price data...",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                            )
+                                        }
+                                    }
+                                } else if (chartError != null) {
+                                    // Error en el gráfico
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Warning,
+                                                contentDescription = "Chart error",
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(32.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = chartError!!,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.error,
+                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                            )                                        }
+                                    }                                } else if (chartModelProducer.getModel()?.entries?.isNotEmpty() == true) {
+                                    
+                                    // Vico Chart con ejes personalizados y escala mejorada para pequeños cambios
+                                    Chart(
+                                        chart = lineChart(),
+                                        chartModelProducer = chartModelProducer,
+                                        startAxis = startAxis(
+                                            label = textComponent {
+                                                color = Color.White.toArgb()
+                                                textSizeSp = 10f
+                                            },                                            // Configurar para mostrar precios reales con mejor precisión
+                                            valueFormatter = { value, _ ->
+                                                // Apply offset back to get real price if offset is used
+                                                val realValue = chartYAxisOffset?.let { offset -> value + offset } ?: value
+                                                when {
+                                                    realValue >= 1000 -> {
+                                                        // Para valores grandes
+                                                        String.format("%.0f", realValue)
+                                                    }
+                                                    realValue >= 100 -> {
+                                                        // Para valores medianos
+                                                        String.format("%.1f", realValue)
+                                                    }
+                                                    realValue >= 1 -> {
+                                                        // Para valores normales
+                                                        String.format("%.3f", realValue)
+                                                    }
+                                                    realValue >= 0.001 -> {
+                                                        // Para valores pequeños (típico de tokens)
+                                                        String.format("%.6f", realValue)
+                                                    }                                                    else -> {
+                                                        // Para valores muy pequeños
+                                                        String.format("%.8f", realValue)
+                                                    }
+                                                }
+                                            }
+                                        ),
+                                        bottomAxis = bottomAxis(
+                                            label = textComponent {
+                                                color = Color.White.toArgb()
+                                                textSizeSp = 10f
+                                            },                                            // Formatear el eje X para mostrar tiempo más intuitivo
+                                            valueFormatter = { value, _ ->
+                                                val index = value.toInt()
+                                                when {
+                                                    index % 12 == 0 -> "${index * 15 / 60}h" // Cada 3 horas
+                                                    index % 4 == 0 -> "${index * 15}m" // Cada hora
+                                                    else -> ""
+                                                }
+                                            }
+                                        ),
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    // Sin datos
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "No price data available",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }            }
             
             // Token Balance and Logo
             Card(
