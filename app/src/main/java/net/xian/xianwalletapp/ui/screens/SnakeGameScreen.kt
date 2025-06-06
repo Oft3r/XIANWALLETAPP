@@ -16,7 +16,13 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.imageResource
+import net.xian.xianwalletapp.R
 // NavController import removed
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -41,7 +47,10 @@ enum class Direction {
 }
 
 data class GameState(
-    val snake: List<Point> = listOf(Point(GRID_SIZE / 2, GRID_SIZE / 2)),
+    val snake: List<Point> = listOf(
+        Point(GRID_SIZE / 2, GRID_SIZE / 2),      // Head
+        Point(GRID_SIZE / 2 - 1, GRID_SIZE / 2)  // Body segment behind head
+    ),
     val food: Point = Point(Random.nextInt(GRID_SIZE), Random.nextInt(GRID_SIZE)),
     val direction: Direction = Direction.RIGHT,
     val score: Int = 0,
@@ -54,6 +63,9 @@ data class GameState(
 fun SnakeGameScreen(onBack: () -> Unit) { // Changed parameter
     var gameState by remember { mutableStateOf(GameState()) }
     var currentDirection by remember { mutableStateOf(Direction.RIGHT) } // Separate state for input
+    
+    // Load XIAN logo
+    val xianLogo = ImageBitmap.imageResource(R.drawable.xian_logo)
 
     // --- Game Loop ---
     LaunchedEffect(key1 = gameState.isGameOver) { // Relaunch if game restarts
@@ -129,11 +141,10 @@ fun SnakeGameScreen(onBack: () -> Unit) { // Changed parameter
                         )
                     }
             ) {
-                val cellSize = size.width / GRID_SIZE // Calculate cell size based on canvas width
-                // Draw background first
+                val cellSize = size.width / GRID_SIZE // Calculate cell size based on canvas width                // Draw background first
                 drawRect(color = ArcadeBackground, size = size) // Use arcade background
                 drawGrid(cellSize)
-                drawFood(gameState.food, cellSize)
+                drawFood(gameState.food, cellSize, xianLogo)
                 drawSnake(gameState.snake, cellSize)
             }
 
@@ -147,12 +158,11 @@ fun SnakeGameScreen(onBack: () -> Unit) { // Changed parameter
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text("Game Over!", style = MaterialTheme.typography.headlineLarge, color = Color.White)
+                    ) {                        Text("Game Over!", style = MaterialTheme.typography.headlineLarge, color = Color.White)
                         Text("Score: ${gameState.score}", style = MaterialTheme.typography.headlineMedium, color = Color.White)
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(onClick = {
-                            gameState = GameState() // Reset game
+                            gameState = GameState() // Reset game with initial 2-square snake
                             currentDirection = Direction.RIGHT // Reset direction
                         }) {
                             Text("Play Again")
@@ -401,10 +411,26 @@ private fun DrawScope.drawSnake(snake: List<Point>, cellSize: Float) {
     }
 }
 
-private fun DrawScope.drawFood(food: Point, cellSize: Float) {
+private fun DrawScope.drawFood(food: Point, cellSize: Float, xianLogo: ImageBitmap) {
+    // Draw red border around the food first
     drawRect(
-        color = ArcadeFoodColor, // Use arcade food color
+        color = Color.Red,
         topLeft = Offset(food.x * cellSize, food.y * cellSize),
-        size = Size(cellSize, cellSize)
+        size = Size(cellSize, cellSize),
+        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f)
+    )
+    
+    // Draw the XIAN logo as food inside the red border
+    val padding = 4f // Small padding to ensure logo doesn't overlap with border
+    drawImage(
+        image = xianLogo,
+        dstOffset = androidx.compose.ui.unit.IntOffset(
+            x = (food.x * cellSize + padding).toInt(),
+            y = (food.y * cellSize + padding).toInt()
+        ),
+        dstSize = androidx.compose.ui.unit.IntSize(
+            width = (cellSize - padding * 2).toInt(),
+            height = (cellSize - padding * 2).toInt()
+        )
     )
 }

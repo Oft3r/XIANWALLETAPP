@@ -93,10 +93,14 @@ class WalletViewModel(
             contract = "con_poop_coin",
             logoUrl = "https://emojiisland.com/cdn/shop/products/Poop_Emoji_7b204f05-eec6-4496-91b1-351acc03d2c7_large.png" 
         ),
-        PredefinedToken( // Add the new token here
-            name = "XTFU Token", // Assuming a display name
+        PredefinedToken(
+            name = "XTFU Token",
             contract = "con_xtfu",
-            logoUrl = "https://snakexchange.org/icons/con_xtfu.png" // No logo provided, will attempt to fetch later
+            logoUrl = "https://snakexchange.org/icons/con_xtfu.png"
+        ),        PredefinedToken(
+            name = "XIAN Arbitrage",
+            contract = "con_xarb",
+            logoUrl = null // Will use drawable resource instead for local image
         )
         // Add more predefined tokens here as needed
     )
@@ -133,15 +137,21 @@ class WalletViewModel(
 
     private val _poopPrice = MutableStateFlow<Float?>(null)
     val poopPrice: StateFlow<Float?> = _poopPrice.asStateFlow()
-    // --- End POOP Price State Flows ---
-
-    // --- XTFU Price State Flows ---
+    // --- End POOP Price State Flows ---    // --- XTFU Price State Flows ---
     private val _xtfuPriceInfo = MutableStateFlow<Pair<Float, Float>?>(null)
     val xtfuPriceInfo: StateFlow<Pair<Float, Float>?> = _xtfuPriceInfo.asStateFlow()
 
     private val _xtfuPrice = MutableStateFlow<Float?>(null)
     val xtfuPrice: StateFlow<Float?> = _xtfuPrice.asStateFlow()
     // --- End XTFU Price State Flows ---
+
+    // --- XARB Price State Flows ---
+    private val _xarbPriceInfo = MutableStateFlow<Pair<Float, Float>?>(null)
+    val xarbPriceInfo: StateFlow<Pair<Float, Float>?> = _xarbPriceInfo.asStateFlow()
+
+    private val _xarbPrice = MutableStateFlow<Float?>(null)
+    val xarbPrice: StateFlow<Float?> = _xarbPrice.asStateFlow()
+    // --- End XARB Price State Flows ---
 
     // --- NFT List Flow from Database --- //
     // Use flatMapLatest to switch the underlying Flow when the public key changes
@@ -897,8 +907,7 @@ class WalletViewModel(
                 _poopPrice.value = null // Ensure price is null on error
             }
             // --- End Fetch POOP Price Info ---
-            
-            // --- Fetch XTFU Price Info --- 
+              // --- Fetch XTFU Price Info --- 
             try {
                 val xtfuInfo = networkService.getXtfuPriceInfo()
                 _xtfuPriceInfo.value = xtfuInfo
@@ -912,6 +921,21 @@ class WalletViewModel(
                 _xtfuPrice.value = null // Ensure price is null on error
             }
             // --- End Fetch XTFU Price Info ---
+
+            // --- Fetch XARB Price Info --- 
+            try {
+                val xarbInfo = networkService.getXarbPriceInfo()
+                _xarbPriceInfo.value = xarbInfo
+                // Calculate XARB price (XIAN / XARB)
+                _xarbPrice.value = xarbInfo?.let { (reserve0_xarb, reserve1_xian) ->
+                    if (reserve0_xarb != 0f) reserve1_xian / reserve0_xarb else 0f // Note: XIAN / XARB
+                }
+                Log.d("WalletViewModel", "Fetched XARB Price: ${_xarbPrice.value} (Reserves: $xarbInfo)")
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error fetching XARB price info", e)
+                _xarbPrice.value = null // Ensure price is null on error
+            }
+            // --- End Fetch XARB Price Info ---
 
 
             // --- Fetch NFTs and XNS Names & Expirations --- //

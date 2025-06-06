@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.animation.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -81,38 +82,75 @@ fun TokenDetailScreen(
     val xianPrice by viewModel.xianPrice.collectAsStateWithLifecycle()
     val poopPrice by viewModel.poopPrice.collectAsStateWithLifecycle()
     val xtfuPrice by viewModel.xtfuPrice.collectAsStateWithLifecycle()
+    val xarbPrice by viewModel.xarbPrice.collectAsStateWithLifecycle()
     val isChartLoading by viewModel.isChartLoading.collectAsStateWithLifecycle()
     val chartError by viewModel.chartError.collectAsStateWithLifecycle()
     val chartNormalizationType by viewModel.chartNormalizationType.collectAsStateWithLifecycle()
     val chartYAxisRange by viewModel.chartYAxisRange.collectAsStateWithLifecycle()
     val chartYAxisOffset by viewModel.chartYAxisOffset.collectAsStateWithLifecycle()
-    
-    // Estado para controlar si la tarjeta de precio está expandida
+      // Estado para controlar si la tarjeta de precio está expandida
     var isPriceCardExpanded by remember { mutableStateOf(false) }
+    
+    // State for holders count
+    var holdersCount by remember { mutableStateOf<Int?>(null) }
+    var isLoadingHolders by remember { mutableStateOf(false) }
+    
+    // State for total supply
+    var totalSupply by remember { mutableStateOf<String?>(null) }
+    var isLoadingTotalSupply by remember { mutableStateOf(false) }
+    
+    val coroutineScope = rememberCoroutineScope()
     
     // Get token information
     val tokenInfo = tokenInfoMap[tokenContract]
     val balance = balanceMap[tokenContract] ?: 0f
     val tokenName = tokenInfo?.name ?: tokenContract
     val logoUrl = tokenInfo?.logoUrl
-    
-    // Calculate USD/XIAN value based on token type
+      // Calculate USD/XIAN value based on token type
     val tokenPrice = when (tokenContract) {
         "currency" -> xianPrice
         "con_poop_coin" -> poopPrice
         "con_xtfu" -> xtfuPrice
+        "con_xarb" -> xarbPrice
         else -> null
-    }    // Create formatters for different values
+    }// Create formatters for different values
     val usdFormatter = DecimalFormat("#,##0.0000") // For USD values (4 decimals)
     val priceFormatter = DecimalFormat("#,##0.000000") // For token prices in XIAN (6 decimals)
     val balanceFormatter = DecimalFormat("#,##0.####")
 
     // Obtener el ChartModelProducer del ViewModel
-    val chartModelProducer = viewModel.chartModelProducer
-
-    // Cargar datos históricos cuando el tokenContract cambie
+    val chartModelProducer = viewModel.chartModelProducer    // Cargar datos históricos cuando el tokenContract cambie
     LaunchedEffect(tokenContract) {
         viewModel.loadHistoricalData(tokenContract)
+    }
+      // Load holders count when tokenContract changes
+    LaunchedEffect(tokenContract) {
+        isLoadingHolders = true
+        coroutineScope.launch {
+            try {
+                holdersCount = networkService.getTokenHolders(tokenContract)
+            } catch (e: Exception) {
+                android.util.Log.e("TokenDetailScreen", "Error loading holders: ${e.message}")
+                holdersCount = null
+            } finally {
+                isLoadingHolders = false
+            }
+        }
+    }
+    
+    // Load total supply when tokenContract changes
+    LaunchedEffect(tokenContract) {
+        isLoadingTotalSupply = true
+        coroutineScope.launch {
+            try {
+                totalSupply = networkService.getTokenTotalSupply(tokenContract)
+            } catch (e: Exception) {
+                android.util.Log.e("TokenDetailScreen", "Error loading total supply: ${e.message}")
+                totalSupply = null
+            } finally {
+                isLoadingTotalSupply = false
+            }
+        }
     }
     
     Scaffold(
@@ -425,10 +463,12 @@ fun TokenDetailScreen(
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
                             contentScale = androidx.compose.ui.layout.ContentScale.Inside
-                        )
-                    } else {
+                        )                    } else {
                         AsyncImage(
-                            model = logoUrl,
+                            model = when {
+                                tokenContract == "con_xarb" -> "file:///android_asset/xarb.jpg"
+                                else -> logoUrl
+                            },
                             contentDescription = "$tokenName Logo",
                             modifier = Modifier
                                 .size(80.dp)
@@ -586,8 +626,7 @@ fun TokenDetailScreen(
                     }
                     
                     Spacer(modifier = Modifier.height(8.dp))
-                    
-                    // Symbol
+                      // Symbol
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -601,7 +640,62 @@ fun TokenDetailScreen(
                             text = tokenSymbol,
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium
+                        )                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // Holders
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Holders:",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        
+                        if (isLoadingHolders) {
+                            Text(
+                                text = "Loading...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        } else {
+                            Text(
+                                text = holdersCount?.let { "$it" } ?: "N/A",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // Total Supply
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Total Supply:",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        
+                        if (isLoadingTotalSupply) {
+                            Text(
+                                text = "Loading...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        } else {
+                            Text(
+                                text = totalSupply ?: "N/A",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }

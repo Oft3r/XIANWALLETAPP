@@ -14,8 +14,8 @@ android {
         applicationId = "net.xian.xianwalletapp"
         minSdk = 26
         targetSdk = 35
-        versionCode = 17 // Cambia este valor al nuevo código de versión
-        versionName = "1.5.2" // Cambia este valor a la nueva versión
+        versionCode = 19 // Cambia este valor al nuevo código de versión
+        versionName = "1.5.4" // Cambia este valor a la nueva versión
 
         // Aquí configuras el nombre del APK
         setProperty("archivesBaseName", "Xian Wallet-$versionName")
@@ -99,11 +99,17 @@ dependencies {
 
 
     // JSON parsing
-    implementation("com.google.code.gson:gson:2.10.1")
-    // QR Code Generation (ZXing)
+    implementation("com.google.code.gson:gson:2.10.1")    // QR Code Generation (ZXing)
     implementation("com.google.zxing:core:3.5.3")
-    // QR Code Scanning (ZXing Embedded)
+    // QR Code Scanning (ZXing Embedded) - Keep for fallback
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    // CameraX for integrated QR scanning
+    implementation("androidx.camera:camera-core:1.3.1")
+    implementation("androidx.camera:camera-camera2:1.3.1")
+    implementation("androidx.camera:camera-lifecycle:1.3.1")
+    implementation("androidx.camera:camera-view:1.3.1")
+    // ML Kit for barcode scanning
+    implementation("com.google.mlkit:barcode-scanning:17.2.0")
     implementation("io.coil-kt:coil-compose:2.5.0")
     // HTML Parsing
     implementation("org.jsoup:jsoup:1.17.2")

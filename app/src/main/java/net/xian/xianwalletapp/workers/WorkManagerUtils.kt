@@ -16,3 +16,14 @@ fun scheduleTransactionMonitor(context: Context) {
         workRequest
     )
 }
+
+fun restartTransactionMonitor(context: Context) {
+    val workRequest = PeriodicWorkRequestBuilder<TransactionMonitorWorker>(15, TimeUnit.MINUTES)
+        .build()
+
+    WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+        "TransactionMonitor",
+        ExistingPeriodicWorkPolicy.REPLACE, // Replace existing work to restart
+        workRequest
+    )
+}

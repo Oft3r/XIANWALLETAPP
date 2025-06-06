@@ -446,12 +446,108 @@ class XianNetworkService private constructor(private val context: Context) {
                 contract = contract,
                 logoUrl = logoUrl // Pass the fetched logo URL
                 // decimals = fetchedDecimals ?: 8 // Use fetched decimals or default
-            )
-
-        } catch (e: Exception) {
+            )        } catch (e: Exception) {
             android.util.Log.e("XianNetworkService", "Error in getTokenInfo for $contract: ${e.message}", e)
             // Fallback to contract address if any other error occurs
             return@withContext TokenInfo(name = contract, symbol = contract.take(3).uppercase(), contract = contract)
+        }
+    }
+
+    /**
+     * Get the number of holders for a token from the holders API
+     * @param contractName The token contract name
+     * @return The number of holders, or null if failed
+     */    suspend fun getTokenHolders(contractName: String): Int? = withContext(Dispatchers.IO) {
+        try {
+            android.util.Log.d("XianNetworkService", "Fetching holders for contract: $contractName")
+            
+            // Create a separate OkHttpClient for the holders API
+            val holdersClient = OkHttpClient.Builder()
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            
+            val url = "https://xian-api.poc.workers.dev/tokens/$contractName/holders?offset=0&limit=0"
+            val request = Request.Builder()
+                .url(url)
+                .build()
+            
+            val response = holdersClient.newCall(request).execute()
+            val responseBody = response.body?.string()
+            
+            android.util.Log.d("XianNetworkService", "Holders API response code: ${response.code}")
+            android.util.Log.d("XianNetworkService", "Holders API response: $responseBody")
+            
+            if (response.isSuccessful && responseBody != null) {
+                val json = JSONObject(responseBody)
+                val pagination = json.optJSONObject("pagination")
+                val total = pagination?.optInt("total")
+                
+                android.util.Log.d("XianNetworkService", "Found $total holders for $contractName")
+                return@withContext total
+            } else {
+                android.util.Log.w("XianNetworkService", "Failed to fetch holders for $contractName: ${response.code}")
+                return@withContext null
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("XianNetworkService", "Error fetching holders for $contractName: ${e.message}", e)
+            return@withContext null
+        }
+    }
+
+    /**
+     * Get the total supply of a token from the Xian API
+     * @param contractName The contract name of the token
+     * @return The total supply as a String, or null if failed
+     */    suspend fun getTokenTotalSupply(contractName: String): String? = withContext(Dispatchers.IO) {
+        try {
+            android.util.Log.d("XianNetworkService", "Fetching total supply for contract: $contractName")
+              // Return predefined values for specific tokens
+            when (contractName) {
+                "currency" -> {
+                    android.util.Log.d("XianNetworkService", "Using manual total supply for currency: 111111111")
+                    return@withContext "111111111"
+                }
+                "con_xtfu" -> {
+                    android.util.Log.d("XianNetworkService", "Using manual total supply for XTFU: 1000000000")
+                    return@withContext "1000000000"
+                }
+                "con_poop_coin" -> {
+                    android.util.Log.d("XianNetworkService", "Using manual total supply for POOP: 1000000")
+                    return@withContext "1000000"
+                }
+            }
+            
+            // Create a separate OkHttpClient for the total supply API
+            val supplyClient = OkHttpClient.Builder()
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            
+            val url = "https://xian-api.poc.workers.dev/tokens/$contractName"
+            val request = Request.Builder()
+                .url(url)
+                .build()
+            
+            val response = supplyClient.newCall(request).execute()
+            val responseBody = response.body?.string()
+            
+            android.util.Log.d("XianNetworkService", "Total supply API response code: ${response.code}")
+            android.util.Log.d("XianNetworkService", "Total supply API response: $responseBody")
+            
+            if (response.isSuccessful && responseBody != null) {
+                val json = JSONObject(responseBody)
+                val totalSupply = json.optString("total_supply")
+                
+                android.util.Log.d("XianNetworkService", "Found total supply: $totalSupply for $contractName")
+                return@withContext if (totalSupply.isNotEmpty()) totalSupply else null
+            } else {
+                android.util.Log.w("XianNetworkService", "Failed to fetch total supply for $contractName: ${response.code}")
+                return@withContext null
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("XianNetworkService", "Error fetching total supply for $contractName: ${e.message}", e)
+            return@withContext null
         }
     }
 
@@ -2149,9 +2245,7 @@ class XianNetworkService private constructor(private val context: Context) {
             android.util.Log.e("XianNetworkService", "Error fetching/parsing XNS expiration times: ${e.message}", e)
             return@withContext emptyMap()
         }
-    }
-
-    /**
+    }    /**
      * Fetches the reserve balances for the XTFU/XIAN pair (con_xtfu / currency).
      * @return Pair<Float, Float>? representing (reserve0 (XTFU), reserve1 (XIAN)), or null if fetching fails.
      */
@@ -2182,6 +2276,43 @@ class XianNetworkService private constructor(private val context: Context) {
                 reserves // Order is already (XTFU, XIAN)
             } else {
                 Pair(reserves.second, reserves.first) // Swap to (XTFU, XIAN)
+            }
+        } else {
+            null
+        }
+    }
+
+    /**
+     * Fetches the reserve balances for the XARB/XIAN pair (con_xarb / currency).
+     * @return Pair<Float, Float>? representing (reserve0 (XARB), reserve1 (XIAN)), or null if fetching fails.
+     */
+    suspend fun getXarbPriceInfo(): Pair<Float, Float>? = withContext(Dispatchers.IO) {
+        val allPairs = getAllPairs() // Consider caching this result if called frequently
+        if (allPairs.isEmpty()) {
+            android.util.Log.w("XianNetworkService", "No pairs found, cannot get XARB price info.")
+            return@withContext null
+        }
+
+        // Find the XARB/XIAN pair (con_xarb / currency)
+        val xarbXianPair = allPairs.find {
+            (it.token0 == "con_xarb" && it.token1 == "currency") ||
+            (it.token1 == "con_xarb" && it.token0 == "currency")
+        }
+
+        if (xarbXianPair == null) {
+            android.util.Log.w("XianNetworkService", "XARB/XIAN pair not found in the list of pairs.")
+            return@withContext null
+        }
+
+        android.util.Log.d("XianNetworkService", "Found XARB/XIAN pair with ID: ${xarbXianPair.id}")
+        val reserves = getReservesForPair(xarbXianPair.id)
+
+        // Ensure the returned reserves match the expected order (XARB, XIAN)
+        return@withContext if (reserves != null) {
+            if (xarbXianPair.token0 == "con_xarb") {
+                reserves // Order is already (XARB, XIAN)
+            } else {
+                Pair(reserves.second, reserves.first) // Swap to (XARB, XIAN)
             }
         } else {
             null

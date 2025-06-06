@@ -117,6 +117,8 @@ import android.net.Uri
 import net.xian.xianwalletapp.network.XianNetworkService
 import net.xian.xianwalletapp.network.NftInfo
 import net.xian.xianwalletapp.wallet.WalletManager
+import net.xian.xianwalletapp.workers.scheduleTransactionMonitor // Add WorkManager import
+import net.xian.xianwalletapp.workers.restartTransactionMonitor // Add restart function import
 import kotlinx.coroutines.launch
 import androidx.compose.material.ExperimentalMaterialApi
 import net.xian.xianwalletapp.data.db.NftCacheEntity
@@ -182,6 +184,7 @@ fun WalletScreen(
     val xianPrice by viewModel.xianPrice.collectAsStateWithLifecycle()
     val poopPrice by viewModel.poopPrice.collectAsStateWithLifecycle() // Collect POOP price state
     val xtfuPrice by viewModel.xtfuPrice.collectAsStateWithLifecycle() // Collect XTFU price state
+    val xarbPrice by viewModel.xarbPrice.collectAsStateWithLifecycle() // Collect XARB price state
     val activeWalletName by viewModel.activeWalletName.collectAsStateWithLifecycle()
     
     // Special handling for XIAN price - only load once at startup, not during refresh
@@ -375,10 +378,13 @@ fun WalletScreen(
                     navigationViewModel = navigationViewModel
                 )
             }
-        }) { paddingValues ->
-        SwipeRefresh(
+        }) { paddingValues ->        SwipeRefresh(
             state = rememberSwipeRefreshState(isLoading),
-            onRefresh = { viewModel.refreshData() },
+            onRefresh = { 
+                viewModel.refreshData()
+                // Restart transaction monitoring on refresh
+                restartTransactionMonitor(context)
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(top = paddingValues.calculateTopPadding())
@@ -440,22 +446,24 @@ fun WalletScreen(
                             // 2. POOP: amount × price in XIAN × XIAN price
                             // 3. XTFU: amount × price in XIAN × XIAN price
                             // 4. USDC: direct USD value
-                            
-                            // Store delegated properties in local variables to avoid smart cast issues
+                              // Store delegated properties in local variables to avoid smart cast issues
                             val currentXianPrice = staticXianPrice ?: 0f
                             val currentPoopPrice = poopPrice
                             val currentXtfuPrice = xtfuPrice
-                            
-                            val xianUsdValue = balanceMap["currency"]?.let { it * currentXianPrice } ?: 0f
+                            val currentXarbPrice = xarbPrice
+                              val xianUsdValue = balanceMap["currency"]?.let { it * currentXianPrice } ?: 0f
                             val poopUsdValue = if (currentPoopPrice != null && balanceMap["con_poop_coin"] != null) {
                                 balanceMap["con_poop_coin"]!! * currentPoopPrice * currentXianPrice
                             } else 0f
                             val xtfuUsdValue = if (currentXtfuPrice != null && balanceMap["con_xtfu"] != null) {
                                 balanceMap["con_xtfu"]!! * currentXtfuPrice * currentXianPrice
                             } else 0f
+                            val xarbUsdValue = if (currentXarbPrice != null && balanceMap["con_xarb"] != null) {
+                                balanceMap["con_xarb"]!! * currentXarbPrice * currentXianPrice
+                            } else 0f
                             val usdcValue = balanceMap["con_usdc"] ?: 0f // Direct USD value
                             
-                            val totalBalance = xianUsdValue + poopUsdValue + xtfuUsdValue + usdcValue
+                            val totalBalance = xianUsdValue + poopUsdValue + xtfuUsdValue + xarbUsdValue + usdcValue
                             // var isBalanceVisible by remember { mutableStateOf(true) } // Replaced by ViewModel state
                             val isBalanceVisible by viewModel.isBalanceVisible.collectAsStateWithLifecycle()
 
@@ -700,6 +708,7 @@ fun WalletScreen(
                                             xianPrice = if (contract == "currency") xianPrice else null,
                                             poopPrice = if (contract == "con_poop_coin") poopPrice else null, // Pasar el precio de POOP
                                             xtfuPrice = if (contract == "con_xtfu") xtfuPrice else null, // Pasar el precio de XTFU
+                                            xarbPrice = if (contract == "con_xarb") xarbPrice else null, // Pasar el precio de XARB
                                             onSendClick = {
                                                 navController.navigate(
                                                     "${XianDestinations.SEND_TOKEN}?${XianNavArgs.TOKEN_CONTRACT}=$contract&${XianNavArgs.TOKEN_SYMBOL}=${tokenInfo?.symbol ?: ""}"
@@ -1031,16 +1040,20 @@ fun WalletScreen(
                             // No offset needed if anchored correctly by Box
                         ) {
                             predefinedTokens.forEach { token ->
-                                DropdownMenuItem(
-                                    text = {
+                                DropdownMenuItem(                                    text = {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             AsyncImage(
-                                                model = token.logoUrl,
+                                                model = when {
+                                                    token.contract == "con_xarb" -> "file:///android_asset/xarb.jpg"
+                                                    else -> token.logoUrl
+                                                },
                                                 contentDescription = "${token.name} logo",
                                                 modifier = Modifier
                                                     .size(24.dp)
                                                     .clip(CircleShape) // Make logo circular
-                                                    .background(Color.LightGray) // Placeholder background
+                                                    .background(Color.LightGray), // Placeholder background
+                                                placeholder = painterResource(id = R.drawable.ic_launcher_foreground),
+                                                error = painterResource(id = R.drawable.ic_launcher_foreground)
                                             )
                                             Spacer(modifier = Modifier.width(8.dp))
                                             Column {
@@ -1104,11 +1117,13 @@ fun TokenItem(
     xianPrice: Float? = null, // Para token XIAN - precio en USD
     poopPrice: Float? = null, // Añadir precio de POOP en XIAN
     xtfuPrice: Float? = null, // Añadir precio de XTFU en XIAN
+    xarbPrice: Float? = null, // Añadir precio de XARB en XIAN
     onSendClick: () -> Unit,
     onReceiveClick: () -> Unit,
     onRemoveClick: (() -> Unit)? = null, // Hacer opcional para el modo edición
     onCardClick: () -> Unit = {} // Add card click handler
-) {// Use different UI for XIAN currency (contract == "currency")
+) {
+    // Use different UI for XIAN currency (contract == "currency")
     if (contract == "currency") {
         // Use SwipeableXianCard for XIAN token only
         SwipeableXianCard(
@@ -1133,6 +1148,7 @@ fun TokenItem(
             xianPrice = when (contract) {
                 "con_poop_coin" -> poopPrice
                 "con_xtfu" -> xtfuPrice
+                "con_xarb" -> xarbPrice
                 else -> null
             }, // Mostrar precio en XIAN cuando corresponda
             onSendClick = onSendClick,
@@ -1288,10 +1304,12 @@ fun SwipeableTokenCard(
                         // REMOVED: Add horizontal swipe handling ONLY to the token info row
                         ,
                     verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Token icon using AsyncImage
+                ) {                    // Token icon using AsyncImage
                     AsyncImage(
-                        model = logoUrl,
+                        model = when {
+                            contract == "con_xarb" -> "file:///android_asset/xarb.jpg"
+                            else -> logoUrl
+                        },
                         contentDescription = "$name Logo",
                         modifier = Modifier
                             .size(40.dp)

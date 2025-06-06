@@ -58,6 +58,7 @@ import net.xian.xianwalletapp.data.LocalTransactionRecord // Added
 import net.xian.xianwalletapp.data.TransactionHistoryManager // Added
 import net.xian.xianwalletapp.ui.theme.XianButtonType
 import net.xian.xianwalletapp.ui.theme.xianButtonColors
+import net.xian.xianwalletapp.ui.components.QRScannerView // Added for integrated QR scanner
 
 /**
  * Screen for sending tokens to another address
@@ -92,19 +93,18 @@ fun SendTokenScreen(
     val context = LocalContext.current // Get context for permission check and history manager
     val transactionHistoryManager = remember { TransactionHistoryManager(context) } // Pass context variable
     var showConfirmationDialog by remember { mutableStateOf(false) }
-    var confirmationDetails by remember { mutableStateOf<Triple<String, String, String>?>(null) } // recipient, amount, fee
-
-    // Collect state from ViewModel
+    var confirmationDetails by remember { mutableStateOf<Triple<String, String, String>?>(null) } // recipient, amount, fee    // Collect state from ViewModel
     val resolvedXnsAddress by viewModel.resolvedXnsAddress.collectAsStateWithLifecycle()
     val isXnsAddress by viewModel.isXnsAddress.collectAsStateWithLifecycle()
     val isResolvingXns by viewModel.isResolvingXns.collectAsStateWithLifecycle()
     val estimatedFeeState by viewModel.estimatedFeeState.collectAsStateWithLifecycle() // Observe fee state
     var isEstimatingFee by remember { mutableStateOf(false) } // Local loading state for button
     var isPasswordDialogForTx by remember { mutableStateOf(false) } // Track if password dialog is for this specific TX flow
+    var showQRScanner by remember { mutableStateOf(false) } // State to show integrated QR scanner
 
     // context variable moved up
 
-    // Launcher for QR Scanner Activity
+    // Legacy QR Scanner Activity (kept as fallback)
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         if (result.contents != null) {
             recipientAddress = result.contents // Update address state with scanned content
@@ -119,37 +119,22 @@ fun SendTokenScreen(
 
     // Launcher for Camera Permission Request
     val requestPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted: Boolean ->
+        ActivityResultContracts.RequestPermission()    ) { isGranted: Boolean ->
         if (isGranted) {
-            // Permission granted, launch scanner
-            val options = ScanOptions().apply {
-                setPrompt("Scan a Wallet Address QR code")
-                setBeepEnabled(true)
-                setOrientationLocked(false)
-                captureActivity = com.journeyapps.barcodescanner.CaptureActivity::class.java // Explicitly set CaptureActivity
-            }
-            scanLauncher.launch(options)
+            // Permission granted, show integrated scanner
+            showQRScanner = true
         } else {
             // Permission denied
             coroutineScope.launch {
                 snackbarHostState.showSnackbar("Camera permission is required to scan QR codes.")
             }
         }
-    }
-
-    // Function to check permission and launch scanner
+    }    // Function to check permission and launch integrated scanner
     fun launchScannerWithPermissionCheck() {
         when (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)) {
             PackageManager.PERMISSION_GRANTED -> {
-                // Permission already granted, launch scanner
-                val options = ScanOptions().apply {
-                    setPrompt("Scan a Wallet Address QR code")
-                    setBeepEnabled(true)
-                    setOrientationLocked(false)
-                    captureActivity = com.journeyapps.barcodescanner.CaptureActivity::class.java // Explicitly set CaptureActivity
-                }
-                scanLauncher.launch(options)
+                // Permission already granted, show integrated scanner
+                showQRScanner = true
             }
             else -> {
                 // Request permission
@@ -723,6 +708,25 @@ fun SendTokenScreen(
                         Text("Cancel")
                     }
                 }
+            )
+        }
+        
+        // Integrated QR Scanner
+        if (showQRScanner) {
+            QRScannerView(
+                onQRCodeScanned = { qrCode ->
+                    recipientAddress = qrCode
+                    errorMessage = null
+                    showQRScanner = false
+                    // If input is cleared manually, clear XNS state immediately
+                    if (qrCode.isBlank()) {
+                        viewModel.clearXnsResolution()
+                    }
+                },
+                onDismiss = {
+                    showQRScanner = false
+                },
+                modifier = Modifier.padding(top = 16.dp)
             )
         }
         
