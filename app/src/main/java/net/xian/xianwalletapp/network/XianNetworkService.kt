@@ -2454,6 +2454,61 @@ class XianNetworkService private constructor(private val context: Context) {
             return@withContext emptyList()
         }
     }
+
+    /**
+     * Get the 24-hour price change percentage for a token pair
+     * @param pairId The pair identifier
+     * @param token The denomination: 0 = token0-per-token1 (default), 1 = token1-per-token0
+     * @return The price change percentage as a Float, or null if failed
+     */    suspend fun getPriceChange24h(pairId: String, token: Int = 0): Float? = withContext(Dispatchers.IO) {
+        try {
+            android.util.Log.d("XianNetworkService", "Fetching 24h price change for pair: $pairId, token: $token")
+            
+            // Create a separate OkHttpClient for the price change API
+            val priceChangeClient = OkHttpClient.Builder()
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            
+            val url = "https://xian-api.poc.workers.dev/pairs/$pairId/pricechange24h?token=$token"
+            val request = Request.Builder()
+                .url(url)
+                .build()
+            
+            val response = priceChangeClient.newCall(request).execute()
+            val responseBody = response.body?.string()
+            
+            android.util.Log.d("XianNetworkService", "Price change API response code: ${response.code}")
+            android.util.Log.d("XianNetworkService", "Price change API response: $responseBody")
+              if (response.isSuccessful && responseBody != null) {
+                val json = JSONObject(responseBody)
+                
+                // Log available keys for debugging
+                val keys = json.keys()
+                android.util.Log.d("XianNetworkService", "Available JSON keys: ${keys.asSequence().toList()}")
+                
+                // Get the changePct field
+                val priceChangeValue = json.optDouble("changePct", Double.NaN)
+                
+                android.util.Log.d("XianNetworkService", "Extracted changePct value: $priceChangeValue")
+                
+                // Check if the value is valid
+                if (priceChangeValue.isNaN() || priceChangeValue.isInfinite()) {
+                    android.util.Log.w("XianNetworkService", "Invalid changePct value: $priceChangeValue")
+                    return@withContext null
+                }
+                
+                android.util.Log.d("XianNetworkService", "Found valid 24h price change: $priceChangeValue% for pair $pairId")
+                return@withContext priceChangeValue.toFloat()
+            } else {
+                android.util.Log.w("XianNetworkService", "Failed to fetch 24h price change for pair $pairId: ${response.code}")
+                return@withContext null
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("XianNetworkService", "Error fetching 24h price change for pair $pairId: ${e.message}", e)
+            return@withContext null
+        }
+    }
 }
 
 /**

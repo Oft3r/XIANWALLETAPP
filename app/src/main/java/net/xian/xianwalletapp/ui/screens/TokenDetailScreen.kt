@@ -94,10 +94,13 @@ fun TokenDetailScreen(
     // State for holders count
     var holdersCount by remember { mutableStateOf<Int?>(null) }
     var isLoadingHolders by remember { mutableStateOf(false) }
-    
-    // State for total supply
+      // State for total supply
     var totalSupply by remember { mutableStateOf<String?>(null) }
     var isLoadingTotalSupply by remember { mutableStateOf(false) }
+    
+    // State for 24h price change
+    var priceChange24h by remember { mutableStateOf<Float?>(null) }
+    var isLoadingPriceChange by remember { mutableStateOf(false) }
     
     val coroutineScope = rememberCoroutineScope()
     
@@ -113,10 +116,11 @@ fun TokenDetailScreen(
         "con_xtfu" -> xtfuPrice
         "con_xarb" -> xarbPrice
         else -> null
-    }// Create formatters for different values
+    }    // Create formatters for different values
     val usdFormatter = DecimalFormat("#,##0.0000") // For USD values (4 decimals)
     val priceFormatter = DecimalFormat("#,##0.000000") // For token prices in XIAN (6 decimals)
     val balanceFormatter = DecimalFormat("#,##0.####")
+    val percentageFormatter = DecimalFormat("#,##0.00") // For percentage values (2 decimals)
 
     // Obtener el ChartModelProducer del ViewModel
     val chartModelProducer = viewModel.chartModelProducer    // Cargar datos históricos cuando el tokenContract cambie
@@ -137,8 +141,7 @@ fun TokenDetailScreen(
             }
         }
     }
-    
-    // Load total supply when tokenContract changes
+      // Load total supply when tokenContract changes
     LaunchedEffect(tokenContract) {
         isLoadingTotalSupply = true
         coroutineScope.launch {
@@ -149,6 +152,43 @@ fun TokenDetailScreen(
                 totalSupply = null
             } finally {
                 isLoadingTotalSupply = false
+            }
+        }
+    }
+    
+    // Load 24h price change when tokenContract changes
+    LaunchedEffect(tokenContract) {
+        isLoadingPriceChange = true
+        coroutineScope.launch {
+            try {
+                // First, find the trading pair for this token
+                val allPairs = networkService.getAllPairs()
+                val tokenPair = allPairs.find { pair ->
+                    pair.token0 == tokenContract || pair.token1 == tokenContract
+                }
+                
+                if (tokenPair != null) {
+                    // Determine which token denomination to use:
+                    // 0 = token0-per-token1 (default), 1 = token1-per-token0
+                    val tokenDenomination = when {
+                        tokenPair.token0 == tokenContract && tokenPair.token1 == "currency" -> 1 // We want XIAN per token
+                        tokenPair.token1 == tokenContract && tokenPair.token0 == "currency" -> 0 // We want XIAN per token
+                        tokenPair.token0 == tokenContract -> 1 // token1 per token0
+                        tokenPair.token1 == tokenContract -> 0 // token0 per token1
+                        else -> 0 // default
+                    }
+                    
+                    val result = networkService.getPriceChange24h(tokenPair.id, tokenDenomination)
+                    priceChange24h = if (result != null && result.isFinite()) result else null
+                } else {
+                    android.util.Log.w("TokenDetailScreen", "No trading pair found for token $tokenContract")
+                    priceChange24h = null
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("TokenDetailScreen", "Error loading 24h price change: ${e.message}")
+                priceChange24h = null
+            } finally {
+                isLoadingPriceChange = false
             }
         }
     }
@@ -219,8 +259,7 @@ fun TokenDetailScreen(
                             )
                             
                             Spacer(modifier = Modifier.height(8.dp))
-                            
-                            if (tokenPrice != null) {
+                              if (tokenPrice != null) {
                                 Text(
                                     text = if (tokenContract == "currency") {
                                         "$${usdFormatter.format(tokenPrice)} USD"
@@ -231,6 +270,41 @@ fun TokenDetailScreen(
                                     color = MaterialTheme.colorScheme.onSurface,
                                     fontWeight = FontWeight.Bold
                                 )
+                                
+                                // Show 24h price change
+                                if (isLoadingPriceChange) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = "Loading 24h change...",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                        )
+                                    }                                } else if (priceChange24h != null && priceChange24h!!.isFinite()) {
+                                    val isPositive = priceChange24h!! >= 0
+                                    val changeColor = if (isPositive) Color(0xFF4CAF50) else Color(0xFFF44336)
+                                    val changeText = if (isPositive) "+${percentageFormatter.format(priceChange24h)}%" else "${percentageFormatter.format(priceChange24h)}%"
+                                    
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = changeText,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = changeColor,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "(24h)",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                        )
+                                    }
+                                }
                             } else {
                                 Text(
                                     text = "Price not available",
