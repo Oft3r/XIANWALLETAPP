@@ -114,13 +114,19 @@ fun XianNavGraph(
         ) { backStackEntry ->
             val tokenContract = backStackEntry.arguments?.getString(XianNavArgs.TOKEN_CONTRACT) ?: "currency"
             val tokenSymbol = backStackEntry.arguments?.getString(XianNavArgs.TOKEN_SYMBOL) ?: "XIAN"
+            // TODO: This navigation file appears to be unused. The actual navigation is in MainActivity.kt
+            // If this needs to be implemented, it should create a shared ViewModel like in MainActivity
+            // For now, commenting out to fix compilation error
+            /*
             TokenDetailScreen(
                 navController = navController,
                 walletManager = walletManager,
                 networkService = networkService,
                 tokenContract = tokenContract,
-                tokenSymbol = tokenSymbol
+                tokenSymbol = tokenSymbol,
+                viewModel = // Need to create shared ViewModel here
             )
+            */
         }
 
         // Web Browser screen

@@ -22,3 +22,22 @@
 
 # Keep SLF4J binder class needed by dependencies like bitcoinj
 -keep class org.slf4j.impl.StaticLoggerBinder { *; }
+
+# Suppress hidden API warnings
+-dontwarn dalvik.system.VMStack
+-keep class dalvik.system.VMStack { *; }
+
+# Suppress Google Play Services warnings
+-dontwarn com.google.android.gms.**
+-keep class com.google.android.gms.** { *; }
+
+# Keep classes that might be accessed via reflection
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+
+# Keep WebView related classes
+-keepclassmembers class * extends android.webkit.WebViewClient {
+    public void *(android.webkit.WebView, java.lang.String, android.graphics.Bitmap);
+    public boolean *(android.webkit.WebView, java.lang.String);
+}

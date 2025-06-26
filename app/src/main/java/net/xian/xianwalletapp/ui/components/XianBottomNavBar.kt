@@ -161,40 +161,37 @@ private fun CustomNavItem(
     onClick: () -> Unit
 ) {
     val animatedScale by animateFloatAsState(
-        targetValue = if (selected) 1.08f else 1.0f, // Reduced scale factor
+        targetValue = if (selected) 1.15f else 1.0f, // Slightly increased scale for better visual feedback
         label = "scale"
     )
     
-    // Ensure visibility by making the label more prominent when selected
-    val textStyle = MaterialTheme.typography.labelMedium.copy(
-        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-    )
-      // Define colors from the theme for gradient
+    // Define colors from the theme for gradient
     val primaryColor = XianPrimary
     val secondaryColor = XianPrimaryVariant
     
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(10.dp))
+            .clip(CircleShape)
             .clickable(onClick = onClick)
-            .padding(vertical = 4.dp, horizontal = 8.dp) // Reduced padding
+            .padding(8.dp) // Consistent padding around the icon
             .scale(animatedScale)
-            .animateContentSize()
-    ) {        Box(
+            .animateContentSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
             modifier = Modifier
-                .size(40.dp) // Reduced size from 48dp to 40dp
+                .size(48.dp) // Increased size for better touch target
                 .clip(CircleShape)
                 .then(
-                    if (selected)                        Modifier.background(
+                    if (selected)
+                        Modifier.background(
                             brush = Brush.linearGradient(
                                 colors = listOf(primaryColor, secondaryColor),
                                 start = Offset(0f, 0f),
                                 end = Offset(100f, 100f)
                             )
                         )
-                    else 
+                    else
                         Modifier.background(Color.Transparent)
                 )
                 .border(
@@ -203,24 +200,15 @@ private fun CustomNavItem(
                     shape = CircleShape
                 )
                 // Add shadow when selected for more emphasis
-                .then(if (selected) Modifier.shadow(2.dp, CircleShape) else Modifier),
+                .then(if (selected) Modifier.shadow(4.dp, CircleShape) else Modifier),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = label,
                 tint = if (selected) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                modifier = Modifier.size(20.dp) // Reduced icon size from 24dp to 20dp
+                modifier = Modifier.size(24.dp) // Standard icon size
             )
         }
-        
-        Spacer(modifier = Modifier.height(2.dp)) // Reduced spacing
-        
-        Text(
-            text = label,
-            fontSize = 11.sp, // Reduced font size from 12sp to 11sp
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            color = if (selected) XianPrimary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-        )
     }
 }

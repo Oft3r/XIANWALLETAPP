@@ -3,14 +3,24 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:padding="24dp"
+    android:layout_margin="16dp"
+    android:background="@drawable/dialog_rounded_background">
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Transaction Details"
+        android:text="Transaction Request"
         android:textStyle="bold"
-        android:textSize="18sp"
+        android:textSize="20sp"
+        android:textColor="@color/text_primary"
+        android:gravity="center"
+        android:layout_marginBottom="8dp" />
+    
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/secondary_variant"
         android:layout_marginBottom="16dp" />
 
     <!-- Error message section (initially invisible) -->
@@ -99,5 +109,34 @@
         android:inputType="textPassword"
         android:hint="Password"
         android:layout_marginTop="8dp" />
+
+    <!-- Button container -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="24dp">
+
+        <Button
+            android:id="@+id/btn_reject"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Reject"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/button_reject_selector"
+            android:textColor="@color/text_primary" />
+
+        <Button
+            android:id="@+id/btn_approve"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Approve"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/button_approve_selector"
+            android:textColor="@color/background" />
+
+    </LinearLayout>
 
 </LinearLayout>

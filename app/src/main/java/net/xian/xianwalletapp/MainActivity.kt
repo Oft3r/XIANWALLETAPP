@@ -33,8 +33,11 @@ import net.xian.xianwalletapp.wallet.WalletManager
 import net.xian.xianwalletapp.data.FaviconCacheManager // Import FaviconCacheManager
 import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModel // Import NavigationViewModel
 import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModelFactory // Import NavigationViewModelFactory
+import net.xian.xianwalletapp.ui.viewmodels.WalletViewModel // Import WalletViewModel
+import net.xian.xianwalletapp.ui.viewmodels.WalletViewModelFactory // Import WalletViewModelFactory
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
 
 class MainActivity : AppCompatActivity() { // Changed inheritance
@@ -103,6 +106,13 @@ fun XianWalletApp(
     var isLoading by remember { mutableStateOf(true) }
     var requirePasswordVerification by remember { mutableStateOf(false) }
     var passwordVerified by remember { mutableStateOf(false) }
+    
+    val context = LocalContext.current
+    
+    // Create a shared WalletViewModel scoped to the NavHost
+    val walletViewModel: WalletViewModel = viewModel(
+        factory = WalletViewModelFactory(context, walletManager, networkService)
+    )
     // Determine start destination based on whether a wallet exists and if password is required
     LaunchedEffect(Unit) {
         delay(1000) // Brief delay for splash screen effect
@@ -167,7 +177,7 @@ fun XianWalletApp(
         }
         
         composable(XianDestinations.WALLET) {
-            WalletScreen(navController, walletManager, networkService)
+            WalletScreen(navController, walletManager, networkService, walletViewModel)
         }
         
         composable(
@@ -204,7 +214,8 @@ fun XianWalletApp(
                 walletManager = walletManager,
                 networkService = networkService,
                 tokenContract = tokenContract,
-                tokenSymbol = tokenSymbol
+                tokenSymbol = tokenSymbol,
+                viewModel = walletViewModel
             )
         }
         

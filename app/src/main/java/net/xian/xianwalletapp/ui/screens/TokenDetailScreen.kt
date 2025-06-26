@@ -72,9 +72,7 @@ fun TokenDetailScreen(
     networkService: XianNetworkService,
     tokenContract: String,
     tokenSymbol: String,
-    viewModel: WalletViewModel = viewModel(
-        factory = WalletViewModelFactory(LocalContext.current, walletManager, networkService)
-    )
+    viewModel: WalletViewModel
 ) {
     val context = LocalContext.current      // Collect states from ViewModel
     val tokenInfoMap by viewModel.tokenInfoMap.collectAsStateWithLifecycle()

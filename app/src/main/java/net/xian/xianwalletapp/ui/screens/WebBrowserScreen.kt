@@ -503,6 +503,7 @@ fun WebBrowserScreen(
                                     webView.goBack()
                                 } else {
                                     showDashboard = true
+                                    showBottomBar = true // Ensure bottom bar is visible when returning to dashboard
                                     isLoading = false
                                 }
                             } else {
@@ -532,6 +533,7 @@ fun WebBrowserScreen(
                                 urlInput = formattedUrl
                                 currentWebViewUrl = formattedUrl
                                 showDashboard = false
+                                showBottomBar = true // Reset bottom bar state when navigating to web
                                 isLoading = true
                                 focusManager.clearFocus()
                             }
@@ -539,8 +541,17 @@ fun WebBrowserScreen(
                         modifier = Modifier
                             .padding(end = 4.dp)
                             .heightIn(min = 40.dp)
-                            .widthIn(max = 320.dp)
-                            .weight(1f, fill = false),
+                            .then(
+                                if (showDashboard) {
+                                    // En dashboard: URL más largo, ocupa más espacio
+                                    Modifier.weight(1f, fill = true)
+                                } else {
+                                    // Con web cargada: tamaño ajustado para los botones
+                                    Modifier
+                                        .widthIn(max = 320.dp)
+                                        .weight(1f, fill = false)
+                                }
+                            ),
                         shape = RoundedCornerShape(30.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -563,6 +574,7 @@ fun WebBrowserScreen(
                             urlInput = formattedUrl
                             currentWebViewUrl = formattedUrl
                             showDashboard = false
+                            showBottomBar = true // Reset bottom bar state when navigating to web
                             isLoading = true
                             focusManager.clearFocus()
                         },
@@ -580,87 +592,89 @@ fun WebBrowserScreen(
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
-                    //
-                    // Botón Refresh
-                    IconButton(
-                        onClick = { webViewRef.value?.reload() },
-                        enabled = !showDashboard,
-                        modifier = Modifier
-                            .padding(end = 4.dp)
-                            .size(36.dp)
-                            .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
-                                shape = CircleShape
+                    
+                    // Solo mostrar botones de refresh y favoritos cuando no está en dashboard (cuando hay un sitio web cargado)
+                    if (!showDashboard) {
+                        // Botón Refresh
+                        IconButton(
+                            onClick = { webViewRef.value?.reload() },
+                            modifier = Modifier
+                                .padding(end = 4.dp)
+                                .size(36.dp)
+                                .border(
+                                    width = 1.dp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
+                                    shape = CircleShape
+                                )
+                        ) {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Actualizar",
+                                tint = MaterialTheme.colorScheme.primary
                             )
-                    ) {
-                        Icon(
-                            Icons.Default.Refresh,
-                            contentDescription = "Actualizar",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    //
-                    // Botón Favorito
-                    val isFavorited = remember(urlInput, favoriteXApps) {
-                        val normalizedInput = normalizeUrlForComparison(urlInput)
-                        val result = normalizedInput != null && favoriteXApps.any { normalizeUrlForComparison(it.url) == normalizedInput }
-                        Log.d("WebBrowserScreen", "Recalculating isFavorited: urlInput='$urlInput', normalizedInput='$normalizedInput', result=$result")
-                        result
-                    }
-                    IconButton(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
-                                shape = CircleShape
-                            ),
-                        enabled = !isFavorited,
-                        onClick = {
-                            val originalUrl = urlInput
-                            val normalizedUrl = normalizeUrlForComparison(originalUrl)
-                            if (normalizedUrl != null && !isFavorited) {
-                                try {
-                                    val urlObject = URL(originalUrl)
-                                    val host = urlObject.host ?: originalUrl
-                                    val name = host.uppercase()
-                                    val newFavorite = XAppInfo(
-                                        name = name,
-                                        url = originalUrl,
-                                        icon = Icons.Default.Language
-                                    )
-                                    val updatedList = favoriteXApps + newFavorite
-                                    Log.d("WebBrowserScreen", "Adding favorite: $originalUrl (Normalized: $normalizedUrl)")
-                                    coroutineScope.launch {
-                                        walletManager.saveFavorites(updatedList)
+                        }
+                        
+                        // Botón Favorito
+                        val isFavorited = remember(urlInput, favoriteXApps) {
+                            val normalizedInput = normalizeUrlForComparison(urlInput)
+                            val result = normalizedInput != null && favoriteXApps.any { normalizeUrlForComparison(it.url) == normalizedInput }
+                            Log.d("WebBrowserScreen", "Recalculating isFavorited: urlInput='$urlInput', normalizedInput='$normalizedInput', result=$result")
+                            result
+                        }
+                        IconButton(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .border(
+                                    width = 1.dp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
+                                    shape = CircleShape
+                                ),
+                            enabled = !isFavorited,
+                            onClick = {
+                                val originalUrl = urlInput
+                                val normalizedUrl = normalizeUrlForComparison(originalUrl)
+                                if (normalizedUrl != null && !isFavorited) {
+                                    try {
+                                        val urlObject = URL(originalUrl)
+                                        val host = urlObject.host ?: originalUrl
+                                        val name = host.uppercase()
+                                        val newFavorite = XAppInfo(
+                                            name = name,
+                                            url = originalUrl,
+                                            icon = Icons.Default.Language
+                                        )
+                                        val updatedList = favoriteXApps + newFavorite
+                                        Log.d("WebBrowserScreen", "Adding favorite: $originalUrl (Normalized: $normalizedUrl)")
+                                        coroutineScope.launch {
+                                            walletManager.saveFavorites(updatedList)
+                                        }
+                                        Toast.makeText(context, "Added to Favorites", Toast.LENGTH_SHORT).show()
+                                    } catch (e: MalformedURLException) {
+                                        Log.e("WebBrowserScreen", "Invalid URL for favorite add: $originalUrl", e)
+                                        Toast.makeText(context, "URL inválida", Toast.LENGTH_SHORT).show()
+                                    } catch (e: Exception) {
+                                        Log.e("WebBrowserScreen", "Error adding favorite: $originalUrl", e)
+                                        Toast.makeText(context, "Error Adding Favorite", Toast.LENGTH_SHORT).show()
                                     }
-                                    Toast.makeText(context, "Added to Favorites", Toast.LENGTH_SHORT).show()
-                                } catch (e: MalformedURLException) {
-                                    Log.e("WebBrowserScreen", "Invalid URL for favorite add: $originalUrl", e)
+                                } else if (normalizedUrl == null) {
+                                    Log.w("WebBrowserScreen", "Attempted to add favorite with blank or invalid URL: $originalUrl")
                                     Toast.makeText(context, "URL inválida", Toast.LENGTH_SHORT).show()
-                                } catch (e: Exception) {
-                                    Log.e("WebBrowserScreen", "Error adding favorite: $originalUrl", e)
-                                    Toast.makeText(context, "Error Adding Favorite", Toast.LENGTH_SHORT).show()
                                 }
-                            } else if (normalizedUrl == null) {
-                                Log.w("WebBrowserScreen", "Attempted to add favorite with blank or invalid URL: $originalUrl")
-                                Toast.makeText(context, "URL inválida", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                    ) {
-                        Icon(
-                            imageVector = if (isFavorited) Icons.Filled.Star else Icons.Outlined.Star,
-                            contentDescription = if (isFavorited) "Already in favorites" else "Add to favorites",
-                            tint = if (isFavorited) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                        )
+                            },
+                        ) {
+                            Icon(
+                                imageVector = if (isFavorited) Icons.Filled.Star else Icons.Outlined.Star,
+                                contentDescription = if (isFavorited) "Already in favorites" else "Add to favorites",
+                                tint = if (isFavorited) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            )
+                        }
                     }
                 }
             }
         },
         bottomBar = {
             AnimatedVisibility(
-                visible = showBottomBar,
+                visible = showBottomBar && showDashboard, // Solo mostrar en dashboard, no cuando hay web cargada
                 enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
                 exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
             ) {
@@ -688,6 +702,7 @@ fun WebBrowserScreen(
                         currentWebViewUrl = targetUrl
                         isLoading = true
                         showDashboard = false
+                        showBottomBar = true // Reset bottom bar state when navigating to web
                     },
                     faviconCacheManager = faviconCacheManager, // Pass the cache manager here
                     onRemoveFavoriteClick = { appToRemove ->

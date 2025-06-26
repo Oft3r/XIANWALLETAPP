@@ -146,7 +146,7 @@ class XianWebViewBridge(
     // Renamed function, now assumes pre-authentication
     private fun displayTransactionDialog(context: Context, contract: String, method: String, kwargs: String, initialStampLimit: Double) { // Assumes pre-authentication
         val builder = AlertDialog.Builder(context)
-        builder.setTitle("Transaction Request")
+        // Remove setTitle to avoid default title bar with sharp corners
         
         // Inflate a custom layout for the dialog
         val inflater = LayoutInflater.from(context)
@@ -177,12 +177,6 @@ class XianWebViewBridge(
         val errorMessageView = view.findViewById<TextView>(R.id.tv_error_message)
         errorMessageView.visibility = View.GONE // Start hidden
 
-        // Simplified error display function
-        fun showError(message: String) {
-             Log.e(TAG, "Error in transaction dialog: $message")
-             errorMessageView.text = message
-             errorMessageView.visibility = View.VISIBLE
-        }
         
         builder.setView(view)
 
@@ -244,30 +238,48 @@ class XianWebViewBridge(
                  estimatedFeeTextView.setTextColor(context.getColor(android.R.color.darker_gray))
             } else {
                  // Success - estimation text is already set
-                 estimatedFeeTextView.setTextColor(context.getColor(android.R.color.primary_text_light))
+                 estimatedFeeTextView.setTextColor(context.getColor(R.color.text_secondary))
                  stampLimitTextView.visibility = View.GONE // Hide the initial "Provided by dApp" line
             }
         }
         // --- End Automatic Fee Estimation Logic ---
         
-        // Add buttons first, before creating the dialog
-        builder.setPositiveButton("Approve") { _, _ ->
-            // This will be overridden below to prevent automatic dismissal
-        }
-        
-        builder.setNegativeButton("Reject") { _, _ ->
-            // User rejected the transaction
-            sendTransactionFailureResponse("User rejected the transaction")
-        }
-        
-        // Create the dialog instance after setting the buttons
+        // Create the dialog instance without default buttons
         val dialog = builder.create()
+        
+        // Make dialog background transparent to show only our rounded layout
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
         
         // Show the dialog
         dialog.show()
         
-        // Override the positive button click listener
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+        // Set up custom button click listeners
+        val approveButton = view.findViewById<Button>(R.id.btn_approve)
+        val rejectButton = view.findViewById<Button>(R.id.btn_reject)
+        
+        // Simplified error display function (now has access to approveButton)
+        fun showError(message: String) {
+             Log.e(TAG, "Error in transaction dialog: $message")
+             errorMessageView.text = message
+             errorMessageView.visibility = View.VISIBLE
+             // Reactivar el botón para permitir otro intento
+             approveButton.isEnabled = true
+             approveButton.text = "Approve"
+        }
+        
+        // Set up reject button
+        rejectButton.setOnClickListener {
+            // User rejected the transaction
+            sendTransactionFailureResponse("User rejected the transaction")
+            dialog.dismiss()
+        }
+        
+        // Set up approve button click listener
+        approveButton.setOnClickListener {
+            // Deshabilitar el botón inmediatamente para mostrar feedback visual
+            approveButton.isEnabled = false
+            approveButton.text = "Processing..."
+            
             // Password is no longer handled here, assume cached key is valid from pre-auth
             errorMessageView.visibility = View.GONE // Clear previous errors
             Log.d(TAG, "Approve clicked.")

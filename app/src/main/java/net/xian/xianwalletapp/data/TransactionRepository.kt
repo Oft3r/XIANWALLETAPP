@@ -20,7 +20,7 @@ class TransactionRepository(private val apiService: XianApiService) {
         val query = """
             query Txs {
               allStateChanges(
-                first: 20, # Limit to the first 10 results
+                first: 30, # Limit to the first 30 results
                 filter: {
                   # Assuming 'key' can be used for sender or receiver.
                   # This might need to be more specific if 'key' only refers to one side.

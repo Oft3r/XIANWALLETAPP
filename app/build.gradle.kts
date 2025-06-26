@@ -14,26 +14,38 @@ android {
         applicationId = "net.xian.xianwalletapp"
         minSdk = 26
         targetSdk = 35
-        versionCode = 20 // Cambia este valor al nuevo código de versión
-        versionName = "1.5.5" // Cambia este valor a la nueva versión
+        versionCode = 24 // Cambia este valor al nuevo código de versión
+        versionName = "1.5.9" // Cambia este valor a la nueva versión
 
         // Aquí configuras el nombre del APK
         setProperty("archivesBaseName", "Xian Wallet-$versionName")
-
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        
+        // Configuración para compatibilidad con páginas de 16 KB
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+        
+        // Configuración adicional para 16 KB page size
+        externalNativeBuild {
+            cmake {
+                arguments += listOf("-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON")
+            }
+        }
     }
 
     buildTypes {
+        debug {
+            isDebuggable = true
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
         release {
             isMinifyEnabled = false
-            isDebuggable = false // Explicitly set debuggable to false for release
+            isDebuggable = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            ndk {
-                debugSymbolLevel = "FULL" // Generate full native debug symbols
-            }
         }
     }
     compileOptions {
@@ -48,6 +60,19 @@ android {
     }
     lint {
         abortOnError = false
+    }
+    
+    // Configuración para compatibilidad con páginas de 16 KB
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+            // Fuerza la alineación de 16 KB para todas las bibliotecas nativas
+            pickFirsts += listOf("**/libbarhopper_v3.so", "**/libimage_processing_util_jni.so")
+        }
+        resources {
+            // Excluye bibliotecas problemáticas si es necesario
+            excludes += listOf("META-INF/DEPENDENCIES", "META-INF/LICENSE", "META-INF/LICENSE.txt")
+        }
     }
 
 }
@@ -103,13 +128,15 @@ dependencies {
     implementation("com.google.zxing:core:3.5.3")
     // QR Code Scanning (ZXing Embedded) - Keep for fallback
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
-    // CameraX for integrated QR scanning
-    implementation("androidx.camera:camera-core:1.3.1")
-    implementation("androidx.camera:camera-camera2:1.3.1")
-    implementation("androidx.camera:camera-lifecycle:1.3.1")
-    implementation("androidx.camera:camera-view:1.3.1")
-    // ML Kit for barcode scanning
-    implementation("com.google.mlkit:barcode-scanning:17.2.0")
+    // CameraX for integrated QR scanning - Versiones actualizadas para 16 KB
+    implementation("androidx.camera:camera-core:1.4.0")
+    implementation("androidx.camera:camera-camera2:1.4.0")
+    implementation("androidx.camera:camera-lifecycle:1.4.0")
+    implementation("androidx.camera:camera-view:1.4.0")
+    // ML Kit for barcode scanning - Versión actualizada para 16 KB
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    // Forzar versión compatible de Google Play Services
+    implementation("com.google.android.gms:play-services-mlkit-barcode-scanning:18.3.1")
     implementation("io.coil-kt:coil-compose:2.5.0")
     // HTML Parsing
     implementation("org.jsoup:jsoup:1.17.2")
@@ -127,12 +154,12 @@ dependencies {
     implementation("com.patrykandpatrick.vico:compose-m3:1.15.0")
     implementation("com.patrykandpatrick.vico:core:1.15.0")
 
-    // Testing
-    testImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(platform(libs.androidx.compose.bom))
-    androidTestImplementation(libs.androidx.ui.test.junit4)
-    debugImplementation(libs.androidx.ui.tooling)
-    debugImplementation(libs.androidx.ui.test.manifest)
+    // Testing dependencies removed for Play Store release
+    // testImplementation(libs.junit)
+    // androidTestImplementation(libs.androidx.junit)
+    // androidTestImplementation(libs.androidx.espresso.core)
+    // androidTestImplementation(platform(libs.androidx.compose.bom))
+    // androidTestImplementation(libs.androidx.ui.test.junit4)
+    // debugImplementation(libs.androidx.ui.tooling)
+    // debugImplementation(libs.androidx.ui.test.manifest)
 }

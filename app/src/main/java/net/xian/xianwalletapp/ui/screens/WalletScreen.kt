@@ -165,10 +165,8 @@ fun WalletScreen(
     navController: NavController,
     walletManager: WalletManager, // Keep for ViewModel creation
     networkService: XianNetworkService, // Keep for ViewModel creation
-    // Obtain ViewModel instances
-    viewModel: WalletViewModel = viewModel(
-        factory = WalletViewModelFactory(LocalContext.current, walletManager, networkService) // Pass context
-    ),
+    // Obtain ViewModel instances - now passed as parameter to share with other screens
+    viewModel: WalletViewModel,
     // Initialize NavigationViewModel for persistent navigation state
     navigationViewModel: NavigationViewModel = viewModel(
         factory = NavigationViewModelFactory(SavedStateHandle()) // Pass empty SavedStateHandle
@@ -952,7 +950,7 @@ fun WalletScreen(
                                 )
                             }
                         } else {
-                            // Filter out consecutive duplicates
+                            // Filter out consecutive duplicates and group by date
                             val distinctTransactionHistory = transactionHistory.fold(mutableListOf<LocalTransactionRecord>()) { acc, record ->
                                 if (acc.isEmpty() || acc.last() != record) {
                                     acc.add(record)
@@ -960,13 +958,37 @@ fun WalletScreen(
                                 acc
                             }
 
+                            // Group transactions by date
+                            val groupedTransactions = distinctTransactionHistory
+                                .groupBy { record ->
+                                    java.time.Instant.ofEpochMilli(record.timestamp)
+                                        .atZone(java.time.ZoneId.systemDefault())
+                                        .toLocalDate()
+                                }
+                                .toSortedMap(compareByDescending { it })
+
                             LazyColumn(
                                 state = activityListState,
                                 modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(bottom = 80.dp) // Add padding for FAB
+                                contentPadding = PaddingValues(bottom = 80.dp)
                             ) {
-                                items(distinctTransactionHistory) { record: LocalTransactionRecord -> // Keep explicit type
-                                    TransactionRecordItem(record = record, navController = navController)
+                                groupedTransactions.forEach { (date, records) ->
+                                    item {
+                                        // Date header
+                                        Text(
+                                            text = date.format(java.time.format.DateTimeFormatter
+                                                .ofPattern("MMMM d")
+                                                .withLocale(java.util.Locale.ENGLISH)),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    items(records) { record ->
+                                        TransactionRecordItem(record = record, navController = navController)
+                                    }
                                 }
                             }
                         }
