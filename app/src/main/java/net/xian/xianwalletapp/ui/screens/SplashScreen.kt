@@ -6,7 +6,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.offset
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -21,6 +20,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import net.xian.xianwalletapp.R // Import R class
+import net.xian.xianwalletapp.ui.components.LargeBouncingDotsLoader
 
 /**
  * Splash screen for the Xian Wallet app
@@ -61,10 +61,9 @@ fun SplashScreen() {
             // Wallet Text removed
             
             // Loading indicator
-            CircularProgressIndicator(
+            LargeBouncingDotsLoader(
                 modifier = Modifier.size(48.dp),
-                color = Color.White, // Set indicator color to white
-                strokeWidth = 4.dp
+                dotColor = Color.White // Set dots color to white
             )
         }
     }

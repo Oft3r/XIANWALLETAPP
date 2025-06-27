@@ -58,14 +58,19 @@ fun XianBottomNavBar(
                 .shadow(elevation = 8.dp),
             color = Color.Transparent,
             contentColor = MaterialTheme.colorScheme.onSurface,
-            // Apply highly rounded corners for capsule/oval effect
-            shape = RoundedCornerShape(40.dp)
+            // Apply less rounded corners for a more rectangular look
+            shape = RoundedCornerShape(12.dp)
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     // .fillMaxHeight() // Might not be needed if Surface has no fixed height
-                    .clip(RoundedCornerShape(40.dp)) // Esquinas muy redondeadas para efecto cápsula
+                    .clip(RoundedCornerShape(12.dp)) // Less rounded corners
+                    .border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(12.dp)
+                    )
                     .background(
                         brush = Brush.verticalGradient(
                             colors = listOf(
@@ -171,17 +176,17 @@ private fun CustomNavItem(
     
     Box(
         modifier = Modifier
-            .clip(CircleShape)
+            .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(8.dp) // Consistent padding around the icon
+            .padding(4.dp) // Reduced padding for smaller button
             .scale(animatedScale)
             .animateContentSize(),
         contentAlignment = Alignment.Center
     ) {
         Box(
             modifier = Modifier
-                .size(48.dp) // Increased size for better touch target
-                .clip(CircleShape)
+                .size(32.dp) // Smaller rectangular button
+                .clip(RoundedCornerShape(8.dp))
                 .then(
                     if (selected)
                         Modifier.background(
@@ -194,13 +199,8 @@ private fun CustomNavItem(
                     else
                         Modifier.background(Color.Transparent)
                 )
-                .border(
-                    width = if (selected) 0.dp else 1.dp,
-                    color = if (selected) Color.Transparent else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
-                    shape = CircleShape
-                )
                 // Add shadow when selected for more emphasis
-                .then(if (selected) Modifier.shadow(4.dp, CircleShape) else Modifier),
+                .then(if (selected) Modifier.shadow(4.dp, RoundedCornerShape(8.dp)) else Modifier),
             contentAlignment = Alignment.Center
         ) {
             Icon(

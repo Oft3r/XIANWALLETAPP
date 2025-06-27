@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -577,7 +578,7 @@ fun TokenDetailScreen(
                         modifier = Modifier.padding(vertical = 8.dp)
                     ) {
                         Icon(
-                            Icons.Default.Send,
+                            Icons.Default.Upload,
                             contentDescription = "Send",
                             modifier = Modifier.size(24.dp)
                         )
@@ -630,10 +631,7 @@ fun TokenDetailScreen(
                     modifier = Modifier
                         .weight(1f)
                         .padding(start = 8.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.tertiary,
-                        contentColor = MaterialTheme.colorScheme.onTertiary
-                    ),
+                    colors = xianButtonColors(XianButtonType.PRIMARY),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Column(
@@ -649,7 +647,8 @@ fun TokenDetailScreen(
                         Text(
                             text = "Swap", // Cambiado de "Exchange" a "Swap"
                             fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
+                            color = Color.Black
                         )
                     }
                 }

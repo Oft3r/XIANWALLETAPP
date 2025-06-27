@@ -45,6 +45,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.TextFieldDefaults
@@ -128,6 +129,10 @@ import net.xian.xianwalletapp.ui.components.NftItem // Keep this import
 import net.xian.xianwalletapp.ui.components.XnsNameItem // Keep this import
 import net.xian.xianwalletapp.ui.components.TransactionRecordItem // Keep this import
 import net.xian.xianwalletapp.ui.components.XianBottomNavBar
+import net.xian.xianwalletapp.ui.components.BouncingDotsLoader
+import net.xian.xianwalletapp.ui.components.ManageTokenList // Import the new component
+import net.xian.xianwalletapp.ui.components.SmallBouncingDotsLoader
+import net.xian.xianwalletapp.ui.components.LargeBouncingDotsLoader
 // import net.xian.xianwalletapp.ui.theme.XianButtonType // Remove duplicate
 import net.xian.xianwalletapp.ui.theme.xianButtonColors
 import net.xian.xianwalletapp.ui.theme.XianPrimary
@@ -228,7 +233,7 @@ fun WalletScreen(
     var showSnackbar by remember { mutableStateOf(false) }
     var snackbarMessage by remember { mutableStateOf("") }
     val snackbarHostState = remember { SnackbarHostState() }
-    var isEditMode by remember { mutableStateOf(false) } // Estado para el modo edición
+    // Removed isEditMode state - now using separate Manage tab
     
     // State for NFTs
     var showNftDropdown by remember { mutableStateOf(false) } // Control dropdown visibility    // State for Local Activity
@@ -240,16 +245,14 @@ fun WalletScreen(
     var showBottomBar by remember { mutableStateOf(true) }
     var lastCollectiblesScrollIndex by remember { mutableStateOf(0) }
     var lastCollectiblesScrollOffset by remember { mutableStateOf(0) }
+    
+    // State for managing tokens mode
+    var isManageMode by remember { mutableStateOf(false) }
 
-    // Desactivar modo edición automáticamente cuando no hay tokens editables
-    LaunchedEffect(tokens) {
-        val hasEditableTokens = tokens.any { it != "currency" }
-        if (!hasEditableTokens && isEditMode) {
-            isEditMode = false
-        }
-    }
+    // Removed edit mode LaunchedEffect - now using separate Manage tab
     
     Scaffold(
+        modifier = Modifier.statusBarsPadding(),
         topBar = {            TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent, // Hacer la barra transparente
@@ -361,8 +364,7 @@ fun WalletScreen(
                     }
                 }
             )
-        },        // Configurar correctamente los insets del sistema
-        contentWindowInsets = WindowInsets.navigationBars,
+        },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         // Remove floatingActionButton parameter here
         bottomBar = {
@@ -376,17 +378,19 @@ fun WalletScreen(
                     navigationViewModel = navigationViewModel
                 )
             }
-        }) { paddingValues ->        SwipeRefresh(
-            state = rememberSwipeRefreshState(isLoading),
-            onRefresh = { 
-                viewModel.refreshData()
-                // Restart transaction monitoring on refresh
-                restartTransactionMonitor(context)
-            },
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = paddingValues.calculateTopPadding())
-        ) {
+        }) { paddingValues ->
+        Box(modifier = Modifier.fillMaxSize()) {
+            SwipeRefresh(
+                state = rememberSwipeRefreshState(isLoading),
+                onRefresh = {
+                    viewModel.refreshData()
+                    // Restart transaction monitoring on refresh
+                    restartTransactionMonitor(context)
+                },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = paddingValues.calculateTopPadding())
+            ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -433,10 +437,9 @@ fun WalletScreen(
                         
                         // Calculate total balance across all tokens
                         if (staticXianPrice == null) {
-                            CircularProgressIndicator(
+                            SmallBouncingDotsLoader(
                                 modifier = Modifier.size(24.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                dotColor = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         } else {
                             // Calculate total balance using:
@@ -562,7 +565,7 @@ fun WalletScreen(
                 // Spacer to replace removed debug buttons
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Tabs for Tokens/NFTs
+                // Tabs for Tokens/NFTs/Activity
                 var selectedTabIndex by remember { mutableStateOf(0) }
                 // When selectedTabIndex changes, update the NavigationViewModel
                 // REMOVED: This LaunchedEffect was incorrectly updating the main navigation state
@@ -590,46 +593,96 @@ fun WalletScreen(
                     }
                 }
 
-                TabRow(
-                    selectedTabIndex = selectedTabIndex,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp)), // Rounded corners for the TabRow, border removed
-                    indicator = { tabPositions ->
-                        // Custom outline indicator
-                        Box(
-                            Modifier
-                                .tabIndicatorOffset(tabPositions[selectedTabIndex])
-                                .fillMaxHeight()
-                                .padding(vertical = 4.dp, horizontal = 4.dp) // Add padding to make the outline visible
-                                .border(BorderStroke(2.dp, MaterialTheme.colorScheme.primary), RoundedCornerShape(12.dp))
-                                .clip(RoundedCornerShape(12.dp)) // Clip the box itself
-                        )
-                    },
-                    divider = {} // Remove the default divider
+                // Row containing TabRow and Edit button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Tab(
-                        selected = selectedTabIndex == 0,
-                        onClick = { selectedTabIndex = 0 },
-                        text = { Text("Tokens") },
-                        modifier = Modifier.clip(RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)),
-                        selectedContentColor = MaterialTheme.colorScheme.primary, // Ensure text is readable
-                        unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Tab(
-                        selected = selectedTabIndex == 1,
-                        onClick = { selectedTabIndex = 1 },
-                        text = { Text("Collectibles") }, // Changed from "NFTs"
-                        selectedContentColor = MaterialTheme.colorScheme.primary, // Ensure text is readable
-                        unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Tab(
-                        selected = selectedTabIndex == 2,
-                        onClick = { selectedTabIndex = 2 },
-                        text = { Text("Activity") },
-                        modifier = Modifier.clip(RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)),
-                        selectedContentColor = MaterialTheme.colorScheme.primary, // Ensure text is readable
-                        unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    TabRow(
+                        selectedTabIndex = selectedTabIndex,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(16.dp)),
+                        indicator = { tabPositions ->
+                            // Prevent crash by checking bounds
+                            if (selectedTabIndex < tabPositions.size) {
+                                Box(
+                                    Modifier
+                                        .tabIndicatorOffset(tabPositions[selectedTabIndex])
+                                        .fillMaxHeight()
+                                        .padding(vertical = 4.dp, horizontal = 4.dp)
+                                        .border(BorderStroke(2.dp, MaterialTheme.colorScheme.primary), RoundedCornerShape(12.dp))
+                                        .clip(RoundedCornerShape(12.dp))
+                                )
+                            }
+                        },
+                        divider = {}
+                    ) {
+                        Tab(
+                            selected = selectedTabIndex == 0,
+                            onClick = { selectedTabIndex = 0 },
+                            text = { Text("Tokens") },
+                            selectedContentColor = MaterialTheme.colorScheme.primary,
+                            unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Tab(
+                            selected = selectedTabIndex == 1,
+                            onClick = {
+                                selectedTabIndex = 1
+                                isManageMode = false
+                            },
+                            text = { Text("Items") },
+                            selectedContentColor = MaterialTheme.colorScheme.primary,
+                            unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Tab(
+                            selected = selectedTabIndex == 2,
+                            onClick = {
+                                selectedTabIndex = 2
+                                isManageMode = false
+                            },
+                            text = { Text("Activity") },
+                            modifier = Modifier.clip(RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)),
+                            selectedContentColor = MaterialTheme.colorScheme.primary,
+                            unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // Edit Button moved here - only show when in Tokens tab or manage mode
+                    if (selectedTabIndex == 0 || isManageMode) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                isManageMode = !isManageMode // Toggle manage mode
+                                if (!isManageMode) {
+                                    showBottomBar = true // Show bottom bar when exiting manage mode
+                                }
+                            },
+                            modifier = Modifier
+                                .height(48.dp)
+                                .width(48.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isManageMode) {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                                } else {
+                                    MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
+                                }
+                            ),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Edit,
+                                contentDescription = "Manage Tokens",
+                                modifier = Modifier.size(20.dp),
+                                tint = if (isManageMode) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
+                    }
                 }
 
                 // REMOVE LaunchedEffect for selectedTabIndex == 2 that loads history manually
@@ -647,16 +700,28 @@ fun WalletScreen(
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                // Content based on selected tab
-                when (selectedTabIndex) {
-                    0 -> {
+                // Content based on selected tab and manage mode
+                when {
+                    isManageMode -> {
+                        // Manage Tokens mode - Show ManageTokenList content inline
+                        ManageTokenList(
+                            viewModel = viewModel,
+                            onBackClick = {
+                                isManageMode = false // Exit manage mode
+                                showBottomBar = true // Reset bottom bar visibility when exiting manage mode
+                            },
+                            showBottomBar = showBottomBar,
+                            onShowBottomBarChange = { showBottomBar = it }
+                        )
+                    }
+                    selectedTabIndex == 0 -> {
                         // Tokens tab
                         when {
                             // ONLY show loading indicator when tokens list is empty (meaning we're likely
                             // in initial state or we just added a first token)
                             isLoading && tokens.isEmpty() -> {
                                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator()
+                                    LargeBouncingDotsLoader()
                                 }
                             }
                             tokens.isEmpty() -> {
@@ -698,7 +763,7 @@ fun WalletScreen(
                                         val tokenInfo = tokenInfoMap[contract]
                                         val balance = balanceMap[contract] ?: 0f
                                           TokenItem(
-                                            contract = contract, 
+                                            contract = contract,
                                             name = tokenInfo?.name ?: contract,
                                             symbol = tokenInfo?.symbol ?: "",
                                             logoUrl = tokenInfo?.logoUrl,
@@ -715,14 +780,7 @@ fun WalletScreen(
                                             onReceiveClick = {
                                                 navController.navigate(XianDestinations.RECEIVE_TOKEN)
                                             },
-                                            onRemoveClick = if (isEditMode && contract != "currency") {
-                                                {
-                                                    viewModel.removeToken(contract)
-                                                    coroutineScope.launch {
-                                                        snackbarHostState.showSnackbar("Token removal initiated")
-                                                    }
-                                                }
-                                            } else null, // Solo mostrar botón de eliminar en modo edición y no para XIAN
+                                            onRemoveClick = null, // Remove edit functionality - now handled in Manage tab
                                             onCardClick = {
                                                 navController.navigate(
                                                     "${XianDestinations.TOKEN_DETAIL}?${XianNavArgs.TOKEN_CONTRACT}=$contract&${XianNavArgs.TOKEN_SYMBOL}=${tokenInfo?.symbol ?: ""}"
@@ -731,96 +789,20 @@ fun WalletScreen(
                                         )
                                     }
                                       // Add capsule button at the end of the list
-                                    item {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(vertical = 12.dp, horizontal = 16.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            // Add New Token Button
-                                            Button(
-                                                onClick = { showAddTokenDialog = true },
-                                                modifier = Modifier.weight(1f),
-                                                shape = RoundedCornerShape(8.dp),
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = MaterialTheme.colorScheme.primary
-                                                )
-                                            ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.Center,
-                                                    modifier = Modifier.padding(vertical = 8.dp)
-                                                ) {
-                                                    Icon(
-                                                        Icons.Default.Add,
-                                                        contentDescription = "Add Token",
-                                                        modifier = Modifier.size(20.dp),
-                                                        tint = Color.Black
-                                                    )
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Text(
-                                                        "Add New Token",
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontSize = 16.sp,
-                                                        color = Color.Black
-                                                    )
-                                                }
-                                            }
-                                              // Edit Button
-                                            val hasEditableTokens = tokens.any { it != "currency" }
-                                            Button(
-                                                onClick = { 
-                                                    if (hasEditableTokens) {
-                                                        isEditMode = !isEditMode 
-                                                    }
-                                                },
-                                                modifier = Modifier.size(56.dp),
-                                                shape = RoundedCornerShape(8.dp),
-                                                enabled = hasEditableTokens,                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = when {
-                                                        !hasEditableTokens -> MaterialTheme.colorScheme.outline.copy(alpha = 0.06f)
-                                                        isEditMode -> MaterialTheme.colorScheme.primary // Mismo color que Add New Token
-                                                        else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
-                                                    },
-                                                    disabledContainerColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.06f)
-                                                ),
-                                                contentPadding = PaddingValues(0.dp)
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.Edit,
-                                                    contentDescription = when {
-                                                        !hasEditableTokens -> "No editable tokens"
-                                                        isEditMode -> "Exit Edit Mode" 
-                                                        else -> "Edit Mode"
-                                                    },
-                                                    modifier = Modifier.size(24.dp),
-                                                    tint = when {
-                                                        !hasEditableTokens -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                                                        isEditMode -> Color.Black // Mismo color que el ícono de Add New Token
-                                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                                    }
-                                                )
-                                            }
-                                        }
-                                        
-                                        // Add some bottom spacing to ensure the buttons aren't cut off
-                                        Spacer(modifier = Modifier.height(80.dp))
-                                    }
                                 }
                             }
                         }
                     }
-                    1 -> {
+                    selectedTabIndex == 1 -> {
                         // Collectibles tab (NFTs and XNS Names)
 
                         // *** ADD LOGGING HERE ***
-                        Log.d("WalletScreen", "Collectibles Tab: nftList size = ${nftList.size}, ownedXnsNames size = ${ownedXnsNames.size}")
+                        Log.d("WalletScreen", "Items Tab: nftList size = ${nftList.size}, ownedXnsNames size = ${ownedXnsNames.size}")
 
                         // Show loading indicator only on initial load when both lists are empty
                         if (isNftLoading && nftList.isEmpty() && ownedXnsNames.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator()
+                                LargeBouncingDotsLoader()
                             }
                         } else if (nftList.isEmpty() && ownedXnsNames.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -903,7 +885,7 @@ fun WalletScreen(
                             }
                         }
                     }
-                    2 -> {
+                    selectedTabIndex == 2 -> {
                         // Local Activity tab - Now uses ViewModel states
                         var lastActivityScrollIndex by remember { mutableStateOf(0) }
                         var lastActivityScrollOffset by remember { mutableStateOf(0) }
@@ -924,7 +906,7 @@ fun WalletScreen(
 
                         if (isTransactionHistoryLoading) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator()
+                                LargeBouncingDotsLoader()
                             }
                         } else if (transactionHistoryError != null) {
                             Column(
@@ -994,9 +976,10 @@ fun WalletScreen(
                         }
                     }
                 }
-            }
-        }
-    }
+           }
+           } // Close SwipeRefresh
+       } // Close Box
+   } // Close Scaffold
       // Add token dialog
     if (showAddTokenDialog) {
         var contractAddress by remember { mutableStateOf("") }

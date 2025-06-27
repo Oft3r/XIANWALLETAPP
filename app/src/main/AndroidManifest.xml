@@ -42,10 +42,6 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Para APIs más recientes, configuramos la actividad para ser edge-to-edge -->
-            <meta-data
-                android:name="android.activity.enableEdgeToEdge"
-                android:value="true" />
         </activity>
         <!-- Widget Provider -->
         <receiver

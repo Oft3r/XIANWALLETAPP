@@ -7,6 +7,10 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -67,8 +71,8 @@ class MainActivity : AppCompatActivity() { // Changed inheritance
                 android.graphics.Color.TRANSPARENT
             ),
             navigationBarStyle = androidx.activity.SystemBarStyle.auto(
-                android.graphics.Color.TRANSPARENT,
-                android.graphics.Color.TRANSPARENT
+                android.graphics.Color.parseColor("#1A1A1A"), // Dark color for navigation bar
+                android.graphics.Color.parseColor("#F5F5F5")   // Light color for navigation bar
             )
         )
 
