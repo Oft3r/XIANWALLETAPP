@@ -246,7 +246,7 @@ fun DashboardContent(
             elevation = CardDefaults.cardElevation(defaultElevation = 4.dp) // Add some elevation
         ) {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 100.dp), // Adjust minSize as needed
+                columns = GridCells.Fixed(4),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -336,7 +336,7 @@ fun DashboardContent(
             elevation = CardDefaults.cardElevation(defaultElevation = 4.dp) // Add some elevation
         ) {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 100.dp),
+                columns = GridCells.Fixed(4),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),

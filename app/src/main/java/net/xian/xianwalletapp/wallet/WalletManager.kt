@@ -51,6 +51,14 @@ internal data class FavoriteXAppStorageInfo(
 )
 
 
+enum class TokenAddResult {
+    SUCCESS,
+    ALREADY_EXISTS,
+    INVALID_CONTRACT,
+    NO_ACTIVE_WALLET,
+    FAILED
+}
+
 /**
  * Manager class for wallet operations
  * Handles wallet creation, import, and secure storage
@@ -73,6 +81,7 @@ class WalletManager private constructor(context: Context) {
         private const val KEY_PUBLIC_KEY = "public_key"
         private const val KEY_ENCRYPTED_PRIVATE_KEY = "encrypted_private_key"
         private const val KEY_TOKEN_LIST = "token_list"
+        private const val KEY_TOKEN_ORDER = "token_order" // For custom token ordering
         private const val KEY_WALLET_LIST = "wallet_list" // Set of public keys
         private const val KEY_ACTIVE_WALLET_PUBLIC_KEY = "active_wallet_public_key"
         private const val KEY_RPC_URL = "rpc_url"
@@ -428,20 +437,94 @@ class WalletManager private constructor(context: Context) {
     }
 
     /**
+     * Get the ordered list of tokens for the *active* wallet
+     */
+    fun getOrderedTokenList(): List<String> {
+        val publicKey = getActiveWalletPublicKey() ?: return listOf(DEFAULT_TOKEN)
+        val tokenSet = getTokenList()
+        val orderJson = prefs.getString(getWalletPrefKey(publicKey, KEY_TOKEN_ORDER), null)
+        
+        return if (orderJson != null) {
+            try {
+                val gson = Gson()
+                val orderList: List<String> = gson.fromJson(orderJson, object : TypeToken<List<String>>() {}.type)
+                
+                // The stored order only contains non-currency tokens
+                val orderedNonCurrencyTokens = orderList.filter { it in tokenSet && it != DEFAULT_TOKEN }.toMutableList()
+                val remainingNonCurrencyTokens = tokenSet.filter { it != DEFAULT_TOKEN && it !in orderedNonCurrencyTokens }
+                
+                // Add any new non-currency tokens at the end
+                orderedNonCurrencyTokens.addAll(remainingNonCurrencyTokens)
+                
+                // Build final list with currency first (if present), then ordered non-currency tokens
+                val finalOrder = mutableListOf<String>()
+                if (DEFAULT_TOKEN in tokenSet) {
+                    finalOrder.add(DEFAULT_TOKEN)
+                }
+                finalOrder.addAll(orderedNonCurrencyTokens)
+                finalOrder
+            } catch (e: Exception) {
+                Log.w("WalletManager", "Failed to parse token order, using default ordering", e)
+                getDefaultOrderedTokenList(tokenSet)
+            }
+        } else {
+            getDefaultOrderedTokenList(tokenSet)
+        }
+    }
+
+    /**
+     * Save the custom token order for the *active* wallet
+     */
+    fun saveTokenOrder(orderedTokens: List<String>): Boolean {
+        val publicKey = getActiveWalletPublicKey() ?: return false
+        val tokenSet = getTokenList()
+        
+        // Validate that all tokens in the order exist in the token set
+        val validTokens = orderedTokens.filter { it in tokenSet }
+        if (validTokens.size != tokenSet.size) {
+            Log.w("WalletManager", "Token order doesn't match token set")
+            return false
+        }
+        
+        try {
+            val gson = Gson()
+            // Only save the order of non-currency tokens since currency is always first
+            val nonCurrencyTokens = validTokens.filter { it != DEFAULT_TOKEN }
+            val orderJson = gson.toJson(nonCurrencyTokens)
+            prefs.edit().putString(getWalletPrefKey(publicKey, KEY_TOKEN_ORDER), orderJson).apply()
+            return true
+        } catch (e: Exception) {
+            Log.e("WalletManager", "Failed to save token order", e)
+            return false
+        }
+    }
+
+    /**
+     * Get the default ordered token list (currency first, then alphabetical)
+     */
+    private fun getDefaultOrderedTokenList(tokenSet: Set<String>): List<String> {
+        return tokenSet.sortedWith(compareBy<String> { it != DEFAULT_TOKEN }.thenBy { it })
+    }
+
+    /**
      * Add a token to the list for the *active* wallet
      */
-    fun addToken(contract: String): Boolean {
-        if (contract.isBlank()) return false
-        val publicKey = getActiveWalletPublicKey() ?: return false // Need active key
+    fun addToken(contract: String): TokenAddResult {
+        if (contract.isBlank()) return TokenAddResult.INVALID_CONTRACT
+        val publicKey = getActiveWalletPublicKey() ?: return TokenAddResult.NO_ACTIVE_WALLET // Need active key
 
         val tokenPrefKey = getWalletPrefKey(publicKey, KEY_TOKEN_LIST)
         val currentTokens = (prefs.getStringSet(tokenPrefKey, setOf(DEFAULT_TOKEN)) ?: setOf(DEFAULT_TOKEN)).toMutableSet()
 
+        if (currentTokens.contains(contract)) {
+            return TokenAddResult.ALREADY_EXISTS
+        }
+        
         if (currentTokens.add(contract)) {
             prefs.edit().putStringSet(tokenPrefKey, currentTokens).apply()
-            return true
+            return TokenAddResult.SUCCESS
         }
-        return false
+        return TokenAddResult.FAILED
     }
 
     /**
@@ -545,6 +628,7 @@ class WalletManager private constructor(context: Context) {
         val editor = prefs.edit()
         editor.remove(getWalletPrefKey(publicKeyToDelete, KEY_ENCRYPTED_PRIVATE_KEY))
         editor.remove(getWalletPrefKey(publicKeyToDelete, KEY_TOKEN_LIST))
+        editor.remove(getWalletPrefKey(publicKeyToDelete, KEY_TOKEN_ORDER))
         editor.remove(getWalletPrefKey(publicKeyToDelete, KEY_PREFERRED_NFT_CONTRACT))
         editor.remove(getWalletPrefKey(publicKeyToDelete, KEY_REQUIRE_PASSWORD))
         // Remove biometric data for this wallet (already using getWalletPrefKey)

@@ -36,15 +36,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
-// Imports para Vico Chart
-import com.patrykandpatrick.vico.compose.axis.horizontal.bottomAxis
-import com.patrykandpatrick.vico.compose.axis.vertical.startAxis
-import com.patrykandpatrick.vico.compose.chart.Chart
-import com.patrykandpatrick.vico.compose.chart.line.lineChart
-import com.patrykandpatrick.vico.compose.chart.line.lineSpec
-import com.patrykandpatrick.vico.core.entry.ChartEntryModelProducer
-import com.patrykandpatrick.vico.core.component.text.TextComponent
-import com.patrykandpatrick.vico.core.component.text.textComponent
+// Imports para Custom Canvas Chart
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import net.xian.xianwalletapp.R
 import net.xian.xianwalletapp.navigation.XianDestinations
 import net.xian.xianwalletapp.navigation.XianNavArgs
@@ -61,6 +57,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.text.DecimalFormat
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import android.util.Log
 
 /**
  * Token detail screen showing price card, balance, and action buttons
@@ -101,6 +98,9 @@ fun TokenDetailScreen(
     var priceChange24h by remember { mutableStateOf<Float?>(null) }
     var isLoadingPriceChange by remember { mutableStateOf(false) }
     
+    // State for time period selection
+    var selectedTimePeriod by remember { mutableStateOf("1M") }
+    
     val coroutineScope = rememberCoroutineScope()
     
     // Get token information
@@ -122,9 +122,22 @@ fun TokenDetailScreen(
     val percentageFormatter = DecimalFormat("#,##0.00") // For percentage values (2 decimals)
 
     // Obtener el ChartModelProducer del ViewModel
-    val chartModelProducer = viewModel.chartModelProducer    // Cargar datos históricos cuando el tokenContract cambie
-    LaunchedEffect(tokenContract) {
-        viewModel.loadHistoricalData(tokenContract)
+    val chartModelProducer = viewModel.chartModelProducer
+    
+    // Obtener datos del gráfico del ViewModel
+    val priceData by viewModel.chartData.collectAsStateWithLifecycle()
+    
+    // Debug logging
+    LaunchedEffect(priceData) {
+        Log.d("TokenDetailScreen", "Chart data updated: ${priceData.size} points")
+        if (priceData.isNotEmpty()) {
+            Log.d("TokenDetailScreen", "First 5 values: ${priceData.take(5)}")
+        }
+    }
+    
+    // Cargar datos históricos cuando el tokenContract o el período cambien
+    LaunchedEffect(tokenContract, selectedTimePeriod) {
+        viewModel.loadHistoricalData(tokenContract, selectedTimePeriod)
     }
       // Load holders count when tokenContract changes
     LaunchedEffect(tokenContract) {
@@ -353,6 +366,36 @@ fun TokenDetailScreen(
                             } else {
                                 Spacer(modifier = Modifier.height(12.dp))
                             }
+                            
+                            // Time Period Selector
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 16.dp),
+                                horizontalArrangement = Arrangement.SpaceEvenly
+                            ) {
+                                val timePeriods = listOf("1D", "1W", "1M", "1Y")
+                                timePeriods.forEach { period ->
+                                    FilterChip(
+                                        onClick = {
+                                            selectedTimePeriod = period
+                                        },
+                                        label = {
+                                            Text(
+                                                text = period,
+                                                style = MaterialTheme.typography.labelMedium
+                                            )
+                                        },
+                                        selected = selectedTimePeriod == period,
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = XianPrimary,
+                                            selectedLabelColor = Color.White,
+                                            containerColor = MaterialTheme.colorScheme.surface,
+                                            labelColor = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    )
+                                }
+                            }
 
                             // Contenedor del gráfico con altura fija
                             Box(
@@ -402,57 +445,11 @@ fun TokenDetailScreen(
                                                 color = MaterialTheme.colorScheme.error,
                                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
                                             )                                        }
-                                    }                                } else if (chartModelProducer.getModel()?.entries?.isNotEmpty() == true) {
+                                    }                                } else if ((priceData as List<Float>).isNotEmpty()) {
                                     
                                     // Vico Chart con ejes personalizados y escala mejorada para pequeños cambios
-                                    Chart(
-                                        chart = lineChart(),
-                                        chartModelProducer = chartModelProducer,
-                                        startAxis = startAxis(
-                                            label = textComponent {
-                                                color = Color.White.toArgb()
-                                                textSizeSp = 10f
-                                            },                                            // Configurar para mostrar precios reales con mejor precisión
-                                            valueFormatter = { value, _ ->
-                                                // Apply offset back to get real price if offset is used
-                                                val realValue = chartYAxisOffset?.let { offset -> value + offset } ?: value
-                                                when {
-                                                    realValue >= 1000 -> {
-                                                        // Para valores grandes
-                                                        String.format("%.0f", realValue)
-                                                    }
-                                                    realValue >= 100 -> {
-                                                        // Para valores medianos
-                                                        String.format("%.1f", realValue)
-                                                    }
-                                                    realValue >= 1 -> {
-                                                        // Para valores normales
-                                                        String.format("%.3f", realValue)
-                                                    }
-                                                    realValue >= 0.001 -> {
-                                                        // Para valores pequeños (típico de tokens)
-                                                        String.format("%.6f", realValue)
-                                                    }                                                    else -> {
-                                                        // Para valores muy pequeños
-                                                        String.format("%.8f", realValue)
-                                                    }
-                                                }
-                                            }
-                                        ),
-                                        bottomAxis = bottomAxis(
-                                            label = textComponent {
-                                                color = Color.White.toArgb()
-                                                textSizeSp = 10f
-                                            },                                            // Formatear el eje X para mostrar tiempo más intuitivo
-                                            valueFormatter = { value, _ ->
-                                                val index = value.toInt()
-                                                when {
-                                                    index % 12 == 0 -> "${index * 15 / 60}h" // Cada 3 horas
-                                                    index % 4 == 0 -> "${index * 15}m" // Cada hora
-                                                    else -> ""
-                                                }
-                                            }
-                                        ),
+                                    SimpleCryptoChart(
+                                        data = priceData,
                                         modifier = Modifier.fillMaxSize()
                                     )
                                 } else {
@@ -771,5 +768,79 @@ fun TokenDetailScreen(
                 }
             }
         }
+    }
+}
+
+/**
+ * Simple static crypto chart implementation using Canvas
+ * This chart displays all data points within the container without scrolling
+ */
+@Composable
+fun SimpleCryptoChart(
+    data: List<Float>,
+    modifier: Modifier = Modifier
+) {
+    if (data.isEmpty()) {
+        Box(
+            modifier = modifier,
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "No data available",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+        }
+        return
+    }
+
+    Canvas(modifier = modifier) {
+        val width = size.width
+        val height = size.height
+        val padding = 24.dp.toPx()
+        
+        val chartWidth = width - (padding * 2)
+        val chartHeight = height - (padding * 2)
+        
+        if (chartWidth <= 0 || chartHeight <= 0 || data.size < 2) return@Canvas
+        
+        // Reverse data so most recent appears on the right
+        val reversedData = data.reversed()
+        
+        // Calculate min and max values for scaling
+        val minValue = reversedData.minOrNull() ?: 0f
+        val maxValue = reversedData.maxOrNull() ?: 1f
+        val valueRange = maxValue - minValue
+        
+        // If all values are the same, create a small range for display
+        val displayRange = if (valueRange == 0f) maxValue * 0.01f else valueRange
+        val displayMin = if (valueRange == 0f) minValue - (maxValue * 0.005f) else minValue
+        val displayMax = if (valueRange == 0f) maxValue + (maxValue * 0.005f) else maxValue
+        
+        // Create path for the line chart
+        val path = Path()
+        val stepX = chartWidth / (reversedData.size - 1)
+        
+        // Calculate first point
+        val startX = padding
+        val startY = padding + chartHeight - ((reversedData[0] - displayMin) / displayRange * chartHeight)
+        path.moveTo(startX, startY)
+        
+        // Add subsequent points
+        for (i in 1 until reversedData.size) {
+            val x = padding + (i * stepX)
+            val y = padding + chartHeight - ((reversedData[i] - displayMin) / displayRange * chartHeight)
+            path.lineTo(x, y)
+        }
+        
+        // Draw the line with primary color
+        drawPath(
+            path = path,
+            color = XianPrimary,
+            style = Stroke(
+                width = 3.dp.toPx(),
+                cap = StrokeCap.Round
+            )
+        )
     }
 }

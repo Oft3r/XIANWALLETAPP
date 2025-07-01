@@ -78,6 +78,11 @@ import androidx.compose.material.icons.filled.Build // Import for Build icon
 import androidx.compose.material.icons.filled.Person // Import Person icon
 import androidx.compose.material.icons.filled.ArrowDropDown // Import for dropdown arrow down
 import androidx.compose.material.icons.filled.ArrowDropUp // Import for dropdown arrow up
+import androidx.compose.material.icons.filled.HourglassEmpty // Import for hourglass icon
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material.DismissValue
@@ -112,7 +117,8 @@ import net.xian.xianwalletapp.R
 import net.xian.xianwalletapp.navigation.XianDestinations
 import net.xian.xianwalletapp.navigation.XianNavArgs
 import net.xian.xianwalletapp.network.TokenInfo
-import coil.compose.AsyncImage // For Coil image loading - TODO: Add Coil dependency
+import coil.compose.AsyncImage
+import coil.ImageLoader // For cached image loading
 import android.content.Intent
 import android.net.Uri
 import net.xian.xianwalletapp.network.XianNetworkService
@@ -266,6 +272,7 @@ fun WalletScreen(
                             if (displayedNftInfo != null) {
                                 AsyncImage(
                                     model = displayedNftInfo?.imageUrl, // Use imageUrl from NftCacheEntity
+                                    imageLoader = viewModel.getImageLoader(), // Use the custom image loader
                                     contentDescription = "Selected NFT Preview",
                                     modifier = Modifier
                                         .size(32.dp)
@@ -297,6 +304,7 @@ fun WalletScreen(
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 AsyncImage(
                                                     model = nft.imageUrl, // Use imageUrl from NftCacheEntity
+                                                    imageLoader = viewModel.getImageLoader(), // Use the custom image loader
                                                     contentDescription = nft.name,
                                                     modifier = Modifier
                                                         .size(24.dp)
@@ -381,7 +389,7 @@ fun WalletScreen(
         }) { paddingValues ->
         Box(modifier = Modifier.fillMaxSize()) {
             SwipeRefresh(
-                state = rememberSwipeRefreshState(isLoading),
+                state = rememberSwipeRefreshState(false), // Never show default indicator
                 onRefresh = {
                     viewModel.refreshData()
                     // Restart transaction monitoring on refresh
@@ -417,19 +425,57 @@ fun WalletScreen(
                         // Add spacing at the top to push content lower
                         Spacer(modifier = Modifier.height(10.dp))
                         
-                        // Label
-                        Surface(
-                            shape = RoundedCornerShape(percent = 50),
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.padding(bottom = 0.dp) // Adjusted to ensure alignment with balance
+                        // Label with hourglass loading indicator
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
                         ) {
-                            Text(
-                                text = activeWalletName?.takeIf { it.isNotBlank() } ?: "My Wallet",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                            )
+                            Surface(
+                                shape = RoundedCornerShape(percent = 50),
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.padding(bottom = 0.dp) // Adjusted to ensure alignment with balance
+                            ) {
+                                Text(
+                                    text = activeWalletName?.takeIf { it.isNotBlank() } ?: "My Wallet",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                )
+                            }
+                            
+                            // Hourglass loading indicator to the right of wallet name
+                            if (isLoading) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                
+                                var rotation by remember { mutableStateOf(0f) }
+                                
+                                // Continuous rotation while loading
+                                LaunchedEffect(isLoading) {
+                                    while (isLoading) {
+                                        rotation += 360f
+                                        delay(1500) // Rotate every 1.5 seconds
+                                    }
+                                }
+                                
+                                val animatedRotation by animateFloatAsState(
+                                    targetValue = rotation,
+                                    animationSpec = tween(
+                                        durationMillis = 1500,
+                                        easing = LinearEasing
+                                    ),
+                                    label = "HourglassRotation"
+                                )
+                                
+                                Icon(
+                                    imageVector = Icons.Default.HourglassEmpty,
+                                    contentDescription = "Loading",
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .rotate(animatedRotation),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
 
                         // Use a larger spacer between label and balance for better visual balance
@@ -772,6 +818,7 @@ fun WalletScreen(
                                             poopPrice = if (contract == "con_poop_coin") poopPrice else null, // Pasar el precio de POOP
                                             xtfuPrice = if (contract == "con_xtfu") xtfuPrice else null, // Pasar el precio de XTFU
                                             xarbPrice = if (contract == "con_xarb") xarbPrice else null, // Pasar el precio de XARB
+                                            imageLoader = viewModel.getImageLoader(), // Pass the custom image loader
                                             onSendClick = {
                                                 navController.navigate(
                                                     "${XianDestinations.SEND_TOKEN}?${XianNavArgs.TOKEN_CONTRACT}=$contract&${XianNavArgs.TOKEN_SYMBOL}=${tokenInfo?.symbol ?: ""}"
@@ -1052,6 +1099,7 @@ fun WalletScreen(
                                                     token.contract == "con_xarb" -> "file:///android_asset/xarb.jpg"
                                                     else -> token.logoUrl
                                                 },
+                                                imageLoader = viewModel.getImageLoader(), // Use the custom image loader
                                                 contentDescription = "${token.name} logo",
                                                 modifier = Modifier
                                                     .size(24.dp)
@@ -1123,6 +1171,7 @@ fun TokenItem(
     poopPrice: Float? = null, // Añadir precio de POOP en XIAN
     xtfuPrice: Float? = null, // Añadir precio de XTFU en XIAN
     xarbPrice: Float? = null, // Añadir precio de XARB en XIAN
+    imageLoader: ImageLoader, // Add ImageLoader parameter
     onSendClick: () -> Unit,
     onReceiveClick: () -> Unit,
     onRemoveClick: (() -> Unit)? = null, // Hacer opcional para el modo edición
@@ -1155,7 +1204,8 @@ fun TokenItem(
                 "con_xtfu" -> xtfuPrice
                 "con_xarb" -> xarbPrice
                 else -> null
-            }, // Mostrar precio en XIAN cuando corresponda
+            },
+            imageLoader = imageLoader, // Pass down the loader
             onSendClick = onSendClick,
             onReceiveClick = onReceiveClick,
             onRemoveClick = onRemoveClick,
@@ -1273,6 +1323,7 @@ fun SwipeableTokenCard(
     balance: Float,
     usdValue: Float? = null,
     xianPrice: Float? = null, // Añadir parámetro xianPrice para el token POOP
+    imageLoader: ImageLoader, // Add ImageLoader parameter
     onSendClick: () -> Unit,
     onReceiveClick: () -> Unit,
     onRemoveClick: (() -> Unit)? = null,
@@ -1315,6 +1366,7 @@ fun SwipeableTokenCard(
                             contract == "con_xarb" -> "file:///android_asset/xarb.jpg"
                             else -> logoUrl
                         },
+                        imageLoader = imageLoader, // Use the custom image loader
                         contentDescription = "$name Logo",
                         modifier = Modifier
                             .size(40.dp)

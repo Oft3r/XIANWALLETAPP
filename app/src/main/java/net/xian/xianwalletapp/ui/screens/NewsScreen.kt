@@ -41,6 +41,14 @@ import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModel // Import Naviga
 import net.xian.xianwalletapp.ui.viewmodels.NavigationViewModelFactory // Import NavigationViewModelFactory
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.material.icons.filled.HourglassEmpty // Import for hourglass icon
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.ui.draw.rotate
+import kotlinx.coroutines.delay
 
 /**
  * Screen for displaying ecosystem news and updates fetched from Reddit
@@ -115,8 +123,47 @@ fun NewsScreen(
         }
     ) { paddingValues ->
         SwipeRefresh(
-            state = swipeRefreshState,
+            state = rememberSwipeRefreshState(false), // Never show default indicator
             onRefresh = { newsViewModel.fetchNews() }, // Trigger fetch on refresh
+            indicator = { state, trigger ->
+                // Custom hourglass indicator
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isRefreshing) {
+                        var rotation by remember { mutableStateOf(0f) }
+                        
+                        // Continuous rotation while refreshing
+                        LaunchedEffect(isRefreshing) {
+                            while (isRefreshing) {
+                                rotation += 360f
+                                delay(1500) // Rotate every 1.5 seconds
+                            }
+                        }
+                        
+                        val animatedRotation by animateFloatAsState(
+                            targetValue = rotation,
+                            animationSpec = tween(
+                                durationMillis = 1500,
+                                easing = LinearEasing
+                            ),
+                            label = "HourglassRotation"
+                        )
+                        
+                        Icon(
+                            imageVector = Icons.Default.HourglassEmpty,
+                            contentDescription = "Loading",
+                            modifier = Modifier
+                                .size(20.dp)
+                                .rotate(animatedRotation),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            },
             modifier = Modifier.padding(top = paddingValues.calculateTopPadding())
         ) {
             // Use Box to allow content to be scrollable even when SwipeRefresh is active
@@ -129,9 +176,36 @@ fun NewsScreen(
             ) {
                 when (val state = uiState) {
                     is NewsUiState.Loading -> {
-                        // Show loading indicator centered only if not triggered by swipe refresh
-                        if (!swipeRefreshState.isSwipeInProgress) {
-                            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                        // Show hourglass loading indicator centered only if not triggered by swipe refresh
+                        if (!isRefreshing) {
+                            var rotation by remember { mutableStateOf(0f) }
+                            
+                            // Continuous rotation while loading
+                            LaunchedEffect(true) {
+                                while (true) {
+                                    rotation += 360f
+                                    delay(1500) // Rotate every 1.5 seconds
+                                }
+                            }
+                            
+                            val animatedRotation by animateFloatAsState(
+                                targetValue = rotation,
+                                animationSpec = tween(
+                                    durationMillis = 1500,
+                                    easing = LinearEasing
+                                ),
+                                label = "HourglassRotation"
+                            )
+                            
+                            Icon(
+                                imageVector = Icons.Default.HourglassEmpty,
+                                contentDescription = "Loading",
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .size(32.dp)
+                                    .rotate(animatedRotation),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
                         }
                         // Keep the Box structure so SwipeRefresh works correctly even while loading
                     }

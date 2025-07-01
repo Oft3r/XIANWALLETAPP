@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDropUp
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -88,6 +90,24 @@ fun ManageTokenList(
     
     // Filter added tokens (exclude XIAN currency as it can't be removed)
     val addedTokens = tokens.filter { it != "currency" }
+    
+    // Local state for reordering (exclude "currency" from reorderable tokens)
+    val reorderableTokens = tokens.filter { it != "currency" }
+    var localTokenOrder by remember { mutableStateOf(reorderableTokens) }
+    var isReorderMode by remember { mutableStateOf(false) }
+    
+    // Update local order when tokens change
+    LaunchedEffect(tokens) {
+        localTokenOrder = tokens.filter { it != "currency" }
+    }
+    
+    // Function to move item in list
+    fun moveItem(fromIndex: Int, toIndex: Int) {
+        val mutableList = localTokenOrder.toMutableList()
+        val item = mutableList.removeAt(fromIndex)
+        mutableList.add(toIndex, item)
+        localTokenOrder = mutableList
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -139,11 +159,24 @@ fun ManageTokenList(
                                     IconButton(
                                         onClick = {
                                             if (contractAddress.isNotBlank()) {
-                                                viewModel.addTokenAndRefresh(contractAddress)
-                                                contractAddress = ""
-                                                coroutineScope.launch {
-                                                    snackbarHostState.showSnackbar("Token added successfully")
+                                                viewModel.addTokenAndRefresh(contractAddress) { result ->
+                                                    coroutineScope.launch {
+                                                        val message = when (result) {
+                                                            net.xian.xianwalletapp.wallet.TokenAddResult.SUCCESS ->
+                                                                "Token added successfully"
+                                                            net.xian.xianwalletapp.wallet.TokenAddResult.ALREADY_EXISTS ->
+                                                                "Token is already in your wallet"
+                                                            net.xian.xianwalletapp.wallet.TokenAddResult.INVALID_CONTRACT ->
+                                                                "Invalid contract address"
+                                                            net.xian.xianwalletapp.wallet.TokenAddResult.NO_ACTIVE_WALLET ->
+                                                                "No active wallet found"
+                                                            net.xian.xianwalletapp.wallet.TokenAddResult.FAILED ->
+                                                                "Failed to add token"
+                                                        }
+                                                        snackbarHostState.showSnackbar(message)
+                                                    }
                                                 }
+                                                contractAddress = ""
                                             }
                                         },
                                         enabled = !expanded && contractAddress.isNotBlank()
@@ -161,30 +194,91 @@ fun ManageTokenList(
                 }
             }
 
-            // Section: Added Tokens
-            if (addedTokens.isNotEmpty()) {
+            // Section: Token Order (only show if there are non-currency tokens)
+            if (localTokenOrder.isNotEmpty()) {
                 item {
-                    Text(
-                        text = "Added Tokens",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(top = 6.dp, bottom = 4.dp)
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp, bottom = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Token Order",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (isReorderMode) {
+                                Button(
+                                    onClick = {
+                                        // Reconstruct the full token list with "currency" first
+                                        val fullTokenOrder = if (tokens.contains("currency")) {
+                                            listOf("currency") + localTokenOrder
+                                        } else {
+                                            localTokenOrder
+                                        }
+                                        viewModel.reorderTokens(fullTokenOrder)
+                                        isReorderMode = false
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("Token order saved")
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary
+                                    )
+                                ) {
+                                    Text("Save Order")
+                                }
+                                
+                                TextButton(
+                                    onClick = {
+                                        localTokenOrder = tokens.filter { it != "currency" }
+                                        isReorderMode = false
+                                    }
+                                ) {
+                                    Text("Cancel")
+                                }
+                            } else {
+                                if (localTokenOrder.isNotEmpty()) {
+                                    TextButton(
+                                        onClick = { isReorderMode = true }
+                                    ) {
+                                        Text("Reorder")
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
-                items(addedTokens) { contract ->
+                // Show only reorderable tokens (currency is excluded from this view)
+                itemsIndexed(localTokenOrder) { index, contract ->
                     val tokenInfo = tokenInfoMap[contract]
                     AddedTokenItem(
                         contract = contract,
                         name = tokenInfo?.name ?: contract,
                         symbol = tokenInfo?.symbol ?: "",
                         logoUrl = tokenInfo?.logoUrl,
-                        onRemoveClick = {
-                            viewModel.removeToken(contract)
-                            coroutineScope.launch {
-                                snackbarHostState.showSnackbar("Token removed")
+                        viewModel = viewModel, // Pass viewModel for image loader access
+                        isReorderMode = isReorderMode,
+                        canMoveUp = index > 0,
+                        canMoveDown = index < localTokenOrder.size - 1,
+                        onMoveUp = if (index > 0) { { moveItem(index, index - 1) } } else null,
+                        onMoveDown = if (index < localTokenOrder.size - 1) { { moveItem(index, index + 1) } } else null,
+                        onRemoveClick = if (!isReorderMode) {
+                            {
+                                viewModel.removeToken(contract)
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("Token removed")
+                                }
                             }
-                        }
+                        } else null
                     )
                 }
             }
@@ -203,10 +297,24 @@ fun ManageTokenList(
                 items(availableTokens) { token ->
                     AvailableTokenItem(
                         token = token,
+                        viewModel = viewModel, // Pass viewModel for image loader access
                         onAddClick = {
-                            viewModel.addTokenAndRefresh(token.contract)
-                            coroutineScope.launch {
-                                snackbarHostState.showSnackbar("${token.name} added")
+                            viewModel.addTokenAndRefresh(token.contract) { result ->
+                                coroutineScope.launch {
+                                    val message = when (result) {
+                                        net.xian.xianwalletapp.wallet.TokenAddResult.SUCCESS ->
+                                            "${token.name} added successfully"
+                                        net.xian.xianwalletapp.wallet.TokenAddResult.ALREADY_EXISTS ->
+                                            "${token.name} is already in your wallet"
+                                        net.xian.xianwalletapp.wallet.TokenAddResult.INVALID_CONTRACT ->
+                                            "Invalid contract address"
+                                        net.xian.xianwalletapp.wallet.TokenAddResult.NO_ACTIVE_WALLET ->
+                                            "No active wallet found"
+                                        net.xian.xianwalletapp.wallet.TokenAddResult.FAILED ->
+                                            "Failed to add ${token.name}"
+                                    }
+                                    snackbarHostState.showSnackbar(message)
+                                }
                             }
                         }
                     )
@@ -250,7 +358,13 @@ private fun AddedTokenItem(
     name: String,
     symbol: String,
     logoUrl: String?,
-    onRemoveClick: () -> Unit
+    viewModel: WalletViewModel, // Add viewModel parameter to access image loader
+    isReorderMode: Boolean = false,
+    canMoveUp: Boolean = false,
+    canMoveDown: Boolean = false,
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null,
+    onRemoveClick: (() -> Unit)? = null
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -265,8 +379,10 @@ private fun AddedTokenItem(
             AsyncImage(
                 model = when {
                     contract == "con_xarb" -> "file:///android_asset/xarb.jpg"
+                    contract == "con_xtfu" -> "https://snakexchange.org/icons/con_xtfu.png"
                     else -> logoUrl
                 },
+                imageLoader = viewModel.getImageLoader(), // Use the cached image loader
                 contentDescription = "$name Logo",
                 modifier = Modifier
                     .size(40.dp)
@@ -293,23 +409,58 @@ private fun AddedTokenItem(
                 )
             }
 
-            // Remove button
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.error.copy(alpha = 0.1f))
-                    .border(1.dp, MaterialTheme.colorScheme.error, CircleShape)
-                    .clickable(onClick = onRemoveClick),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "−",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.error,
-                    textAlign = TextAlign.Center
-                )
+            if (isReorderMode) {
+                // Reorder controls
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    // Move Up button
+                    IconButton(
+                        onClick = { onMoveUp?.invoke() },
+                        enabled = canMoveUp
+                    ) {
+                        Icon(
+                            Icons.Default.ArrowDropUp,
+                            contentDescription = "Move Up",
+                            tint = if (canMoveUp) MaterialTheme.colorScheme.primary
+                                  else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                        )
+                    }
+                    
+                    // Move Down button
+                    IconButton(
+                        onClick = { onMoveDown?.invoke() },
+                        enabled = canMoveDown
+                    ) {
+                        Icon(
+                            Icons.Default.ArrowDropDown,
+                            contentDescription = "Move Down",
+                            tint = if (canMoveDown) MaterialTheme.colorScheme.primary
+                                  else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                        )
+                    }
+                }
+            } else {
+                // Remove button (only show if not in reorder mode and onRemoveClick is provided)
+                onRemoveClick?.let { removeClick ->
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.error.copy(alpha = 0.1f))
+                            .border(1.dp, MaterialTheme.colorScheme.error, CircleShape)
+                            .clickable(onClick = removeClick),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "−",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
             }
         }
     }
@@ -318,6 +469,7 @@ private fun AddedTokenItem(
 @Composable
 private fun AvailableTokenItem(
     token: PredefinedToken,
+    viewModel: WalletViewModel, // Add viewModel parameter to access image loader
     onAddClick: () -> Unit
 ) {
     Card(
@@ -333,8 +485,10 @@ private fun AvailableTokenItem(
             AsyncImage(
                 model = when {
                     token.contract == "con_xarb" -> "file:///android_asset/xarb.jpg"
+                    token.contract == "con_xtfu" -> "https://snakexchange.org/icons/con_xtfu.png"
                     else -> token.logoUrl
                 },
+                imageLoader = viewModel.getImageLoader(), // Use the cached image loader
                 contentDescription = "${token.name} Logo",
                 modifier = Modifier
                     .size(40.dp)

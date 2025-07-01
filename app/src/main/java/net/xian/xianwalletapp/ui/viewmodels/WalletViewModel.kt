@@ -1,5 +1,6 @@
 package net.xian.xianwalletapp.ui.viewmodels
 
+import android.content.Context
 import android.util.Log
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
@@ -8,6 +9,9 @@ import androidx.lifecycle.viewModelScope
 import net.xian.xianwalletapp.network.NftInfo // Keep for network response
 import net.xian.xianwalletapp.data.db.NftCacheDao // Import DAO
 import net.xian.xianwalletapp.data.db.NftCacheEntity // Import Entity
+import net.xian.xianwalletapp.data.db.TokenCacheDao // Import TokenCacheDao
+import net.xian.xianwalletapp.data.db.TokenCacheEntity // Import TokenCacheEntity
+import net.xian.xianwalletapp.data.TokenLogoCacheManager // Import TokenLogoCacheManager
 import net.xian.xianwalletapp.network.TokenInfo
 import net.xian.xianwalletapp.network.XianNetworkService
 import net.xian.xianwalletapp.network.SwapEvent // Added for chart data
@@ -23,6 +27,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.flatMapLatest // Import flatMapLatest
 import kotlinx.coroutines.flow.flowOf // Import flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext // Added for background operations
+import kotlinx.coroutines.Dispatchers // Added for IO dispatcher
 import org.json.JSONObject // Added import
 import java.math.BigDecimal // Added import
 import java.text.NumberFormat // For fee formatting
@@ -77,11 +83,18 @@ sealed class FeeEstimationState {
 }
 
 class WalletViewModel(
+    private val context: Context,
     private val walletManager: WalletManager,
     private val networkService: XianNetworkService,
     private val nftCacheDao: NftCacheDao, // Add DAO as dependency
+    private val tokenCacheDao: TokenCacheDao, // Add TokenCacheDao as dependency
     private val transactionRepository: TransactionRepository // Added TransactionRepository
-) : ViewModel() {    // List of predefined tokens that users can select from the dropdown
+) : ViewModel() {
+    
+    // Initialize TokenLogoCacheManager for permanent image caching
+    private val tokenLogoCacheManager = TokenLogoCacheManager(context)
+        
+    // List of predefined tokens that users can select from the dropdown
     private val _internalPredefinedTokens = listOf(
         PredefinedToken(
             name = "xUSDC", 
@@ -113,7 +126,7 @@ class WalletViewModel(
     val publicKey: StateFlow<String> = _publicKeyFlow.asStateFlow()
 
     // --- State Flows for UI ---
-    private val _tokens = MutableStateFlow(walletManager.getTokenList().toList().sortedWith(compareBy<String> { it != "currency" }.thenBy { it }))
+    private val _tokens = MutableStateFlow(walletManager.getOrderedTokenList())
     val tokens: StateFlow<List<String>> = _tokens.asStateFlow()
 
     private val _tokenInfoMap = MutableStateFlow<Map<String, TokenInfo>>(EMPTY_TOKEN_INFO_MAP)
@@ -121,6 +134,14 @@ class WalletViewModel(
 
     private val _balanceMap = MutableStateFlow<Map<String, Float>>(EMPTY_BALANCE_MAP)
     val balanceMap: StateFlow<Map<String, Float>> = _balanceMap.asStateFlow()
+
+    // Cache first flow for immediate UI updates
+    val cachedTokens: StateFlow<List<TokenCacheEntity>> = tokenCacheDao.getAllActiveTokens()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
 
     private val _xianPriceInfo = MutableStateFlow<Pair<Float, Float>?>(null)
     val xianPriceInfo: StateFlow<Pair<Float, Float>?> = _xianPriceInfo.asStateFlow()
@@ -232,6 +253,9 @@ class WalletViewModel(
     
     private val _chartError = MutableStateFlow<String?>(null)
     val chartError: StateFlow<String?> = _chartError.asStateFlow()
+    
+    private val _chartData = MutableStateFlow<List<Float>>(emptyList())
+    val chartData: StateFlow<List<Float>> = _chartData.asStateFlow()
     private val _chartNormalizationType = MutableStateFlow<String?>(null)
     val chartNormalizationType: StateFlow<String?> = _chartNormalizationType.asStateFlow()
       // Chart Y-axis range states
@@ -304,6 +328,9 @@ class WalletViewModel(
         }
         // Trigger initial data load explicitly after setting up observer
         loadDataIfNotLoaded()
+        
+        // Preload token logos on startup in background
+        preloadTokenLogosFromCache()
         loadTransactionHistory() // Load initial transaction history        // Start periodic connectivity check
         startConnectivityChecks()
     }
@@ -313,58 +340,38 @@ class WalletViewModel(
      * Loads historical price data for the given token contract and updates the chart.
      * Fetches swap events from GraphQL and processes them into chart data.
      */
-    fun loadHistoricalData(tokenContract: String) {
-        viewModelScope.launch {            _isChartLoading.value = true
+    fun loadHistoricalData(tokenContract: String, timePeriod: String = "1D") {
+        viewModelScope.launch {
+            _isChartLoading.value = true
             _chartError.value = null
             _chartNormalizationType.value = null // Reset normalization state
             _chartYAxisRange.value = null // Reset Y-axis range
             _chartYAxisOffset.value = null // Reset Y-axis offset
-            Log.d("WalletViewModel", "Loading historical data for chart: $tokenContract")
+            Log.d("WalletViewModel", "Loading historical data for chart: $tokenContract ($timePeriod)")
 
-            try {                // First, we need to find the trading pair for this token
-                val allPairs = networkService.getAllPairs()
-                val tokenPair = allPairs.find { pair ->
-                    pair.token0 == tokenContract || pair.token1 == tokenContract
-                }
+            try {
+                // Use the new helper method to get historical data for the specific time period
+                val chartEntries = getHistoricalDataForPeriod(tokenContract, timePeriod)
                 
-                if (tokenPair == null) {
-                    _chartError.value = "No trading pair found for token $tokenContract"
-                    chartModelProducer.setEntries(EMPTY_CHART_ENTRIES)
-                    _chartNormalizationType.value = null
-                    _chartYAxisRange.value = null
-                    _chartYAxisOffset.value = null
-                    return@launch
-                }
-                
-                Log.d("WalletViewModel", "Found trading pair: ${tokenPair.id} for token $tokenContract")
-                
-                // Fetch swap events for this pair
-                val swapEvents = networkService.getSwapEventsForPair(tokenPair.id)
-                
-                if (swapEvents.isEmpty()) {
-                    _chartError.value = "No price data available for $tokenContract"
-                    chartModelProducer.setEntries(EMPTY_CHART_ENTRIES)
-                    _chartNormalizationType.value = null
-                    _chartYAxisRange.value = null
-                    _chartYAxisOffset.value = null
-                    return@launch
-                }
-
-                Log.d("WalletViewModel", "Processing ${swapEvents.size} swap events for chart")
-
-                // Process swap events into chart data
-                val chartEntries = processSwapEventsToChartData(swapEvents, tokenContract, tokenPair)
-
                 if (chartEntries.isNotEmpty()) {
                     chartModelProducer.setEntries(chartEntries)
-                    Log.d("WalletViewModel", "Chart updated with ${chartEntries.size} data points")                } else {                    _chartError.value = "Could not process price data for $tokenContract"
+                    // Extract y values for SimpleCryptoChart
+                    val chartDataList = chartEntries.map { it.y }
+                    _chartData.value = chartDataList
+                    Log.d("WalletViewModel", "Chart updated with ${chartEntries.size} data points for $timePeriod period")
+                    Log.d("WalletViewModel", "Chart data values: ${chartDataList.take(5)}...") // Log first 5 values
+                } else {
+                    _chartError.value = "No price data available for $tokenContract ($timePeriod)"
                     chartModelProducer.setEntries(EMPTY_CHART_ENTRIES)
+                    _chartData.value = emptyList()
                     _chartNormalizationType.value = null
                     _chartYAxisRange.value = null
                     _chartYAxisOffset.value = null
-                }            } catch (e: Exception) {
-                Log.e("WalletViewModel", "Error loading historical chart data for $tokenContract", e)
-                _chartError.value = "Failed to load chart data: ${e.message}"
+                }
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error loading historical chart data for $tokenContract ($timePeriod)", e)
+                _chartError.value = "Failed to load chart data for $timePeriod: ${e.message}"
+                _chartData.value = emptyList()
                 chartModelProducer.setEntries(EMPTY_CHART_ENTRIES)
                 _chartNormalizationType.value = null
                 _chartYAxisRange.value = null
@@ -381,7 +388,8 @@ class WalletViewModel(
         swapEvents: List<SwapEvent>,
         tokenContract: String,
         tokenPair: PairInfo
-    ): List<FloatEntry> {        try {
+    ): List<FloatEntry> {
+        try {
             // Sort events by timestamp (oldest first for processing, will be reversed for display)
             val sortedEvents: List<SwapEvent> = swapEvents.sortedBy { event ->
                 // Parse timestamp string to compare
@@ -404,7 +412,9 @@ class WalletViewModel(
                 } catch (e: Exception) {
                     Log.w("WalletViewModel", "Could not parse timestamp: ${event.timestamp}")
                 }
-            }            // Convert candles to chart entries with volume-weighted average price (VWAP)
+            }
+            
+            // Convert candles to chart entries with volume-weighted average price (VWAP)
             val priceList: MutableList<Double> = mutableListOf()
             val chartEntries: MutableList<FloatEntry> = mutableListOf()
             var xIndex = 0f
@@ -442,7 +452,9 @@ class WalletViewModel(
 
                     priceList.add(finalPrice)
                 }
-            }            // Calcular estadísticas para optimizar la escala
+            }
+            
+            // Calcular estadísticas para optimizar la escala
             if (priceList.isNotEmpty()) {
                 val minPrice = priceList.minOrNull() ?: 0.0
                 val maxPrice = priceList.maxOrNull() ?: 0.0
@@ -477,18 +489,20 @@ class WalletViewModel(
                     xIndex += 1f
                 }
                 
-                // Establecer información de escala para el eje Y
+                // Establecer información de escala para el eje Y - Siempre mostrar el rango
+                val scaleInfo = if (shouldUseOffset) {
+                    "Low: ${"%.6f".format(displayMin)} - High: ${"%.6f".format(displayMax)} (offset applied)"
+                } else {
+                    "Low: ${"%.6f".format(displayMin)} - High: ${"%.6f".format(displayMax)}"
+                }
+                _chartNormalizationType.value = scaleInfo
+                
                 if (shouldUseOffset) {
-                    val scaleInfo = "Range: ${"%.6f".format(displayMin)} - ${"%.6f".format(displayMax)} (offset applied)"
-                    _chartNormalizationType.value = scaleInfo
                     Log.d("WalletViewModel", "Using offset mapping to center chart around price range: $scaleInfo")
                 } else if (hasSmallVariation) {
-                    val scaleInfo = "Real Prices: ${"%.6f".format(displayMin)} - ${"%.6f".format(displayMax)}"
-                    _chartNormalizationType.value = scaleInfo
                     Log.d("WalletViewModel", "Using real prices with enhanced scale for small variation (${relativeVariation * 100}%): $scaleInfo")
                 } else {
-                    _chartNormalizationType.value = null
-                    Log.d("WalletViewModel", "Using real prices with normal scale (${relativeVariation * 100}% variation)")
+                    Log.d("WalletViewModel", "Using real prices with normal scale (${relativeVariation * 100}% variation): $scaleInfo")
                 }
             }
 
@@ -511,7 +525,7 @@ class WalletViewModel(
     fun refreshData() {
         Log.d("WalletViewModel", "Manual refresh triggered.")
         // Reset token list from manager in case it changed
-        _tokens.value = walletManager.getTokenList().toList().sortedWith(compareBy<String> { it != "currency" }.thenBy { it })
+        _tokens.value = walletManager.getOrderedTokenList()
         // Force load data
         loadData(force = true)
         loadTransactionHistory(force = true) // Refresh transaction history
@@ -524,16 +538,32 @@ class WalletViewModel(
         Log.d("WalletViewModel", "Preferred NFT set to: ${nft.contractAddress}")
     }
 
-    fun addTokenAndRefresh(contract: String) {
+    fun addTokenAndRefresh(contract: String, onResult: ((net.xian.xianwalletapp.wallet.TokenAddResult) -> Unit)? = null) {
         viewModelScope.launch {
-            if (walletManager.addToken(contract)) {
-                Log.d("WalletViewModel", "Token $contract added to WalletManager.")
-                // Refresh the data after adding the token
-                loadData(force = true)
-            } else {
-                 Log.w("WalletViewModel", "Failed to add token $contract via WalletManager.")
-                 // Optionally handle the failure case (e.g., show a message)
+            val result = walletManager.addToken(contract)
+            when (result) {
+                net.xian.xianwalletapp.wallet.TokenAddResult.SUCCESS -> {
+                    Log.d("WalletViewModel", "Token $contract added to WalletManager.")
+                    // Immediately update the token list for instant UI feedback
+                    _tokens.value = walletManager.getOrderedTokenList()
+                    // Load from cache first, then refresh in background
+                    loadTokenFromCacheFirst(contract)
+                }
+                net.xian.xianwalletapp.wallet.TokenAddResult.ALREADY_EXISTS -> {
+                    Log.i("WalletViewModel", "Token $contract already exists in wallet.")
+                    // Token already exists, no need to refresh, but this is not an error
+                }
+                net.xian.xianwalletapp.wallet.TokenAddResult.INVALID_CONTRACT -> {
+                    Log.w("WalletViewModel", "Invalid contract address: $contract")
+                }
+                net.xian.xianwalletapp.wallet.TokenAddResult.NO_ACTIVE_WALLET -> {
+                    Log.w("WalletViewModel", "No active wallet to add token to")
+                }
+                net.xian.xianwalletapp.wallet.TokenAddResult.FAILED -> {
+                    Log.w("WalletViewModel", "Failed to add token $contract via WalletManager.")
+                }
             }
+            onResult?.invoke(result)
         }
     }
 
@@ -544,10 +574,27 @@ class WalletViewModel(
             if (walletManager.removeToken(contract)) {
                 Log.d("WalletViewModel", "Token $contract removed from WalletManager.")
                 // Update the internal list and trigger refresh
-                _tokens.value = walletManager.getTokenList().toList().sortedWith(compareBy<String> { it != "currency" }.thenBy { it })
-                loadData(force = true) // Refresh balances etc.
+                _tokens.value = walletManager.getOrderedTokenList()
+                // Refresh only token-related data (not NFTs)
+                refreshTokenDataOnly()
             } else {
                 Log.w("WalletViewModel", "Failed to remove token $contract via WalletManager.")
+            }
+        }
+    }
+
+    /**
+     * Reorder tokens with custom order and save the preference
+     */
+    fun reorderTokens(newOrder: List<String>) {
+        viewModelScope.launch {
+            if (walletManager.saveTokenOrder(newOrder)) {
+                Log.d("WalletViewModel", "Token order saved successfully")
+                // Update the UI with the new order
+                _tokens.value = newOrder
+            } else {
+                Log.w("WalletViewModel", "Failed to save token order")
+                // Optionally show error message to user
             }
         }
     }
@@ -795,6 +842,9 @@ class WalletViewModel(
                 // Actualizar la lista de tokens predefinidos
                 _predefinedTokens.value = updatedTokens
                 Log.d("WalletViewModel", "Lista de tokens predefinidos actualizada con información adicional")
+                
+                // Cache token logos for predefined tokens
+                cacheTokenLogos(updatedTokens)
             } catch (e: Exception) {
                 Log.e("WalletViewModel", "Error al actualizar tokens predefinidos", e)
             }
@@ -802,9 +852,10 @@ class WalletViewModel(
     }
 
     private fun loadDataIfNotLoaded() {
-        if (!hasLoadedInitialData && _publicKeyFlow.value.isNotEmpty()) { // Only load if key exists
+        if (!hasLoadedInitialData && _publicKeyFlow.value.isNotEmpty()) {
             Log.d("WalletViewModel", "Initial data load triggered for key: ${_publicKeyFlow.value}")
-            loadData(force = false)
+            // Load from cache first, then network
+            loadFromCacheFirst()
         } else {
              Log.d("WalletViewModel", "Skipping initial data load. Already loaded or public key empty.")
              _isLoading.value = false
@@ -812,80 +863,164 @@ class WalletViewModel(
         }
     }
 
-    private fun loadData(force: Boolean) {
+    /**
+     * Cache-first data loading strategy
+     * 1. Load immediately from cache
+     * 2. Update UI with cached data
+     * 3. Sync with network in background
+     */
+    private fun loadFromCacheFirst() {
         val currentPublicKey = _publicKeyFlow.value
         if (currentPublicKey.isEmpty()) {
-            Log.w("WalletViewModel", "Skipping loadData, public key is empty.")
-            _isLoading.value = false // Ensure loading stops if key becomes empty during load
+            Log.w("WalletViewModel", "Skipping cache-first load, public key is empty.")
+            _isLoading.value = false
             _isNftLoading.value = false
             return
         }
 
-        if (!force && hasLoadedInitialData) {
-            Log.d("WalletViewModel", "Skipping loadData, already loaded and not forced.")
-            return
-        }
-
         viewModelScope.launch {
-            _tokens.value = walletManager.getTokenList().toList().sortedWith(compareBy<String> { it != "currency" }.thenBy { it })
-            Log.d("WalletViewModel", "loadData: Updated token list for active wallet $currentPublicKey: ${_tokens.value}")
+            Log.d("WalletViewModel", "Starting cache-first load for key: $currentPublicKey")
+            
+            // Phase 1: Load from cache immediately
+            loadFromCache()
+            
+            // Phase 2: Background network sync
+            syncWithNetwork()
+            
+            hasLoadedInitialData = true
+        }
+    }
 
-            Log.d("WalletViewModel", "Starting data fetch (force=$force) for key: $currentPublicKey")
+    /**
+     * Load data immediately from local cache
+     */
+    private suspend fun loadFromCache() {
+        Log.d("WalletViewModel", "Loading data from cache...")
+        
+        try {
+            val currentTokens = walletManager.getOrderedTokenList()
+            _tokens.value = currentTokens
+            
+            val cachedTokenInfoMap = mutableMapOf<String, TokenInfo>()
+            val cachedBalanceMap = mutableMapOf<String, Float>()
+            
+            // Load cached token info
+            currentTokens.forEach { contract ->
+                try {
+                    val cachedToken = tokenCacheDao.getTokenByContract(contract)
+                    if (cachedToken != null) {
+                        val tokenInfo = TokenInfo(
+                            name = cachedToken.name,
+                            symbol = cachedToken.symbol,
+                            contract = cachedToken.contract,
+                            logoUrl = cachedToken.logoUrl
+                        )
+                        cachedTokenInfoMap[contract] = tokenInfo
+                        Log.d("WalletViewModel", "Loaded cached info for $contract: ${cachedToken.name}")
+                    } else {
+                        // Fall back to predefined tokens if not in cache
+                        val predefinedToken = _predefinedTokens.value.find { it.contract == contract }
+                        if (predefinedToken != null) {
+                            val tokenInfo = TokenInfo(
+                                name = predefinedToken.name,
+                                symbol = predefinedToken.contract.takeLast(4).uppercase(),
+                                contract = predefinedToken.contract,
+                                logoUrl = predefinedToken.logoUrl
+                            )
+                            cachedTokenInfoMap[contract] = tokenInfo
+                            Log.d("WalletViewModel", "Using predefined info for $contract: ${predefinedToken.name}")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("WalletViewModel", "Error loading cached data for $contract", e)
+                }
+            }
+            
+            // Update UI with cached data
+            _tokenInfoMap.value = cachedTokenInfoMap
+            _balanceMap.value = cachedBalanceMap // Balances will be updated from network
+            
+            Log.d("WalletViewModel", "Cache load complete - loaded ${cachedTokenInfoMap.size} tokens from cache")
+            
+        } catch (e: Exception) {
+            Log.e("WalletViewModel", "Error during cache load", e)
+        }
+    }
 
-            _isLoading.value = true
-            _isNftLoading.value = true // Keep separate NFT loading state for now
-
+    /**
+     * Sync with network in background and update cache
+     */
+    private suspend fun syncWithNetwork() {
+        val currentPublicKey = _publicKeyFlow.value
+        if (currentPublicKey.isEmpty()) return
+        
+        Log.d("WalletViewModel", "Starting background network sync for key: $currentPublicKey")
+        
+        _isLoading.value = true
+        _isNftLoading.value = true
+        
+        try {
             // Check connectivity
             _isCheckingConnection.value = true
             _isNodeConnected.value = networkService.checkNodeConnectivity()
             _isCheckingConnection.value = false
-            Log.d("WalletViewModel", "Node connectivity check result: ${_isNodeConnected.value}")
-
+            
+            if (!_isNodeConnected.value) {
+                Log.w("WalletViewModel", "Network not available, skipping sync")
+                _isLoading.value = false
+                _isNftLoading.value = false
+                return
+            }
+            
             val currentTokens = _tokens.value
-            val newTokenInfoMap = mutableMapOf<String, TokenInfo>()
-            val newBalanceMap = mutableMapOf<String, Float>()            // Fetch Tokens (with predefined token info priority)
+            val networkTokenInfoMap = mutableMapOf<String, TokenInfo>()
+            val networkBalanceMap = mutableMapOf<String, Float>()
+            
+            // Fetch fresh data from network
             currentTokens.forEach { contract ->
                 try {
-                    // Primero buscar en tokens predefinidos
+                    // Get token info from network
                     val predefinedToken = _predefinedTokens.value.find { it.contract == contract }
-                    
-                    // Si existe en predefinidos y tiene logo, usar esa información
-                    if (predefinedToken != null && predefinedToken.logoUrl != null) {
-                        Log.d("WalletViewModel", "Using predefined info for $contract with logo: ${predefinedToken.logoUrl}")
-                        // Crear TokenInfo a partir del token predefinido
-                        val tokenInfo = TokenInfo(
+                    val tokenInfo = if (predefinedToken != null && predefinedToken.logoUrl != null) {
+                        TokenInfo(
                             name = predefinedToken.name,
                             symbol = predefinedToken.contract.takeLast(4).uppercase(),
                             contract = predefinedToken.contract,
                             logoUrl = predefinedToken.logoUrl
                         )
-                        newTokenInfoMap[contract] = tokenInfo
                     } else {
-                        // Si no está en predefinidos, obtener del blockchain
-                        val tokenInfo = networkService.getTokenInfo(contract)
-                        newTokenInfoMap[contract] = tokenInfo
+                        networkService.getTokenInfo(contract)
                     }
                     
-                    // Obtener balance en cualquier caso
+                    networkTokenInfoMap[contract] = tokenInfo
+                    
+                    // Get balance from network
                     val balance = networkService.getTokenBalance(contract, currentPublicKey)
-                    Log.d("WalletViewModel", "Loaded balance for $contract: $balance")
-                    newBalanceMap[contract] = balance
+                    networkBalanceMap[contract] = balance
+                    
+                    Log.d("WalletViewModel", "Network sync: $contract - balance: $balance")
+                    
                 } catch (e: Exception) {
-                     Log.e("WalletViewModel", "Error fetching data for token $contract", e)
-                     // Handle error case? Maybe keep old data or show error state?
+                    Log.e("WalletViewModel", "Error fetching network data for token $contract", e)
                 }
             }
-            _tokenInfoMap.value = newTokenInfoMap
-            _balanceMap.value = newBalanceMap
+            
+            // Update cache with fresh network data
+            updateCacheWithNetworkData(networkTokenInfoMap)
+            
+            // Update UI with network data
+            _tokenInfoMap.value = networkTokenInfoMap
+            _balanceMap.value = networkBalanceMap
+            
+            // Cache token logos after network sync
+            cacheTokenLogosFromInfoMap(networkTokenInfoMap)
 
             // Fetch XIAN price info
             try {
                 val xianPriceResult = networkService.getXianPriceInfo()
-                val reserves = xianPriceResult.second // Extract the reserves pair
-                _xianPriceInfo.value = reserves // Assign the reserves pair
-                // Calculate XIAN price (USDC / XIAN)
+                val reserves = xianPriceResult.second
+                _xianPriceInfo.value = reserves
                 _xianPrice.value = reserves?.let { 
-                    // Use .first for reserve0 (USDC) and .second for reserve1 (XIAN)
                     if (it.second != 0f) it.first / it.second else 0f
                 }
                 Log.d("WalletViewModel", "Fetched XIAN Price: ${_xianPrice.value} (Reserves: $reserves)")
@@ -1009,7 +1144,7 @@ class WalletViewModel(
 
             // --- Update Displayed NFT --- //
             // This part needs refinement for reactivity. For now, update after network fetch.
-            if (!hasLoadedInitialData || force) {
+            if (!hasLoadedInitialData) {
                 val preferredContract = walletManager.getPreferredNftContract()
                 // Get the current cached list (might have been updated by the Flow already)
                 val currentCachedNfts = nftList.value
@@ -1034,10 +1169,282 @@ class WalletViewModel(
                  currentStampRate = null // Ensure it's null if fetch fails
             }
 
-            _isLoading.value = false // Mark overall loading as false
+            _isLoading.value = false
             // _isNftLoading is set within the NFT fetch block
-            hasLoadedInitialData = true
-            Log.d("WalletViewModel", "Data fetch cycle complete for $currentPublicKey.")
+            Log.d("WalletViewModel", "Network sync complete for $currentPublicKey")
+            
+        } catch (e: Exception) {
+            Log.e("WalletViewModel", "Error during network sync", e)
+            _isLoading.value = false
+            _isNftLoading.value = false
+        }
+    }
+
+    /**
+     * Update local cache with network data, detecting changes
+     */
+    private suspend fun updateCacheWithNetworkData(networkTokenInfoMap: Map<String, TokenInfo>) {
+        try {
+            networkTokenInfoMap.values.forEach { tokenInfo ->
+                val cachedToken = tokenCacheDao.getTokenByContract(tokenInfo.contract)
+                val currentTime = System.currentTimeMillis()
+                
+                val tokenEntity = TokenCacheEntity(
+                    contract = tokenInfo.contract,
+                    name = tokenInfo.name,
+                    symbol = tokenInfo.symbol,
+                    decimals = 8, // Default decimals
+                    logoUrl = tokenInfo.logoUrl,
+                    isLogoCached = cachedToken?.isLogoCached ?: false,
+                    lastUpdated = currentTime,
+                    isActive = true
+                )
+                
+                // Check if data has changed
+                val hasChanged = cachedToken?.let { cached ->
+                    cached.name != tokenInfo.name ||
+                    cached.symbol != tokenInfo.symbol ||
+                    cached.logoUrl != tokenInfo.logoUrl
+                } ?: true
+                
+                if (hasChanged) {
+                    tokenCacheDao.insertToken(tokenEntity)
+                    Log.d("WalletViewModel", "Updated cache for ${tokenInfo.contract}: ${tokenInfo.name}")
+                    
+                    // Queue logo for caching if URL changed
+                    if (tokenInfo.logoUrl != null && tokenInfo.logoUrl != cachedToken?.logoUrl) {
+                        queueLogoForCaching(tokenInfo.symbol, tokenInfo.logoUrl, tokenInfo.contract)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("WalletViewModel", "Error updating cache with network data", e)
+        }
+    }
+
+    /**
+     * Queue logo for background caching
+     */
+    private fun queueLogoForCaching(symbol: String, logoUrl: String, contract: String) {
+        viewModelScope.launch {
+            try {
+                val success = tokenLogoCacheManager.cacheTokenLogos(listOf(Pair(symbol, logoUrl)))
+                if (success > 0) {
+                    // Mark as cached in database
+                    val tokenEntity = tokenCacheDao.getTokenByContract(contract)
+                    tokenEntity?.let {
+                        tokenCacheDao.insertToken(it.copy(isLogoCached = true))
+                    }
+                    Log.d("WalletViewModel", "Successfully cached logo for $symbol")
+                }
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error caching logo for $symbol", e)
+            }
+        }
+    }
+
+    /**
+     * Legacy loadData method for compatibility
+     */
+    private fun loadData(force: Boolean) {
+        if (force) {
+            // Force reload from network
+            viewModelScope.launch {
+                syncWithNetwork()
+            }
+        } else {
+            // Use cache-first approach
+            loadFromCacheFirst()
+        }
+    }
+
+    /**
+     * Load token from cache first, then refresh from network in background
+     * This prevents logos from disappearing when adding tokens
+     */
+    private fun loadTokenFromCacheFirst(contract: String) {
+        viewModelScope.launch {
+            val currentPublicKey = _publicKeyFlow.value
+            if (currentPublicKey.isEmpty()) return@launch
+            
+            Log.d("WalletViewModel", "Loading token $contract from cache first")
+            
+            try {
+                // Step 1: Load from cache immediately for instant UI feedback
+                val cachedToken = tokenCacheDao.getTokenByContract(contract)
+                if (cachedToken != null) {
+                    Log.d("WalletViewModel", "Found cached token data for $contract")
+                    
+                    // Update UI immediately with cached data
+                    val currentTokenInfoMap = _tokenInfoMap.value.toMutableMap()
+                    val tokenInfo = TokenInfo(
+                        name = cachedToken.name,
+                        symbol = cachedToken.symbol,
+                        contract = cachedToken.contract,
+                        logoUrl = cachedToken.logoUrl
+                    )
+                    currentTokenInfoMap[contract] = tokenInfo
+                    _tokenInfoMap.value = currentTokenInfoMap
+                    
+                    // Pre-cache logo if available
+                    if (cachedToken.logoUrl != null && cachedToken.isLogoCached) {
+                        Log.d("WalletViewModel", "Logo already cached for $contract")
+                    } else if (cachedToken.logoUrl != null) {
+                        // Cache logo in background without blocking UI
+                        launch {
+                            tokenLogoCacheManager.cacheTokenLogoInBackground(cachedToken.logoUrl, cachedToken.symbol)
+                        }
+                    }
+                }
+                
+                // Step 2: Refresh from network in background and update only if changed
+                refreshSingleTokenFromNetwork(contract)
+                
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error loading token $contract from cache", e)
+                // Fallback to network refresh
+                refreshSingleTokenFromNetwork(contract)
+            }
+        }
+    }
+    
+    /**
+     * Refresh a single token from network and update only if data changed
+     */
+    private suspend fun refreshSingleTokenFromNetwork(contract: String) {
+        val currentPublicKey = _publicKeyFlow.value
+        if (currentPublicKey.isEmpty()) return
+        
+        try {
+            // Check connectivity
+            if (!networkService.checkNodeConnectivity()) {
+                Log.w("WalletViewModel", "Network not available, skipping refresh for $contract")
+                return
+            }
+            
+            // Get fresh data from network
+            val predefinedToken = _predefinedTokens.value.find { it.contract == contract }
+            val networkTokenInfo = if (predefinedToken != null && predefinedToken.logoUrl != null) {
+                TokenInfo(
+                    name = predefinedToken.name,
+                    symbol = predefinedToken.contract.takeLast(4).uppercase(),
+                    contract = predefinedToken.contract,
+                    logoUrl = predefinedToken.logoUrl
+                )
+            } else {
+                networkService.getTokenInfo(contract)
+            }
+            
+            val networkBalance = networkService.getTokenBalance(contract, currentPublicKey)
+            
+            // Check if data changed compared to current UI state
+            val currentTokenInfo = _tokenInfoMap.value[contract]
+            val dataChanged = currentTokenInfo?.let { current ->
+                current.name != networkTokenInfo.name ||
+                current.symbol != networkTokenInfo.symbol ||
+                current.logoUrl != networkTokenInfo.logoUrl
+            } ?: true
+            
+            // Update UI only if data actually changed
+            if (dataChanged) {
+                Log.d("WalletViewModel", "Network data changed for $contract, updating UI")
+                val currentTokenInfoMap = _tokenInfoMap.value.toMutableMap()
+                currentTokenInfoMap[contract] = networkTokenInfo
+                _tokenInfoMap.value = currentTokenInfoMap
+                
+                // Update cache with new network data
+                updateCacheWithNetworkData(mapOf(contract to networkTokenInfo))
+            } else {
+                Log.d("WalletViewModel", "Network data unchanged for $contract, skipping UI update")
+            }
+            
+            // Always update balance
+            val currentBalanceMap = _balanceMap.value.toMutableMap()
+            currentBalanceMap[contract] = networkBalance
+            _balanceMap.value = currentBalanceMap
+            
+            Log.d("WalletViewModel", "Token refresh complete for $contract - balance: $networkBalance")
+            
+        } catch (e: Exception) {
+            Log.e("WalletViewModel", "Error refreshing token $contract from network", e)
+        }
+    }
+
+    /**
+     * Refresh only token-related data (balances, info) without fetching NFTs
+     * This is used when adding/removing tokens to avoid unnecessary NFT verification
+     */
+    private fun refreshTokenDataOnly() {
+        viewModelScope.launch {
+            val currentPublicKey = _publicKeyFlow.value
+            if (currentPublicKey.isEmpty()) return@launch
+            
+            Log.d("WalletViewModel", "Refreshing token data only for key: $currentPublicKey")
+            
+            _isLoading.value = true
+            
+            try {
+                // Check connectivity
+                _isCheckingConnection.value = true
+                _isNodeConnected.value = networkService.checkNodeConnectivity()
+                _isCheckingConnection.value = false
+                
+                if (!_isNodeConnected.value) {
+                    Log.w("WalletViewModel", "Network not available, skipping token refresh")
+                    _isLoading.value = false
+                    return@launch
+                }
+                
+                val currentTokens = _tokens.value
+                val networkTokenInfoMap = mutableMapOf<String, TokenInfo>()
+                val networkBalanceMap = mutableMapOf<String, Float>()
+                
+                // Fetch fresh token data from network (excluding NFTs)
+                currentTokens.forEach { contract ->
+                    try {
+                        // Get token info from network
+                        val predefinedToken = _predefinedTokens.value.find { it.contract == contract }
+                        val tokenInfo = if (predefinedToken != null && predefinedToken.logoUrl != null) {
+                            TokenInfo(
+                                name = predefinedToken.name,
+                                symbol = predefinedToken.contract.takeLast(4).uppercase(),
+                                contract = predefinedToken.contract,
+                                logoUrl = predefinedToken.logoUrl
+                            )
+                        } else {
+                            networkService.getTokenInfo(contract)
+                        }
+                        
+                        networkTokenInfoMap[contract] = tokenInfo
+                        
+                        // Get balance from network
+                        val balance = networkService.getTokenBalance(contract, currentPublicKey)
+                        networkBalanceMap[contract] = balance
+                        
+                        Log.d("WalletViewModel", "Token refresh: $contract - balance: $balance")
+                        
+                    } catch (e: Exception) {
+                        Log.e("WalletViewModel", "Error fetching token data for $contract", e)
+                    }
+                }
+                
+                // Update cache with fresh network data
+                updateCacheWithNetworkData(networkTokenInfoMap)
+                
+                // Update UI with network data
+                _tokenInfoMap.value = networkTokenInfoMap
+                _balanceMap.value = networkBalanceMap
+                
+                // Cache token logos after network sync
+                cacheTokenLogosFromInfoMap(networkTokenInfoMap)
+                
+                Log.d("WalletViewModel", "Token data refresh complete for ${currentTokens.size} tokens")
+                
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error during token data refresh", e)
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 
@@ -1091,4 +1498,256 @@ class WalletViewModel(
             }
         }
     }
+    
+    // --- Token Logo Caching Methods ---
+    
+    /**
+     * Cache token logos for predefined tokens
+     */
+    private fun cacheTokenLogos(tokens: List<PredefinedToken>) {
+        viewModelScope.launch {
+            try {
+                val tokensToCache = tokens.mapNotNull { token ->
+                    token.logoUrl?.let { logoUrl ->
+                        Pair(token.contract.takeLast(4).uppercase(), logoUrl)
+                    }
+                }
+                
+                if (tokensToCache.isNotEmpty()) {
+                    val cachedCount = tokenLogoCacheManager.cacheTokenLogos(tokensToCache)
+                    Log.d("WalletViewModel", "Successfully cached $cachedCount/${tokensToCache.size} predefined token logos")
+                    
+                    // Update database cache status for predefined tokens
+                    tokens.forEach { token ->
+                        if (token.logoUrl != null) {
+                            val tokenEntity = TokenCacheEntity(
+                                contract = token.contract,
+                                name = token.name,
+                                symbol = token.contract.takeLast(4).uppercase(),
+                                decimals = 8,
+                                logoUrl = token.logoUrl,
+                                isLogoCached = tokenLogoCacheManager.isLogoCached(token.logoUrl)
+                            )
+                            tokenCacheDao.insertToken(tokenEntity)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error caching predefined token logos", e)
+            }
+        }
+    }
+    
+    /**
+     * Cache token logos from TokenInfo map
+     */
+    private fun cacheTokenLogosFromInfoMap(tokenInfoMap: Map<String, TokenInfo>) {
+        viewModelScope.launch {
+            try {
+                val tokensToCache = tokenInfoMap.values.mapNotNull { tokenInfo ->
+                    tokenInfo.logoUrl?.let { logoUrl ->
+                        Pair(tokenInfo.symbol, logoUrl)
+                    }
+                }
+                
+                if (tokensToCache.isNotEmpty()) {
+                    val cachedCount = tokenLogoCacheManager.cacheTokenLogos(tokensToCache)
+                    Log.d("WalletViewModel", "Successfully cached $cachedCount/${tokensToCache.size} token logos from info map")
+                    
+                    // Update database cache status for tokens
+                    tokenInfoMap.values.forEach { tokenInfo ->
+                        if (tokenInfo.logoUrl != null) {
+                            val tokenEntity = TokenCacheEntity(
+                                contract = tokenInfo.contract,
+                                name = tokenInfo.name,
+                                symbol = tokenInfo.symbol,
+                                decimals = 8,
+                                logoUrl = tokenInfo.logoUrl,
+                                isLogoCached = tokenLogoCacheManager.isLogoCached(tokenInfo.logoUrl)
+                            )
+                            tokenCacheDao.insertToken(tokenEntity)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error caching token logos from info map", e)
+            }
+        }
+    }
+    
+    /**
+     * Get the ImageLoader for use with AsyncImage composables
+     */
+    fun getImageLoader() = tokenLogoCacheManager.imageLoader
+    
+    /**
+     * Preload token logos from database cache on startup
+     */
+    private fun preloadTokenLogosFromCache() {
+        viewModelScope.launch {
+            try {
+                // Get tokens that need logo caching from database
+                val tokensNeedingCache = tokenCacheDao.getTokensNeedingLogoCache()
+                
+                if (tokensNeedingCache.isNotEmpty()) {
+                    val tokensToCache = tokensNeedingCache.map { entity ->
+                        Pair(entity.symbol, entity.logoUrl!!)
+                    }
+                    
+                    val cachedCount = tokenLogoCacheManager.cacheTokenLogos(tokensToCache)
+                    Log.d("WalletViewModel", "Preloaded $cachedCount/${tokensToCache.size} token logos from cache")
+                    
+                    // Mark as cached in database
+                    tokensNeedingCache.forEach { entity ->
+                        if (tokenLogoCacheManager.isLogoCached(entity.logoUrl)) {
+                            tokenCacheDao.markLogoAsCached(entity.contract)
+                        }
+                    }
+                }
+                
+                // Also preload predefined token logos that might not be in database yet
+                cacheTokenLogos(_internalPredefinedTokens)
+                
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error preloading token logos from cache", e)
+            }
+        }
+    }
+    
+    /**
+     * Check if a token logo is cached
+     */
+    fun isTokenLogoCached(logoUrl: String?): Boolean {
+        return tokenLogoCacheManager.isLogoCached(logoUrl)
+    }
+    
+    /**
+     * Get cache statistics for debugging
+     */
+    suspend fun getTokenCacheStats() = tokenLogoCacheManager.getCacheStats()
+    
+    /**
+     * Clear all token logo caches (for debugging/settings)
+     */
+    fun clearTokenLogoCache() {
+        viewModelScope.launch {
+            try {
+                tokenLogoCacheManager.clearCache()
+                tokenCacheDao.resetAllLogoCacheStatus()
+                Log.d("WalletViewModel", "Cleared all token logo caches")
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error clearing token logo cache", e)
+            }
+        }
+    }
+    
+    // --- Time Period Chart Helper Methods ---
+    
+    /**
+     * Get historical data for specific time period
+     */
+    private suspend fun getHistoricalDataForPeriod(tokenContract: String, timePeriod: String): List<FloatEntry> {
+        return withContext(Dispatchers.IO) {
+            try {
+                // Get all pairs to find the pair for this token
+                val allPairs = networkService.getAllPairs()
+                val tokenPair = allPairs.find { pair ->
+                    pair.token0 == tokenContract || pair.token1 == tokenContract
+                }
+                
+                if (tokenPair == null) {
+                    Log.w("WalletViewModel", "No trading pair found for token: $tokenContract")
+                    return@withContext emptyList()
+                }
+                
+                // Fetch swap events from network with time period parameter
+                val swapEvents = networkService.getSwapEventsForPair(tokenPair.id, timePeriod)
+                Log.d("WalletViewModel", "Fetched ${swapEvents.size} swap events for pair ${tokenPair.id} with period $timePeriod")
+                
+                if (swapEvents.isEmpty()) {
+                    Log.w("WalletViewModel", "No swap events found for pair: ${tokenPair.id}")
+                    return@withContext emptyList()
+                }
+                
+                // Filter events based on selected time period
+                val filteredEvents = filterEventsByTimePeriod(swapEvents, timePeriod)
+                Log.d("WalletViewModel", "Filtered to ${filteredEvents.size} events for $timePeriod period")
+                
+                if (filteredEvents.isEmpty()) {
+                    Log.w("WalletViewModel", "No events found for $timePeriod period")
+                    return@withContext emptyList()
+                }
+                
+                // Process filtered events into chart data
+                processSwapEventsToChartData(filteredEvents, tokenContract, tokenPair)
+                
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error fetching historical data for $timePeriod", e)
+                emptyList()
+            }
+        }
+    }
+    
+    /**
+     * Filter swap events based on the selected time period
+     */
+    private fun filterEventsByTimePeriod(swapEvents: List<SwapEvent>, timePeriod: String): List<SwapEvent> {
+        val now = java.time.Instant.now()
+        val cutoffTime = when (timePeriod) {
+            "1H" -> now.minus(1, java.time.temporal.ChronoUnit.HOURS)
+            "1D" -> now.minus(1, java.time.temporal.ChronoUnit.DAYS)
+            "1W" -> now.minus(7, java.time.temporal.ChronoUnit.DAYS)
+            "1M" -> now.minus(30, java.time.temporal.ChronoUnit.DAYS)
+            "1Y" -> now.minus(365, java.time.temporal.ChronoUnit.DAYS)
+            else -> now.minus(1, java.time.temporal.ChronoUnit.DAYS) // Default to 1 day
+        }
+        
+        return swapEvents.filter { event ->
+            try {
+                val eventTime = java.time.Instant.parse(event.timestamp + "Z")
+                eventTime.isAfter(cutoffTime)
+            } catch (e: Exception) {
+                Log.w("WalletViewModel", "Could not parse event timestamp: ${event.timestamp}")
+                false
+            }
+        }
+    }
+    
+    /**
+     * Resample existing data for different time periods
+     * This ensures all data points fit comfortably in the chart without scrolling
+     */
+    private fun resampleDataForPeriod(originalData: List<FloatEntry>, timePeriod: String): List<FloatEntry> {
+        if (originalData.isEmpty()) return emptyList()
+        
+        // Limit data points to fit comfortably in the chart without scrolling
+        val maxDataPoints = when (timePeriod) {
+            "1H" -> 12  // Show data every 5 minutes
+            "1D" -> 24  // Show hourly data points
+            "1W" -> 7   // Show daily data points
+            "1M" -> 30  // Show daily data points
+            "1Y" -> 12  // Show monthly data points
+            else -> 20  // Default fallback
+        }
+        
+        return if (originalData.size <= maxDataPoints) {
+            // If we have less data than target, return original
+            originalData
+        } else {
+            // Resample by taking evenly distributed points
+            val step = originalData.size.toDouble() / maxDataPoints
+            val sampledData = mutableListOf<FloatEntry>()
+            
+            for (i in 0 until maxDataPoints) {
+                val index = (i * step).toInt()
+                if (index < originalData.size) {
+                    // Re-index the entry to have sequential X values for proper display
+                    sampledData.add(FloatEntry(i.toFloat(), originalData[index].y))
+                }
+            }
+            
+            sampledData
+        }
+    }
+
 } // End of WalletViewModel class

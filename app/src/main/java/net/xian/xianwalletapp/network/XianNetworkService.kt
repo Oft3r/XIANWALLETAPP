@@ -2323,16 +2323,28 @@ class XianNetworkService private constructor(private val context: Context) {
      * Fetches swap events for a specific token pair from GraphQL
      * Used for generating historical price charts
      * @param pairId The pair ID to fetch swap events for
+     * @param timePeriod The time period to fetch data for (1H, 1D, 1W, 1M, 1Y)
      * @return List of swap events with timestamp, price data, etc.
-     */    suspend fun getSwapEventsForPair(pairId: String): List<SwapEvent> = withContext(Dispatchers.IO) {
+     */
+    suspend fun getSwapEventsForPair(pairId: String, timePeriod: String = "1M"): List<SwapEvent> = withContext(Dispatchers.IO) {
         try {
             val graphQLEndpoint = "$rpcUrl/graphql"
             
-            // Calculate timestamp for 30 days ago (720 hours)
-            val thirtyDaysAgo = java.time.Instant.now().minus(30, java.time.temporal.ChronoUnit.DAYS)
-            val thirtyDaysAgoISO = thirtyDaysAgo.toString()
+            // Calculate appropriate lookback period based on requested time period
+            // Add extra buffer to ensure we have enough data after filtering
+            val lookbackDays = when (timePeriod) {
+                "1H" -> 2   // 2 days to ensure we have enough recent data
+                "1D" -> 3   // 3 days buffer
+                "1W" -> 14  // 2 weeks buffer
+                "1M" -> 45  // 1.5 months buffer
+                "1Y" -> 400 // 1+ year buffer
+                else -> 45  // Default to 1.5 months
+            }
             
-            android.util.Log.d("XianNetworkService", "Fetching swap events for pair $pairId since $thirtyDaysAgoISO")
+            val lookbackTime = java.time.Instant.now().minus(lookbackDays.toLong(), java.time.temporal.ChronoUnit.DAYS)
+            val lookbackTimeISO = lookbackTime.toString()
+            
+            android.util.Log.d("XianNetworkService", "Fetching swap events for pair $pairId since $lookbackTimeISO (${lookbackDays} days for $timePeriod period)")
             
             val query = """
                 query GetSwapEvents {
@@ -2340,7 +2352,7 @@ class XianNetworkService private constructor(private val context: Context) {
                         condition: {contract: "con_pairs", event: "Swap"}
                         filter: {
                             dataIndexed: {contains: {pair: "$pairId"}},
-                            created: {greaterThan: "$thirtyDaysAgoISO"}
+                            created: {greaterThan: "$lookbackTimeISO"}
                         }
                         orderBy: CREATED_DESC
                         first: 1000
