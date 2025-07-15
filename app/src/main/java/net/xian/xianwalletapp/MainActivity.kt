@@ -43,11 +43,17 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 
 class MainActivity : AppCompatActivity() { // Changed inheritance
     private lateinit var walletManager: WalletManager
     private lateinit var networkService: XianNetworkService
     private lateinit var faviconCacheManager: FaviconCacheManager // Declare FaviconCacheManager
+    private var needsAuthentication = false // Track if we need authentication when resuming
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -82,7 +88,7 @@ class MainActivity : AppCompatActivity() { // Changed inheritance
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    XianWalletApp(walletManager, networkService, faviconCacheManager)
+                    XianWalletApp(walletManager, networkService, faviconCacheManager, this@MainActivity)
                 }
             }
         }
@@ -90,9 +96,77 @@ class MainActivity : AppCompatActivity() { // Changed inheritance
 
     override fun onStop() {
         super.onStop()
+        // Mark that we need authentication when resuming if password is required
+        if (walletManager.hasWallet() && walletManager.getRequirePassword()) {
+            needsAuthentication = true
+            android.util.Log.d("MainActivity", "onStop called, marking authentication needed")
+        }
         // Clear the cached private key when the app is stopped
         walletManager.clearPrivateKeyCache()
         android.util.Log.d("MainActivity", "onStop called, clearing private key cache.")
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // When app resumes and needs authentication, trigger biometric if available
+        if (needsAuthentication && walletManager.hasWallet() && walletManager.getRequirePassword()) {
+            val isBiometricEnabled = walletManager.isBiometricEnabled()
+            val biometricManager = BiometricManager.from(this)
+            val canAuthenticate = biometricManager.canAuthenticate(BIOMETRIC_STRONG)
+            val isBiometricAvailable = canAuthenticate == BiometricManager.BIOMETRIC_SUCCESS
+            
+            android.util.Log.d("MainActivity", "onResume: needsAuthentication=true, biometric enabled=$isBiometricEnabled, available=$isBiometricAvailable")
+            
+            if (isBiometricEnabled && isBiometricAvailable) {
+                // Trigger biometric authentication directly when resuming
+                triggerBiometricAuthentication()
+            }
+            // Note: if biometric is not available, the Composable logic will handle showing password screen
+        }
+    }
+
+    private fun triggerBiometricAuthentication() {
+        val cipher = walletManager.getBiometricCipherForDecryption()
+        if (cipher != null) {
+            val executor = ContextCompat.getMainExecutor(this)
+            
+            val biometricPrompt = BiometricPrompt(this as FragmentActivity, executor,
+                object : BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                        super.onAuthenticationError(errorCode, errString)
+                        android.util.Log.e("MainActivity", "Biometric authentication error: $errString")
+                        // Keep needsAuthentication true so password screen will show
+                    }
+
+                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                        super.onAuthenticationSucceeded(result)
+                        result.cryptoObject?.cipher?.let { authenticatedCipher ->
+                            if (walletManager.unlockWalletWithBiometricCipher(authenticatedCipher)) {
+                                android.util.Log.d("MainActivity", "Biometric authentication successful on resume")
+                                needsAuthentication = false // Clear the flag
+                            } else {
+                                android.util.Log.e("MainActivity", "Failed to unlock wallet with biometric cipher on resume")
+                            }
+                        }
+                    }
+
+                    override fun onAuthenticationFailed() {
+                        super.onAuthenticationFailed()
+                        android.util.Log.w("MainActivity", "Biometric authentication failed on resume, retrying")
+                        // Don't change needsAuthentication, let user retry biometric
+                    }
+                })
+
+            val promptInfo = BiometricPrompt.PromptInfo.Builder()
+                .setTitle("Unlock Wallet")
+                .setSubtitle("Use your fingerprint to unlock your wallet")
+                .setNegativeButtonText("Use Password")
+                .build()
+
+            biometricPrompt.authenticate(promptInfo, BiometricPrompt.CryptoObject(cipher))
+        } else {
+            android.util.Log.e("MainActivity", "Failed to get biometric cipher on resume")
+        }
     }
 
 }
@@ -101,7 +175,8 @@ class MainActivity : AppCompatActivity() { // Changed inheritance
 fun XianWalletApp(
     walletManager: WalletManager,
     networkService: XianNetworkService,
-    faviconCacheManager: FaviconCacheManager // Add FaviconCacheManager parameter
+    faviconCacheManager: FaviconCacheManager, // Add FaviconCacheManager parameter
+    activity: MainActivity // Add MainActivity parameter for lifecycle management
 ) {
     val navController = rememberNavController()
     val snackbarHostState = remember { SnackbarHostState() } // Hoist SnackbarHostState
@@ -119,13 +194,11 @@ fun XianWalletApp(
     )
     // Determine start destination based on whether a wallet exists and if password is required
     LaunchedEffect(Unit) {
-        delay(1000) // Brief delay for splash screen effect
+        delay(3000) // Extended delay for splash screen effect to allow complete app initialization
         if (walletManager.hasWallet()) {
             // Check if password verification is required
             requirePasswordVerification = walletManager.getRequirePassword()
             android.util.Log.d("MainActivity", "Require password setting value: $requirePasswordVerification") // Add logging
-            // Even if biometrics is enabled, we still need password verification screen
-            // as it's where biometric auth is handled
             startDestination = XianDestinations.WALLET
         } else {
             startDestination = XianDestinations.WELCOME
@@ -133,17 +206,86 @@ fun XianWalletApp(
         isLoading = false
     }
     
-    // Redirect to password verification if needed
+    // Check if biometric authentication should be used instead of password screen
+    val shouldUseBiometric = remember { mutableStateOf(false) }
+    val biometricManager = BiometricManager.from(context)
+    
     LaunchedEffect(requirePasswordVerification, passwordVerified, isLoading, startDestination) {
         if (requirePasswordVerification && !passwordVerified && !isLoading && startDestination == XianDestinations.WALLET) {
-            android.util.Log.d("MainActivity", "Navigating to PASSWORD_VERIFICATION") // Add log here too
+            // Always navigate to PASSWORD_VERIFICATION screen
+            // Let PasswordVerificationScreen handle biometric vs password internally
+            android.util.Log.d("MainActivity", "Navigating to PASSWORD_VERIFICATION")
             navController.navigate(XianDestinations.PASSWORD_VERIFICATION) {
                 // Clear backstack so user can't go back by pressing back button
                 popUpTo(0) { inclusive = true }
             }
         }
     }
-             android.util.Log.d("MainActivity", "Skipping navigation to PASSWORD_VERIFICATION. Conditions: require=$requirePasswordVerification, verified=$passwordVerified, loading=$isLoading, destination=$startDestination") // Add log for else case
+    
+    // Handle biometric authentication when needed
+    LaunchedEffect(shouldUseBiometric.value) {
+        if (shouldUseBiometric.value) {
+            // Trigger biometric authentication directly
+            val cipher = walletManager.getBiometricCipherForDecryption()
+            if (cipher != null) {
+                // Setup biometric prompt
+                val executor = ContextCompat.getMainExecutor(context)
+                val activity = context as FragmentActivity
+                
+                val biometricPrompt = BiometricPrompt(activity, executor,
+                    object : BiometricPrompt.AuthenticationCallback() {
+                        override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                            super.onAuthenticationError(errorCode, errString)
+                            android.util.Log.e("MainActivity", "Biometric authentication error: $errString")
+                            // On error, fall back to password verification
+                            navController.navigate(XianDestinations.PASSWORD_VERIFICATION) {
+                                popUpTo(0) { inclusive = true }
+                            }
+                            shouldUseBiometric.value = false
+                        }
+
+                        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                            super.onAuthenticationSucceeded(result)
+                            result.cryptoObject?.cipher?.let { authenticatedCipher ->
+                                if (walletManager.unlockWalletWithBiometricCipher(authenticatedCipher)) {
+                                    android.util.Log.d("MainActivity", "Biometric authentication successful, wallet unlocked")
+                                    passwordVerified = true
+                                    shouldUseBiometric.value = false
+                                } else {
+                                    android.util.Log.e("MainActivity", "Failed to unlock wallet with biometric cipher")
+                                    // Fall back to password verification
+                                    navController.navigate(XianDestinations.PASSWORD_VERIFICATION) {
+                                        popUpTo(0) { inclusive = true }
+                                    }
+                                    shouldUseBiometric.value = false
+                                }
+                            }
+                        }
+
+                        override fun onAuthenticationFailed() {
+                            super.onAuthenticationFailed()
+                            android.util.Log.w("MainActivity", "Biometric authentication failed, retrying")
+                            // Don't fall back to password on failed attempts, let user retry biometric
+                        }
+                    })
+
+                val promptInfo = BiometricPrompt.PromptInfo.Builder()
+                    .setTitle("Unlock Wallet")
+                    .setSubtitle("Use your fingerprint to unlock your wallet")
+                    .setNegativeButtonText("Use Password")
+                    .build()
+
+                biometricPrompt.authenticate(promptInfo, BiometricPrompt.CryptoObject(cipher))
+            } else {
+                android.util.Log.e("MainActivity", "Failed to get biometric cipher, falling back to password")
+                // Fall back to password verification if cipher is null
+                navController.navigate(XianDestinations.PASSWORD_VERIFICATION) {
+                    popUpTo(0) { inclusive = true }
+                }
+                shouldUseBiometric.value = false
+            }
+        }
+    }
     
     // Register composable screens
     NavHost(
@@ -197,6 +339,7 @@ fun XianWalletApp(
             ReceiveTokenScreen(navController, walletManager)
         }
         
+        
         // Token detail screen
         composable(
             route = "${XianDestinations.TOKEN_DETAIL}?${XianNavArgs.TOKEN_CONTRACT}={${XianNavArgs.TOKEN_CONTRACT}}&${XianNavArgs.TOKEN_SYMBOL}={${XianNavArgs.TOKEN_SYMBOL}}",
@@ -219,6 +362,44 @@ fun XianWalletApp(
                 networkService = networkService,
                 tokenContract = tokenContract,
                 tokenSymbol = tokenSymbol,
+                viewModel = walletViewModel
+            )
+        }
+        
+        // Swap screen (default XIAN/USDC pair)
+        composable(XianDestinations.SWAP) {
+            SwapScreen(
+                navController = navController,
+                walletManager = walletManager,
+                networkService = networkService,
+                viewModel = walletViewModel
+            )
+        }
+        
+        // Swap screen with optional token parameters
+        composable(
+            route = "${XianDestinations.SWAP}?fromToken={fromToken}&toToken={toToken}",
+            arguments = listOf(
+                navArgument("fromToken") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("toToken") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val fromToken = backStackEntry.arguments?.getString("fromToken")
+            val toToken = backStackEntry.arguments?.getString("toToken")
+            SwapScreen(
+                navController = navController,
+                walletManager = walletManager,
+                networkService = networkService,
+                initialFromToken = fromToken,
+                initialToToken = toToken,
                 viewModel = walletViewModel
             )
         }
@@ -278,7 +459,8 @@ fun XianWalletApp(
                 walletManager = walletManager,
                 networkService = networkService,
                 snackbarHostState = snackbarHostState, // Pass hoisted state
-                coroutineScope = coroutineScope // Pass hoisted scope
+                coroutineScope = coroutineScope, // Pass hoisted scope
+                walletViewModel = walletViewModel // Add walletViewModel parameter
                 // Removed preferredNftContract parameter
                 // Removed walletAddress parameter
             )

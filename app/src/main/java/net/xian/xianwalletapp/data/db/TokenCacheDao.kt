@@ -48,4 +48,23 @@ interface TokenCacheDao {
     
     @Query("UPDATE token_cache SET isLogoCached = 0")
     suspend fun resetAllLogoCacheStatus()
+    
+    // Balance caching operations
+    @Query("SELECT * FROM token_cache WHERE ownerPublicKey = :publicKey AND isActive = 1 ORDER BY symbol ASC")
+    fun getActiveTokensWithBalances(publicKey: String): Flow<List<TokenCacheEntity>>
+    
+    @Query("SELECT * FROM token_cache WHERE contract = :contract AND ownerPublicKey = :publicKey")
+    suspend fun getTokenWithBalance(contract: String, publicKey: String): TokenCacheEntity?
+    
+    @Query("UPDATE token_cache SET cachedBalance = :balance, balanceLastUpdated = :timestamp WHERE contract = :contract AND ownerPublicKey = :publicKey")
+    suspend fun updateTokenBalance(contract: String, publicKey: String, balance: Float, timestamp: Long)
+    
+    @Query("SELECT cachedBalance FROM token_cache WHERE contract = :contract AND ownerPublicKey = :publicKey")
+    suspend fun getCachedBalance(contract: String, publicKey: String): Float?
+    
+    @Query("SELECT * FROM token_cache WHERE ownerPublicKey = :publicKey AND balanceLastUpdated > 0 AND isActive = 1")
+    suspend fun getTokensWithCachedBalances(publicKey: String): List<TokenCacheEntity>
+    
+    @Query("UPDATE token_cache SET ownerPublicKey = :publicKey WHERE contract = :contract")
+    suspend fun setTokenOwner(contract: String, publicKey: String)
 }

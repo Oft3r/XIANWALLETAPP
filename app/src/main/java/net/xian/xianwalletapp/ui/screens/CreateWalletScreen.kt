@@ -31,6 +31,7 @@ import net.xian.xianwalletapp.ui.theme.xianButtonColors
 fun CreateWalletScreen(navController: NavController, walletManager: WalletManager) {
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
+    var walletName by remember { mutableStateOf(walletManager.generateDefaultWalletName()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     var showMnemonicDialog by remember { mutableStateOf(false) } // Renamed state
@@ -53,6 +54,28 @@ fun CreateWalletScreen(navController: NavController, walletManager: WalletManage
                 color = MaterialTheme.colorScheme.primary,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(vertical = 24.dp)
+            )
+            
+            // Wallet name field
+            OutlinedTextField(
+                value = walletName,
+                onValueChange = { walletName = it; errorMessage = null },
+                label = { Text("Wallet Name") },
+                placeholder = { Text("Enter wallet name") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                singleLine = true
+            )
+            
+            // Helper text for wallet name
+            Text(
+                text = "This name will help you identify this wallet",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
             )
             
             // Password field
@@ -113,8 +136,8 @@ fun CreateWalletScreen(navController: NavController, walletManager: WalletManage
                         }
                         else -> {
                             isLoading = true
-                            // Create wallet
-                            val result = walletManager.createWallet(password)
+                            // Create wallet with custom name
+                            val result = walletManager.createWallet(password, walletName)
                             isLoading = false
                             
                             if (result.success) {

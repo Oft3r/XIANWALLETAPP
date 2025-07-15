@@ -27,7 +27,8 @@
     <TextView
         android:id="@+id/tv_error_message"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"        android:textColor="@color/text_primary"
+        android:layout_height="wrap_content"
+        android:textColor="@color/text_primary"
         android:textStyle="bold"
         android:visibility="gone"
         android:background="@color/secondary"
@@ -38,49 +39,57 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Contract:"
-        android:textStyle="bold" />
+        android:textStyle="bold"
+        android:textColor="@color/text_primary" />
 
     <TextView
         android:id="@+id/tv_contract"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="8dp" />
+        android:layout_marginBottom="8dp"
+        android:textColor="@color/text_primary" />
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Method:"
-        android:textStyle="bold" />
+        android:textStyle="bold"
+        android:textColor="@color/text_primary" />
 
     <TextView
         android:id="@+id/tv_method"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="8dp" />
+        android:layout_marginBottom="8dp"
+        android:textColor="@color/text_primary" />
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Parameters:"
-        android:textStyle="bold" />
+        android:textStyle="bold"
+        android:textColor="@color/text_primary" />
 
     <TextView
         android:id="@+id/tv_params"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="8dp" />
+        android:layout_marginBottom="8dp"
+        android:textColor="@color/text_primary" />
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Stamp Limit:"
-        android:textStyle="bold" />
+        android:textStyle="bold"
+        android:textColor="@color/text_primary" />
 
     <TextView
         android:id="@+id/tv_stamp_limit"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="4dp" /> <!-- Reduced margin -->
+        android:layout_marginBottom="4dp"
+        android:textColor="@color/text_primary" /> <!-- Reduced margin -->
 
     <!-- Button to trigger fee estimation -->    <Button
         android:id="@+id/btn_estimate_fee"
@@ -98,7 +107,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:visibility="gone"
-        android:layout_marginBottom="16dp" /> <!-- Initially hidden -->
+        android:layout_marginBottom="16dp"
+        android:textColor="@color/text_primary" /> <!-- Initially hidden -->
 
     <!-- Password prompt text removed as auth happens before dialog -->
 
@@ -125,7 +135,7 @@
             android:text="Reject"
             android:layout_marginEnd="8dp"
             android:background="@drawable/button_reject_selector"
-            android:textColor="@color/text_primary" />
+            android:textColor="@color/white" />
 
         <Button
             android:id="@+id/btn_approve"
@@ -135,7 +145,7 @@
             android:text="Approve"
             android:layout_marginStart="8dp"
             android:background="@drawable/button_approve_selector"
-            android:textColor="@color/background" />
+            android:textColor="@color/black" />
 
     </LinearLayout>
 

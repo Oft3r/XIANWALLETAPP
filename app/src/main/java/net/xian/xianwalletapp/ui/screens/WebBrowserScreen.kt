@@ -10,18 +10,37 @@ import android.webkit.WebChromeClient
 import android.webkit.WebViewClient
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import coil.compose.rememberAsyncImagePainter
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.ui.res.painterResource
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import org.jsoup.Jsoup
 import java.net.URL
 import java.net.MalformedURLException
@@ -29,7 +48,6 @@ import android.util.Log
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import coil.compose.rememberAsyncImagePainter
 import kotlin.math.abs
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.text.KeyboardActions
@@ -40,6 +58,7 @@ import androidx.compose.material.icons.filled.Language // Placeholder icon
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material.icons.filled.RemoveCircleOutline // Import Remove icon
 import androidx.compose.material.icons.filled.Star // Import Star icon
 import androidx.compose.material.icons.filled.CheckCircle
@@ -64,6 +83,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -177,7 +197,80 @@ data class XAppInfo(
     val faviconUrl: String? = null // Optional MANUAL favicon URL
 )
 
+// --- Banner Carousel Composable ---
+@Composable
+fun BannerCarousel(
+    modifier: Modifier = Modifier,
+    onBannerClick: (String) -> Unit
+) {
+    // List of banner drawable resources with their corresponding URLs
+    val bannerData: List<Pair<Int, String>> = listOf(
+        net.xian.xianwalletapp.R.drawable.banner1 to "https://xns.domains",
+        net.xian.xianwalletapp.R.drawable.banner2 to "https://pixelsnek.xian.org"
+    )
+    
+    // Create a large number of pages for infinite scroll effect
+    val infinitePageCount = bannerData.size * 1000 // Large number for pseudo-infinite scrolling
+    val startPage = infinitePageCount / 2 // Start in the middle to allow scrolling in both directions
+    
+    // Create pager state for managing the carousel with infinite pages
+    val pagerState = rememberPagerState(
+        initialPage = startPage,
+        pageCount = { infinitePageCount }
+    )
+    
+    // Track user interaction state for auto-scroll
+    val isDragged by pagerState.interactionSource.collectIsDraggedAsState()
+    val isPressed by pagerState.interactionSource.collectIsPressedAsState()
+    val isUserInteracting = isDragged || isPressed
+    
+    // Auto-scroll functionality - only when user is not interacting
+    // Always moves forward in the same direction (spiral effect)
+    LaunchedEffect(isUserInteracting) {
+        if (!isUserInteracting) {
+            while (true) {
+                delay(5000L) // Wait 5 seconds between auto-scrolls
+                // Always increment the page (spiral effect in one direction)
+                val nextPage = pagerState.currentPage + 1
+                pagerState.animateScrollToPage(
+                    page = nextPage,
+                    animationSpec = tween(durationMillis = 1200)
+                )
+            }
+        }
+    }
+    
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .wrapContentHeight(),
+        shape = RoundedCornerShape(12.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+    ) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(12.dp))
+        ) { page ->
+            // Map the infinite page index to the actual banner data using modulo
+            val actualBannerIndex = page % bannerData.size
+            val (imageRes, url) = bannerData[actualBannerIndex]
+            
+            Image(
+                painter = painterResource(id = imageRes),
+                contentDescription = "Promotional Banner ${actualBannerIndex + 1}",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable { onBannerClick(url) },
+                contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
+            )
+        }
+    }
+}
+
 // --- Dashboard Composable ---
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DashboardContent(
     mainApps: List<XAppInfo>,
@@ -192,6 +285,9 @@ fun DashboardContent(
 ) {
     // State to hold the dynamically fetched favicon URLs, keyed by the app's main URL
     val faviconUrls = remember { mutableStateMapOf<String, String?>() }
+    
+    // State to track which favorite item is being long-pressed (for showing delete button)
+    var longPressedFavoriteUrl by remember { mutableStateOf<String?>(null) }
 
     // Define the gradient brush for the border using the new color palette
     val borderBrush = Brush.horizontalGradient(
@@ -228,6 +324,129 @@ fun DashboardContent(
         // Add top spacer to allow scrolling above the first element
         Spacer(modifier = Modifier.height(8.dp))
         
+        // --- Banner Carousel Section ---
+        BannerCarousel(
+            modifier = Modifier.padding(bottom = 16.dp),
+            onBannerClick = onShortcutClick
+        )
+        
+        // --- Favorites Bar Section (Small Icons) ---
+        // Create default favorites if none exist
+        val displayFavorites = if (favoriteApps.isNotEmpty()) {
+            favoriteApps
+        } else {
+            // Default favorites for demonstration
+            listOf(
+                XAppInfo(name = "Xian.org", url = "https://xian.org", icon = Icons.Default.Language, faviconUrl = "https://xian.org/assets/img/favicon.ico"),
+                XAppInfo(name = "XNS Domains", url = "https://xns.domains/", icon = Icons.Default.Language),
+                XAppInfo(name = "PixelSnek", url = "https://pixelsnek.xian.org/", icon = Icons.Default.Language),
+                XAppInfo(name = "SnakeXchange", url = "https://snakexchange.org/", icon = Icons.Default.Language)
+            )
+        }
+
+        Text(
+            text = "Favorites",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = 8.dp, bottom = 8.dp)
+        )
+        
+        // Horizontal scrolling favorites bar with small icons
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(100.dp) // Fixed height for favorites bar
+        ) {
+            items(displayFavorites) { app -> // Show all favorites with horizontal scrolling
+                // Fetch favicon URL for favorites bar
+                LaunchedEffect(app.url, faviconCacheManager) {
+                    if (app.faviconUrl == null && !faviconUrls.containsKey(app.url)) {
+                        val cachedUrl = faviconCacheManager.getFaviconUrl(app.url)
+                        if (cachedUrl != null) {
+                            faviconUrls[app.url] = cachedUrl
+                        } else {
+                            faviconUrls[app.url] = null
+                            val fetchedUrl = fetchFaviconUrl(app.url)
+                            if (fetchedUrl != null) {
+                                faviconUrls[app.url] = fetchedUrl
+                                faviconCacheManager.saveFaviconUrl(app.url, fetchedUrl)
+                            }
+                        }
+                    } else if (app.faviconUrl != null) {
+                        faviconUrls[app.url] = app.faviconUrl
+                    }
+                }
+
+                // Box to overlay the remove button when long-pressed
+                Box(
+                    modifier = Modifier.width(60.dp) // Fixed width for consistent scrolling
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .combinedClickable(
+                                onClick = { onShortcutClick(app.url) },
+                                onLongClick = {
+                                    longPressedFavoriteUrl = if (longPressedFavoriteUrl == app.url) {
+                                        null // Toggle off if same item is long-pressed again
+                                    } else {
+                                        app.url // Set as long-pressed item
+                                    }
+                                }
+                            )
+                            .padding(4.dp), // Smaller padding
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        val placeholderPainter = rememberVectorPainter(image = app.icon)
+                        val imageUrl = app.faviconUrl ?: faviconUrls[app.url]
+
+                        Image(
+                            painter = rememberAsyncImagePainter(
+                                model = imageUrl,
+                                placeholder = placeholderPainter,
+                                error = placeholderPainter
+                            ),
+                            contentDescription = app.name,
+                            modifier = Modifier.size(32.dp) // Much smaller icon size
+                        )
+                        Spacer(modifier = Modifier.height(4.dp)) // Smaller spacer
+                        Text(
+                            text = app.name,
+                            textAlign = TextAlign.Center,
+                            fontSize = 10.sp, // Smaller text
+                            maxLines = 2, // Allow 2 lines for longer names
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 2.dp) // Small horizontal padding for text
+                        )
+                    }
+                    
+                    // Remove Button - only show when this item is long-pressed
+                    if (longPressedFavoriteUrl == app.url) {
+                        IconButton(
+                            onClick = {
+                                onRemoveFavoriteClick(app)
+                                longPressedFavoriteUrl = null // Reset state after removal
+                            },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(0.dp)
+                                .size(20.dp) // Smaller button for compact favorites bar
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.RemoveCircleOutline,
+                                contentDescription = "Remove Favorite",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(16.dp) // Smaller icon
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(8.dp)) // Space before Main XApps
+        
         // --- Main XApps Section ---
         Text(
             text = "Main XApps",
@@ -255,7 +474,7 @@ fun DashboardContent(
                     .heightIn(max = 300.dp) // Set a max height to prevent excessive growth if many items
                     // .padding(16.dp) // Padding is now handled by contentPadding
             ) {
-                items(mainApps) { app -> // Use mainApps list here
+                gridItems(mainApps) { app -> // Use mainApps list here
                     // Fetch favicon URL: Check cache first, then fetch if needed
                     LaunchedEffect(app.url, faviconCacheManager) { // Add cache manager as key
                         if (app.faviconUrl == null && !faviconUrls.containsKey(app.url)) {
@@ -319,110 +538,9 @@ fun DashboardContent(
         } // End Card for Main XApps
 
         // --- Favorite XApps Section ---
-        Text(
-            text = "Favorite XApps", // New title
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(top = 24.dp, bottom = 8.dp) // Added top padding
-        )
-        Card(
-             modifier = Modifier
-                .fillMaxWidth()
-                .border( // Add the gradient border
-                    width = 2.dp,
-                    brush = borderBrush, // Use the updated brush
-                    shape = MaterialTheme.shapes.medium // Match shape with Card's shape
-                ),
-            shape = MaterialTheme.shapes.medium, // Use medium rounded corners
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp) // Add some elevation
-        ) {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(4),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 300.dp) // Limit height
-                    // .padding(16.dp) // Padding is now handled by contentPadding
-            ) {
-                items(favoriteApps) { app ->
-                    // LaunchedEffect for favicon fetching (Apply same cache logic as main apps)
-                    LaunchedEffect(app.url, faviconCacheManager) { // Add cache manager as key
-                        if (app.faviconUrl == null && !faviconUrls.containsKey(app.url)) {
-                            // 1. Check cache
-                            val cachedUrl = faviconCacheManager.getFaviconUrl(app.url)
-                            if (cachedUrl != null) {
-                                faviconUrls[app.url] = cachedUrl // Use cached URL
-                                Log.d("FaviconCache", "[Fav] Using cached favicon for ${app.url}")
-                            } else {
-                                // 2. Fetch if not in cache
-                                Log.d("FaviconCache", "[Fav] Fetching favicon for ${app.url}")
-                                faviconUrls[app.url] = null // Mark as fetching/default
-                                val fetchedUrl = fetchFaviconUrl(app.url)
-                                if (fetchedUrl != null) {
-                                    faviconUrls[app.url] = fetchedUrl // Update state
-                                    // 3. Save to cache after successful fetch
-                                    faviconCacheManager.saveFaviconUrl(app.url, fetchedUrl)
-                                    Log.d("FaviconCache", "[Fav] Fetched and cached favicon for ${app.url}")
-                                } else {
-                                    // Fetch failed, state remains null (triggers fallback)
-                                    Log.w("FaviconCache", "[Fav] Failed to fetch favicon for ${app.url}")
-                                }
-                            }
-                        } else if (app.faviconUrl != null) {
-                            faviconUrls[app.url] = app.faviconUrl
-                        }
-                    }
-
-                    // Box to overlay the remove button
-                    Box {
-                        Column(
-                            modifier = Modifier
-                                .clickable { onShortcutClick(app.url) }
-                                .padding(8.dp), // Add padding to Column so remove button doesn't overlap content too much
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            val placeholderPainter = rememberVectorPainter(image = app.icon)
-                            val imageUrl = app.faviconUrl ?: faviconUrls[app.url]
-                            Image(
-                                painter = rememberAsyncImagePainter(
-                                    model = imageUrl,
-                                    placeholder = placeholderPainter,
-                                    error = placeholderPainter
-                                ),
-                                contentDescription = app.name,
-                                modifier = Modifier.size(64.dp)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = app.name,
-                                textAlign = TextAlign.Center,
-                                fontSize = 14.sp,
-                                maxLines = 1
-                            )
-                        }
-                        // Remove Button - aligned to top-end
-                        IconButton(
-                            onClick = { onRemoveFavoriteClick(app) },
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(0.dp) // Adjust padding if needed
-                                .size(24.dp) // Make button small
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.RemoveCircleOutline,
-                                contentDescription = "Remove Favorite",
-                                tint = MaterialTheme.colorScheme.error // Use error color for remove
-                            )
-                        }
-                    }
-                }
-            } // End LazyVerticalGrid for Favorite XApps
-        } // End Card for Favorite XApps
         
         // Add extra bottom spacer to allow scrolling past the last element
-        Spacer(modifier = Modifier.height(32.dp)) // Increased bottom spacing
+        Spacer(modifier = Modifier.height(100.dp)) // Increased bottom spacing for navigation bars
     } // End Main Column
 }
 
@@ -556,7 +674,7 @@ fun WebBrowserScreen(
                     OutlinedTextField(
                         value = urlInput,
                         onValueChange = { urlInput = it },
-                        label = { Text("URL", fontSize = 12.sp) },
+                        placeholder = { Text("Enter URL...", fontSize = 14.sp) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                         keyboardActions = KeyboardActions(
@@ -576,9 +694,9 @@ fun WebBrowserScreen(
                         ),
                         modifier = Modifier
                             .padding(end = 4.dp)
-                            .heightIn(min = 40.dp)
+                            .height(48.dp)
                             .weight(1f, fill = true),
-                        shape = RoundedCornerShape(30.dp),
+                        shape = RoundedCornerShape(20.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = MaterialTheme.colorScheme.primary,
                             unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
@@ -587,7 +705,10 @@ fun WebBrowserScreen(
                             focusedTextColor = MaterialTheme.colorScheme.onSurface,
                             unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                         ),
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface)
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 12.sp
+                        )
                     )
                     
                     // Botón Go compacto - solo mostrar en dashboard
@@ -757,6 +878,7 @@ fun WebBrowserScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(top = paddingValues.calculateTopPadding())
+                .navigationBarsPadding()
         ) {
 
             // --- Conditional Content (Dashboard or WebView) ---
@@ -1126,7 +1248,7 @@ fun WebBrowserScreen(
                                     }
                                 }
                             }
-                        ) { Text("Unlock") }
+                        ) { Text("Unlock", color = Color.Black) }
                     },
                     dismissButton = {
                         Button(
@@ -1138,7 +1260,7 @@ fun WebBrowserScreen(
                                 txDetailsForAuth = null
                                 authErrorMessage = null
                             }
-                        ) { Text("Cancel") }
+                        ) { Text("Cancel", color = Color.Black) }
                     }
                 )
             }            // Loading indicator mejorado con mensaje de estado

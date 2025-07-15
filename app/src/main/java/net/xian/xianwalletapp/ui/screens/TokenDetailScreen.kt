@@ -57,7 +57,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.text.DecimalFormat
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
-import android.util.Log
 
 /**
  * Token detail screen showing price card, balance, and action buttons
@@ -129,9 +128,9 @@ fun TokenDetailScreen(
     
     // Debug logging
     LaunchedEffect(priceData) {
-        Log.d("TokenDetailScreen", "Chart data updated: ${priceData.size} points")
+        android.util.Log.d("TokenDetailScreen", "Chart data updated: ${priceData.size} points")
         if (priceData.isNotEmpty()) {
-            Log.d("TokenDetailScreen", "First 5 values: ${priceData.take(5)}")
+            android.util.Log.d("TokenDetailScreen", "First 5 values: ${priceData.take(5)}")
         }
     }
     
@@ -620,10 +619,23 @@ fun TokenDetailScreen(
                 // Swap Button (was Exchange)
                 Button(
                     onClick = {
-                        // Abrir Swap igual que en WalletScreen
-                        val urlToLoad = "https://snakexchange.org/"
-                        val encodedUrl = URLEncoder.encode(urlToLoad, StandardCharsets.UTF_8.toString())
-                        navController.navigate("${XianDestinations.WEB_BROWSER}?url=$encodedUrl")
+                        when (tokenContract) {
+                            "currency" -> {
+                                // For XIAN, navigate to default swap (XIAN/USDC)
+                                android.util.Log.d("TokenDetailScreen", "Navigation - XIAN token, using default swap")
+                                navController.navigate(XianDestinations.SWAP)
+                            }
+                            else -> {
+                                // For other tokens, specify the pair
+                                val fromToken = tokenContract
+                                val toToken = when (tokenContract) {
+                                    "con_usdc" -> "currency" // USDC -> XIAN
+                                    else -> "currency"       // Other tokens -> XIAN
+                                }
+                                android.util.Log.d("TokenDetailScreen", "Navigation - fromToken: $fromToken, toToken: $toToken, tokenContract: $tokenContract")
+                                navController.navigate("${XianDestinations.SWAP}?fromToken=$fromToken&toToken=$toToken")
+                            }
+                        }
                     },
                     modifier = Modifier
                         .weight(1f)

@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import android.util.Log
+import java.util.Locale
 import androidx.compose.animation.animateColorAsState // Added import
 import androidx.compose.ui.graphics.graphicsLayer
 import kotlinx.coroutines.currentCoroutineContext
@@ -195,6 +196,7 @@ fun WalletScreen(
     val xtfuPrice by viewModel.xtfuPrice.collectAsStateWithLifecycle() // Collect XTFU price state
     val xarbPrice by viewModel.xarbPrice.collectAsStateWithLifecycle() // Collect XARB price state
     val activeWalletName by viewModel.activeWalletName.collectAsStateWithLifecycle()
+    val isBalanceVisible by viewModel.isBalanceVisible.collectAsStateWithLifecycle()
     
     // Special handling for XIAN price - only load once at startup, not during refresh
     // Store the first non-null price we receive
@@ -241,8 +243,7 @@ fun WalletScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     // Removed isEditMode state - now using separate Manage tab
     
-    // State for NFTs
-    var showNftDropdown by remember { mutableStateOf(false) } // Control dropdown visibility    // State for Local Activity
+    // State for Local Activity
     // REMOVE these local states as they are now handled by ViewModel
     // var transactionHistory by remember { mutableStateOf<List<LocalTransactionRecord>>(emptyList()) }
     // var isHistoryLoading by remember { mutableStateOf(false) }
@@ -264,68 +265,8 @@ fun WalletScreen(
                     containerColor = Color.Transparent, // Hacer la barra transparente
                     titleContentColor = MaterialTheme.colorScheme.primary
                 ),
-                title = { 
+                title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        // NFT Image Preview Box (Clickable) & Dropdown
-                        Box {
-                            // Use displayedNftInfo (NftCacheEntity?)
-                            if (displayedNftInfo != null) {
-                                AsyncImage(
-                                    model = displayedNftInfo?.imageUrl, // Use imageUrl from NftCacheEntity
-                                    imageLoader = viewModel.getImageLoader(), // Use the custom image loader
-                                    contentDescription = "Selected NFT Preview",
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .clickable { showNftDropdown = true } // Make image clickable
-                                        .padding(end = 8.dp),
-                                    placeholder = painterResource(id = R.drawable.ic_launcher_foreground),
-                                    error = painterResource(id = R.drawable.ic_launcher_background)
-                                )
-                            } else if (nftList.isNotEmpty()) {
-                                // Placeholder if no NFT selected but list is not empty
-                                Box(modifier = Modifier
-                                    .size(32.dp)
-                                    .background(Color.Gray, RoundedCornerShape(4.dp))
-                                    .clickable { showNftDropdown = true }
-                                    .padding(end = 8.dp)
-                                )
-                            }
-
-                            // Dropdown Menu for NFT Selection
-                            DropdownMenu(
-                                expanded = showNftDropdown,
-                                onDismissRequest = { showNftDropdown = false }
-                            ) {
-                                // Iterate over nftList (List<NftCacheEntity>)
-                                nftList.forEach { nft ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                AsyncImage(
-                                                    model = nft.imageUrl, // Use imageUrl from NftCacheEntity
-                                                    imageLoader = viewModel.getImageLoader(), // Use the custom image loader
-                                                    contentDescription = nft.name,
-                                                    modifier = Modifier
-                                                        .size(24.dp)
-                                                        .clip(RoundedCornerShape(4.dp))
-                                                        .padding(end = 8.dp),
-                                                    placeholder = painterResource(id = R.drawable.ic_launcher_foreground),
-                                                    error = painterResource(id = R.drawable.ic_launcher_background)
-                                                )
-                                                Text(text = nft.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            }
-                                        },
-                                        onClick = {
-                                            viewModel.setPreferredNft(nft) // Pass NftCacheEntity
-                                            showNftDropdown = false // Close dropdown
-                                            android.util.Log.d("WalletScreen", "Selected NFT: ${nft.contractAddress}")
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                          // Original Title Text
                         Text(
                             text = "XIAN",
                             color = MaterialTheme.colorScheme.primary,
@@ -511,12 +452,10 @@ fun WalletScreen(
                             val usdcValue = balanceMap["con_usdc"] ?: 0f // Direct USD value
                             
                             val totalBalance = xianUsdValue + poopUsdValue + xtfuUsdValue + xarbUsdValue + usdcValue
-                            // var isBalanceVisible by remember { mutableStateOf(true) } // Replaced by ViewModel state
-                            val isBalanceVisible by viewModel.isBalanceVisible.collectAsStateWithLifecycle()
 
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = if (isBalanceVisible) "$%.2f".format(totalBalance) else "$***.**",
+                                    text = if (isBalanceVisible) "$%.2f".format(Locale.US, totalBalance) else "••••",
                                     fontSize = 55.sp, // Set specific larger font size
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -566,10 +505,7 @@ fun WalletScreen(
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.clickable {
-                            val urlToLoad = "https://snakexchange.org/"
-                            val encodedUrl = URLEncoder.encode(urlToLoad, StandardCharsets.UTF_8.toString())
-                            // Assuming WebBrowser destination takes url as a query parameter
-                            navController.navigate("${XianDestinations.WEB_BROWSER}?url=$encodedUrl")
+                            navController.navigate(XianDestinations.SWAP)
                         }
                     ) {
                         Icon(
@@ -770,16 +706,7 @@ fun WalletScreen(
                                     LargeBouncingDotsLoader()
                                 }
                             }
-                            tokens.isEmpty() -> {
-                                // Empty state inside SwipeRefresh (already is, but make sure it fills space)
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = "No tokens added yet.\nClick the + button to add a token.",
-                                        textAlign = TextAlign.Center,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }                            else -> {
+                            else -> {
                                 // Always show the list when we have tokens, regardless of isLoading state
                                 // State variables for scroll tracking in tokens list
                                 var lastTokensScrollIndex by remember { mutableStateOf(0) }
@@ -819,6 +746,7 @@ fun WalletScreen(
                                             xtfuPrice = if (contract == "con_xtfu") xtfuPrice else null, // Pasar el precio de XTFU
                                             xarbPrice = if (contract == "con_xarb") xarbPrice else null, // Pasar el precio de XARB
                                             imageLoader = viewModel.getImageLoader(), // Pass the custom image loader
+                                            balanceVisible = isBalanceVisible, // Pass balance visibility state
                                             onSendClick = {
                                                 navController.navigate(
                                                     "${XianDestinations.SEND_TOKEN}?${XianNavArgs.TOKEN_CONTRACT}=$contract&${XianNavArgs.TOKEN_SYMBOL}=${tokenInfo?.symbol ?: ""}"
@@ -1172,6 +1100,7 @@ fun TokenItem(
     xtfuPrice: Float? = null, // Añadir precio de XTFU en XIAN
     xarbPrice: Float? = null, // Añadir precio de XARB en XIAN
     imageLoader: ImageLoader, // Add ImageLoader parameter
+    balanceVisible: Boolean, // Add balance visibility parameter
     onSendClick: () -> Unit,
     onReceiveClick: () -> Unit,
     onRemoveClick: (() -> Unit)? = null, // Hacer opcional para el modo edición
@@ -1186,6 +1115,7 @@ fun TokenItem(
             logoUrl = logoUrl,
             balance = balance,
             xianPrice = xianPrice,
+            balanceVisible = balanceVisible, // Pass balance visibility
             onSendClick = onSendClick,
             onReceiveClick = onReceiveClick,
             onCardClick = onCardClick
@@ -1206,6 +1136,7 @@ fun TokenItem(
                 else -> null
             },
             imageLoader = imageLoader, // Pass down the loader
+            balanceVisible = balanceVisible, // Pass balance visibility
             onSendClick = onSendClick,
             onReceiveClick = onReceiveClick,
             onRemoveClick = onRemoveClick,
@@ -1225,6 +1156,7 @@ fun SwipeableXianCard(
     logoUrl: String?,
     balance: Float,
     xianPrice: Float? = null,
+    balanceVisible: Boolean, // Add balance visibility parameter
     onSendClick: () -> Unit,
     onReceiveClick: () -> Unit,
     onCardClick: () -> Unit = {} // Add card click handler
@@ -1289,7 +1221,7 @@ fun SwipeableXianCard(
                     // Token balance and USD value
                     Column(horizontalAlignment = Alignment.End, modifier = Modifier.weight(0.4f)) { // Give some weight to prevent overlap
                         Text(
-                            text = "%.1f".format(balance),
+                            text = if (balanceVisible) "%.1f".format(Locale.US, balance) else "••••",
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface
@@ -1297,7 +1229,7 @@ fun SwipeableXianCard(
                         if (xianPrice != null) {
                             // Mostrar el precio en USD para XIAN con formato "$"
                             Text(
-                                text = "$%.6f".format(xianPrice),
+                                text = if (balanceVisible) "$%.6f".format(Locale.US, xianPrice) else "••••",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Color(0xFF8BC34A), // Verde limón más oscuro para el precio en USD
                                 modifier = Modifier.padding(top = 2.dp)
@@ -1324,6 +1256,7 @@ fun SwipeableTokenCard(
     usdValue: Float? = null,
     xianPrice: Float? = null, // Añadir parámetro xianPrice para el token POOP
     imageLoader: ImageLoader, // Add ImageLoader parameter
+    balanceVisible: Boolean, // Add balance visibility parameter
     onSendClick: () -> Unit,
     onReceiveClick: () -> Unit,
     onRemoveClick: (() -> Unit)? = null,
@@ -1398,14 +1331,14 @@ fun SwipeableTokenCard(
                     // Token balance and USD value
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
-                            text = "%.1f".format(balance),
+                            text = if (balanceVisible) "%.1f".format(Locale.US, balance) else "••••",
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         if (usdValue != null) {
                             Text(
-                                text = "$%.2f".format(usdValue),
+                                text = if (balanceVisible) "$%.2f".format(Locale.US, usdValue) else "••••",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Color.Gray,
                                 modifier = Modifier.padding(top = 2.dp)
@@ -1413,7 +1346,7 @@ fun SwipeableTokenCard(
                         } else if (xianPrice != null) {
                             // Mostrar el precio en XIAN para POOP y XTFU con formato "X*"
                             Text(
-                                text = "X*%.6f".format(xianPrice),
+                                text = if (balanceVisible) "X*%.6f".format(Locale.US, xianPrice) else "••••",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Color(0xFF8BC34A), // Verde limón más oscuro para el precio
                                 modifier = Modifier.padding(top = 2.dp)

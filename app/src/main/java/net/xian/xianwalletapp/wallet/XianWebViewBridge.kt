@@ -265,6 +265,8 @@ class XianWebViewBridge(
              // Reactivar el botón para permitir otro intento
              approveButton.isEnabled = true
              approveButton.text = "Approve"
+             // Restore original text color
+             approveButton.setTextColor(context.getColor(R.color.background))
         }
         
         // Set up reject button
@@ -276,42 +278,43 @@ class XianWebViewBridge(
         
         // Set up approve button click listener
         approveButton.setOnClickListener {
-            // Deshabilitar el botón inmediatamente para mostrar feedback visual
+            // 1. IMMEDIATELY change button state for visual feedback
+            Log.d(TAG, "Approve button clicked - changing to Processing...")
             approveButton.isEnabled = false
             approveButton.text = "Processing..."
+            // Ensure text is visible when disabled
+            approveButton.setTextColor(context.getColor(R.color.text_primary))
             
-            // Password is no longer handled here, assume cached key is valid from pre-auth
-            errorMessageView.visibility = View.GONE // Clear previous errors
-            Log.d(TAG, "Approve clicked.")
+            // Clear previous errors
+            errorMessageView.visibility = View.GONE
+            
+            // 2. Use Handler.post to defer processing, allowing UI to update first
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                Log.d(TAG, "Starting transaction processing after UI update...")
+                
+                // 3. Determine the final stamp limit
+                val finalStampLimit = estimatedStampLimit?.toDouble() ?: initialStampLimit
+                Log.d(TAG, "Using final stamp limit for transaction: $finalStampLimit (Estimated: ${estimatedStampLimit != null})")
 
-            // 2. Determine the final stamp limit
-            // Use the successfully estimated value if available, otherwise use the initial value from dApp.
-            val finalStampLimit = estimatedStampLimit?.toDouble() ?: initialStampLimit
-            Log.d(TAG, "Using final stamp limit for transaction: $finalStampLimit (Estimated: ${estimatedStampLimit != null})")
+                // 4. Validate transaction parameters
+                try {
+                    if (contract.isBlank()) {
+                        showError("Contract address cannot be empty")
+                        return@post
+                    }
+                    if (method.isBlank()) {
+                        showError("Method name cannot be empty")
+                        return@post
+                    }
 
-            // 3. Validate transaction parameters
-            // 3. Validate transaction parameters (remains the same)
-            try {
-                if (contract.isBlank()) {
-                    showError("Contract address cannot be empty")
-                    return@setOnClickListener
+                    // 5. Process the transaction
+                    processTransaction(contract, method, kwargs, null, finalStampLimit, dialog, errorMessageView)
+
+                } catch (e: Exception) {
+                    Log.e(TAG, "Validation or processing error on Approve", e)
+                    showError("Error: ${e.message ?: "Unknown error"}")
+                    sendTransactionFailureResponse("Approval error: ${e.message ?: "Unknown error"}")
                 }
-                if (method.isBlank()) {
-                    showError("Method name cannot be empty")
-                    return@setOnClickListener
-                }
-
-                // 4. Process the transaction
-                // Pass the determined password (or null) and the final stamp limit.
-                // Pass null for password (using cached key), pass the final determined stamp limit.
-                processTransaction(contract, method, kwargs, null, finalStampLimit, dialog, errorMessageView)
-
-            } catch (e: Exception) {
-                // Catch errors during validation or the processTransaction call itself
-                Log.e(TAG, "Validation or processing error on Approve", e)
-                showError("Error: ${e.message ?: "Unknown error"}")
-                // Optionally send failure back to JS
-                sendTransactionFailureResponse("Approval error: ${e.message ?: "Unknown error"}")
             }
         }
     }
@@ -320,6 +323,9 @@ class XianWebViewBridge(
     private fun processTransaction(contract: String, method: String, kwargs: String, password: String?,
                                   stampLimit: Double, dialog: AlertDialog, errorMessageView: TextView) { // Accept Double
         val showErrorInDialog = password != null // Only show error in dialog if password was requested
+        
+        // Get reference to approve button to reset its state on errors
+        val approveButton = dialog.findViewById<Button>(R.id.btn_approve)
 
         try {
             var privateKey: ByteArray? = null
@@ -350,6 +356,9 @@ class XianWebViewBridge(
                     errorMessageView.text = errorMsg
                     errorMessageView.visibility = View.VISIBLE
                 }
+                // Reset button state on error
+                approveButton.isEnabled = true
+                approveButton.text = "Approve"
                 // Send failure back to JS
                 sendTransactionFailureResponse(errorMsg ?: "Failed to access private key")
             } else {
@@ -403,6 +412,11 @@ class XianWebViewBridge(
                     // Always show error in dialog now
                     errorMessageView.text = getHumanReadableError(errorMsg)
                     errorMessageView.visibility = View.VISIBLE
+                    // Reset button state on transaction failure
+                    approveButton.isEnabled = true
+                    approveButton.text = "Approve"
+                    // Restore original text color
+                    approveButton.setTextColor(dialog.context.getColor(R.color.background))
                     // Also send the error to the WebView so the dApp can handle it
                     sendTransactionFailureResponse(errorMsg)
                 }
@@ -414,6 +428,11 @@ class XianWebViewBridge(
             // Always show error in dialog now
             errorMessageView.text = errorMsg
             errorMessageView.visibility = View.VISIBLE
+            // Reset button state on exception
+            approveButton.isEnabled = true
+            approveButton.text = "Approve"
+            // Restore original text color
+            approveButton.setTextColor(dialog.context.getColor(R.color.background))
             // Also send the error to the WebView
             sendTransactionFailureResponse(e.message ?: "Unknown error")
         }

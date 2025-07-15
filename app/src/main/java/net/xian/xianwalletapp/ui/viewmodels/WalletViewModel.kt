@@ -278,6 +278,15 @@ class WalletViewModel(
         
         // Cargar información adicional de los tokens predefinidos (logos, etc)
         loadPredefinedTokensInfo()
+        
+        // Precargar tokens predefinidos en cache y luego cargar datos
+        val preloadJob = preloadPredefinedTokensToCache()
+        
+        // Wait for preload to complete, then load data
+        viewModelScope.launch {
+            preloadJob.join()
+            loadDataIfNotLoaded()
+        }
 
         // Observe the active wallet public key flow for CHANGES
         viewModelScope.launch {
@@ -297,9 +306,12 @@ class WalletViewModel(
                         _xnsNameExpirations.value = EMPTY_XNS_EXPIRATIONS // Clear expirations
                         _transactionHistory.value = EMPTY_TRANSACTION_HISTORY // Clear transaction history
                         _transactionHistoryError.value = null // Clear errors
+                        _balanceMap.value = EMPTY_BALANCE_MAP // Clear balance map to prevent stale total balance
                         // No need to clear _nftList, the flatMapLatest will switch the source Flow
                         _displayedNftInfo.value = null // Clear displayed NFT
                         if (newKey.isNotEmpty()) {
+                            preloadPredefinedTokensToCache() // Preload predefined tokens for new wallet
+                            _tokens.value = walletManager.getOrderedTokenList() // Reset token list from manager for new wallet
                             loadData(force = true) // Trigger data load for the new active wallet
                             loadTransactionHistory() // Load transaction history for new key
                         } else {
@@ -326,8 +338,6 @@ class WalletViewModel(
                 isInitialValue = false // Mark initial value as processed
             }
         }
-        // Trigger initial data load explicitly after setting up observer
-        loadDataIfNotLoaded()
         
         // Preload token logos on startup in background
         preloadTokenLogosFromCache()
@@ -491,9 +501,9 @@ class WalletViewModel(
                 
                 // Establecer información de escala para el eje Y - Siempre mostrar el rango
                 val scaleInfo = if (shouldUseOffset) {
-                    "Low: ${"%.6f".format(displayMin)} - High: ${"%.6f".format(displayMax)} (offset applied)"
+                    "Low: ${"%.6f".format(Locale.US, displayMin)} - High: ${"%.6f".format(Locale.US, displayMax)} (offset applied)"
                 } else {
-                    "Low: ${"%.6f".format(displayMin)} - High: ${"%.6f".format(displayMax)}"
+                    "Low: ${"%.6f".format(Locale.US, displayMin)} - High: ${"%.6f".format(Locale.US, displayMax)}"
                 }
                 _chartNormalizationType.value = scaleInfo
                 
@@ -529,6 +539,11 @@ class WalletViewModel(
         // Force load data
         loadData(force = true)
         loadTransactionHistory(force = true) // Refresh transaction history
+    }
+    
+    fun refreshActiveWalletName() {
+        Log.d("WalletViewModel", "Refreshing active wallet name.")
+        _activeWalletName.value = walletManager.getActiveWalletName()
     }
 
     // Updated to accept NftCacheEntity
@@ -854,7 +869,6 @@ class WalletViewModel(
     private fun loadDataIfNotLoaded() {
         if (!hasLoadedInitialData && _publicKeyFlow.value.isNotEmpty()) {
             Log.d("WalletViewModel", "Initial data load triggered for key: ${_publicKeyFlow.value}")
-            // Load from cache first, then network
             loadFromCacheFirst()
         } else {
              Log.d("WalletViewModel", "Skipping initial data load. Already loaded or public key empty.")
@@ -904,11 +918,16 @@ class WalletViewModel(
             val cachedTokenInfoMap = mutableMapOf<String, TokenInfo>()
             val cachedBalanceMap = mutableMapOf<String, Float>()
             
-            // Load cached token info
+            // Load cached token info and balances
+            val currentPublicKey = _publicKeyFlow.value
+            Log.d("WalletViewModel", "Cache load - current tokens: $currentTokens")
+            Log.d("WalletViewModel", "Cache load - current public key: $currentPublicKey")
             currentTokens.forEach { contract ->
                 try {
-                    val cachedToken = tokenCacheDao.getTokenByContract(contract)
+                    val cachedToken = tokenCacheDao.getTokenWithBalance(contract, currentPublicKey)
+                    Log.d("WalletViewModel", "Cache lookup for $contract: ${if (cachedToken != null) "FOUND" else "NOT FOUND"}")
                     if (cachedToken != null) {
+                        Log.d("WalletViewModel", "Cache entry details for $contract: balance=${cachedToken.cachedBalance}, lastUpdated=${cachedToken.balanceLastUpdated}, owner=${cachedToken.ownerPublicKey}")
                         val tokenInfo = TokenInfo(
                             name = cachedToken.name,
                             symbol = cachedToken.symbol,
@@ -916,6 +935,19 @@ class WalletViewModel(
                             logoUrl = cachedToken.logoUrl
                         )
                         cachedTokenInfoMap[contract] = tokenInfo
+                        
+                        // Load cached balance if available (including 0.0 balances with valid timestamps)
+                        if (cachedToken.balanceLastUpdated > 0L) {
+                            cachedBalanceMap[contract] = cachedToken.cachedBalance
+                            Log.d("WalletViewModel", "Loaded cached balance for $contract: ${cachedToken.cachedBalance}")
+                        } else if (cachedToken.cachedBalance > 0f) {
+                            // Also load non-zero balances even if timestamp is 0 (for backward compatibility)
+                            cachedBalanceMap[contract] = cachedToken.cachedBalance
+                            Log.d("WalletViewModel", "Loaded cached balance (no timestamp) for $contract: ${cachedToken.cachedBalance}")
+                        } else {
+                            Log.d("WalletViewModel", "No cached balance for $contract (balance=${cachedToken.cachedBalance}, lastUpdated=${cachedToken.balanceLastUpdated})")
+                        }
+                        
                         Log.d("WalletViewModel", "Loaded cached info for $contract: ${cachedToken.name}")
                     } else {
                         // Fall back to predefined tokens if not in cache
@@ -936,11 +968,13 @@ class WalletViewModel(
                 }
             }
             
-            // Update UI with cached data
+            // Update UI with cached data (including cached balances)
             _tokenInfoMap.value = cachedTokenInfoMap
-            _balanceMap.value = cachedBalanceMap // Balances will be updated from network
+            _balanceMap.value = cachedBalanceMap
             
             Log.d("WalletViewModel", "Cache load complete - loaded ${cachedTokenInfoMap.size} tokens from cache")
+            Log.d("WalletViewModel", "Cached balances loaded: $cachedBalanceMap")
+            Log.d("WalletViewModel", "UI balanceMap updated with ${cachedBalanceMap.size} entries")
             
         } catch (e: Exception) {
             Log.e("WalletViewModel", "Error during cache load", e)
@@ -995,10 +1029,51 @@ class WalletViewModel(
                     networkTokenInfoMap[contract] = tokenInfo
                     
                     // Get balance from network
-                    val balance = networkService.getTokenBalance(contract, currentPublicKey)
-                    networkBalanceMap[contract] = balance
+                    val networkBalance = networkService.getTokenBalance(contract, currentPublicKey)
+                    networkBalanceMap[contract] = networkBalance
+                    Log.d("WalletViewModel", "Network balance for $contract: $networkBalance")
                     
-                    Log.d("WalletViewModel", "Network sync: $contract - balance: $balance")
+                    // Compare with cached balance and update cache if different
+                    val cachedBalance = tokenCacheDao.getCachedBalance(contract, currentPublicKey)
+                    val shouldUpdateCache = cachedBalance == null || cachedBalance != networkBalance
+                    Log.d("WalletViewModel", "Cache comparison for $contract: cached=$cachedBalance, network=$networkBalance, shouldUpdate=$shouldUpdateCache")
+                    
+                    if (shouldUpdateCache) {
+                        val currentTime = System.currentTimeMillis()
+                        
+                        // Ensure token exists with correct ownerPublicKey before updating balance
+                        val existingToken = tokenCacheDao.getTokenWithBalance(contract, currentPublicKey)
+                        if (existingToken == null) {
+                            // Token doesn't exist for this owner, create it first
+                            val newTokenEntity = TokenCacheEntity(
+                                contract = contract,
+                                name = networkTokenInfoMap[contract]?.name ?: contract,
+                                symbol = networkTokenInfoMap[contract]?.symbol ?: contract.takeLast(4).uppercase(),
+                                decimals = 8,
+                                logoUrl = networkTokenInfoMap[contract]?.logoUrl,
+                                isLogoCached = false,
+                                lastUpdated = currentTime,
+                                isActive = true,
+                                cachedBalance = networkBalance,
+                                balanceLastUpdated = currentTime,
+                                ownerPublicKey = currentPublicKey
+                            )
+                            tokenCacheDao.insertToken(newTokenEntity)
+                            Log.d("WalletViewModel", "Created new token cache entry for $contract with balance $networkBalance")
+                        } else {
+                            // Token exists, update balance
+                            tokenCacheDao.updateTokenBalance(contract, currentPublicKey, networkBalance, currentTime)
+                            Log.d("WalletViewModel", "Updated cache for $contract: $cachedBalance -> $networkBalance")
+                            
+                            // Verify the update was successful
+                            val verifyUpdated = tokenCacheDao.getCachedBalance(contract, currentPublicKey)
+                            Log.d("WalletViewModel", "Verification after update for $contract: $verifyUpdated")
+                        }
+                    } else {
+                        Log.d("WalletViewModel", "Cache unchanged for $contract: balance $networkBalance")
+                    }
+                    
+                    Log.d("WalletViewModel", "Network sync: $contract - balance: $networkBalance")
                     
                 } catch (e: Exception) {
                     Log.e("WalletViewModel", "Error fetching network data for token $contract", e)
@@ -1008,9 +1083,29 @@ class WalletViewModel(
             // Update cache with fresh network data
             updateCacheWithNetworkData(networkTokenInfoMap)
             
-            // Update UI with network data
+            // Update UI with network data only if values changed
             _tokenInfoMap.value = networkTokenInfoMap
-            _balanceMap.value = networkBalanceMap
+            
+            // For balances, only update UI if values actually changed from cache
+            val currentBalanceMap = _balanceMap.value.toMutableMap()
+            var balanceMapChanged = false
+            
+            networkBalanceMap.forEach { (contract, networkBalance) ->
+                val currentBalance = currentBalanceMap[contract]
+                if (currentBalance == null || currentBalance != networkBalance) {
+                    currentBalanceMap[contract] = networkBalance
+                    balanceMapChanged = true
+                    Log.d("WalletViewModel", "UI updated for $contract: $currentBalance -> $networkBalance")
+                }
+            }
+            
+            // Only update UI if balances actually changed
+            if (balanceMapChanged) {
+                _balanceMap.value = currentBalanceMap
+                Log.d("WalletViewModel", "Balance map updated in UI")
+            } else {
+                Log.d("WalletViewModel", "No balance changes, UI unchanged")
+            }
             
             // Cache token logos after network sync
             cacheTokenLogosFromInfoMap(networkTokenInfoMap)
@@ -1189,6 +1284,7 @@ class WalletViewModel(
                 val cachedToken = tokenCacheDao.getTokenByContract(tokenInfo.contract)
                 val currentTime = System.currentTimeMillis()
                 
+                val currentPublicKey = _publicKeyFlow.value
                 val tokenEntity = TokenCacheEntity(
                     contract = tokenInfo.contract,
                     name = tokenInfo.name,
@@ -1197,7 +1293,11 @@ class WalletViewModel(
                     logoUrl = tokenInfo.logoUrl,
                     isLogoCached = cachedToken?.isLogoCached ?: false,
                     lastUpdated = currentTime,
-                    isActive = true
+                    isActive = true,
+                    // Keep existing balance fields if token exists, otherwise use defaults
+                    cachedBalance = cachedToken?.cachedBalance ?: 0f,
+                    balanceLastUpdated = cachedToken?.balanceLastUpdated ?: 0L,
+                    ownerPublicKey = currentPublicKey
                 )
                 
                 // Check if data has changed
@@ -1499,6 +1599,81 @@ class WalletViewModel(
         }
     }
     
+    /**
+     * Preload predefined tokens to cache to ensure they exist for balance caching
+     */
+    private fun preloadPredefinedTokensToCache(): kotlinx.coroutines.Job {
+        return viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val currentPublicKey = _publicKeyFlow.value
+                Log.d("WalletViewModel", "Preload starting with publicKey: '$currentPublicKey'")
+                if (currentPublicKey.isEmpty()) {
+                    Log.w("WalletViewModel", "No active public key, skipping predefined tokens preload")
+                    return@launch
+                }
+                
+                val currentTime = System.currentTimeMillis()
+                
+                // ALWAYS ensure currency token (XIAN) exists in cache by default
+                val currencyToken = tokenCacheDao.getTokenWithBalance("currency", currentPublicKey)
+                if (currencyToken == null) {
+                    val xianTokenEntity = TokenCacheEntity(
+                        contract = "currency",
+                        name = "Xian",
+                        symbol = "XIAN",
+                        decimals = 8,
+                        logoUrl = null, // Will use drawable resource for XIAN logo
+                        isActive = true,
+                        lastUpdated = currentTime,
+                        cachedBalance = 0f,
+                        balanceLastUpdated = 0L, // No balance cached yet - will be set when network data is fetched
+                        ownerPublicKey = currentPublicKey
+                    )
+                    tokenCacheDao.insertToken(xianTokenEntity)
+                    Log.d("WalletViewModel", "Automatically added currency token (XIAN) to cache")
+                } else {
+                    Log.d("WalletViewModel", "Currency token (XIAN) already exists in cache")
+                }
+                
+                Log.d("WalletViewModel", "Preloading ${_internalPredefinedTokens.size} predefined tokens")
+                
+                _internalPredefinedTokens.forEach { predefinedToken ->
+                    val existingToken = tokenCacheDao.getTokenWithBalance(predefinedToken.contract, currentPublicKey)
+                    
+                    if (existingToken == null) {
+                        // Create new token entry in cache with initial balance 0.0
+                        val newTokenEntity = TokenCacheEntity(
+                            contract = predefinedToken.contract,
+                            name = predefinedToken.name,
+                            symbol = predefinedToken.contract.takeLast(4).uppercase(),
+                            decimals = 8,
+                            logoUrl = predefinedToken.logoUrl,
+                            isActive = true,
+                            lastUpdated = currentTime,
+                            cachedBalance = 0f,
+                            balanceLastUpdated = 0L, // No balance cached yet - will be set when network data is fetched
+                            ownerPublicKey = currentPublicKey
+                        )
+                        
+                        tokenCacheDao.insertToken(newTokenEntity)
+                        Log.d("WalletViewModel", "Preloaded predefined token to cache: ${predefinedToken.name} (${predefinedToken.contract})")
+                        
+                        // Verify insertion was successful
+                        val verifyInserted = tokenCacheDao.getTokenWithBalance(predefinedToken.contract, currentPublicKey)
+                        Log.d("WalletViewModel", "Verification after preload insert for ${predefinedToken.contract}: ${if (verifyInserted != null) "SUCCESS" else "FAILED"}")
+                    } else {
+                        Log.d("WalletViewModel", "Predefined token already exists in cache: ${predefinedToken.name}")
+                    }
+                }
+                
+                Log.d("WalletViewModel", "Predefined tokens preload completed for public key: $currentPublicKey")
+                
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error preloading predefined tokens to cache: ${e.message}", e)
+            }
+        }
+    }
+
     // --- Token Logo Caching Methods ---
     
     /**

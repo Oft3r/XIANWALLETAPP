@@ -197,7 +197,7 @@ class WalletManager private constructor(context: Context) {
     /**
      * Create a new wallet and set it as active
      */
-    fun createWallet(password: String): WalletCreationResult {
+    fun createWallet(password: String, walletName: String? = null): WalletCreationResult {
         try {
             // 1. Generate Mnemonic (BIP39 using bitcoinj)
             val entropy = ByteArray(32) // 256 bits for 24 words
@@ -225,7 +225,13 @@ class WalletManager private constructor(context: Context) {
 
             // 5. Encrypt the derived private key
             val encryptedPrivateKey = crypto.encryptPrivateKey(privateKeyBytes, password) // Corrected call
-            assignDefaultWalletName(publicKey) // Assign name
+            
+            // Assign wallet name (custom or default)
+            if (walletName != null) {
+                assignCustomWalletName(publicKey, walletName)
+            } else {
+                assignDefaultWalletName(publicKey)
+            }
 
             // 6. Store the encrypted key specific to this wallet
             prefs.edit()
@@ -248,7 +254,7 @@ class WalletManager private constructor(context: Context) {
     /**
      * Import an existing wallet and set it as active
      */
-    fun importWallet(privateKeyHex: String, password: String): WalletCreationResult {
+    fun importWallet(privateKeyHex: String, password: String, walletName: String? = null): WalletCreationResult {
         try {
             // Convert hex private key to bytes
             val privateKeyBytes = crypto.fromHexString(privateKeyHex)
@@ -270,7 +276,13 @@ class WalletManager private constructor(context: Context) {
             // Add wallet to the list and set as active
             addWalletToList(publicKey)
             setActiveWallet(publicKey) // This updates the flow and prefs
-            assignDefaultWalletName(publicKey) // Assign name
+            
+            // Assign wallet name (custom or default)
+            if (walletName != null) {
+                assignCustomWalletName(publicKey, walletName)
+            } else {
+                assignDefaultWalletName(publicKey)
+            }
 
             // Initialize token list for this wallet (if needed)
             // See comment in createWallet
@@ -285,7 +297,7 @@ class WalletManager private constructor(context: Context) {
     /**
      * Import an existing wallet using a mnemonic phrase and set it as active
      */
-    fun importWalletFromMnemonic(mnemonicPhrase: String, password: String): WalletCreationResult {
+    fun importWalletFromMnemonic(mnemonicPhrase: String, password: String, walletName: String? = null): WalletCreationResult {
         try {
             // 1. Validate and process mnemonic
             val mnemonicCode = mnemonicPhrase.trim().lowercase().split("\\s+".toRegex())
@@ -317,7 +329,13 @@ class WalletManager private constructor(context: Context) {
             // 7. Add wallet to the list and set as active
             addWalletToList(publicKey)
             setActiveWallet(publicKey) // This updates the flow and prefs
-            assignDefaultWalletName(publicKey) // Assign name
+            
+            // Assign wallet name (custom or default)
+            if (walletName != null) {
+                assignCustomWalletName(publicKey, walletName)
+            } else {
+                assignDefaultWalletName(publicKey)
+            }
 
             // 8. Return success
             return WalletCreationResult(success = true, publicKey = publicKey)
@@ -337,16 +355,31 @@ class WalletManager private constructor(context: Context) {
         }
     }
 
+    /** Generates a default wallet name without assigning it */
+    fun generateDefaultWalletName(): String {
+        val names = loadWalletNames()
+        val existingCount = names.size // How many wallets already have names
+        return if (existingCount == 0) "My Wallet" else "My Wallet ${existingCount + 1}"
+    }
+
     /** Assigns a default name like "My Wallet X" to a newly added wallet */
     private fun assignDefaultWalletName(publicKey: String) {
         val names = loadWalletNames()
         if (!names.containsKey(publicKey)) { // Only assign if no name exists
-            val existingCount = names.size // How many wallets already have names
-            val defaultName = if (existingCount == 0) "My Wallet" else "My Wallet ${existingCount + 1}"
+            val defaultName = generateDefaultWalletName()
             names[publicKey] = defaultName
             saveWalletNames(names)
             Log.d("WalletManager", "Assigned default name '$defaultName' to wallet $publicKey")
         }
+    }
+
+    /** Assigns a custom name to a newly added wallet */
+    private fun assignCustomWalletName(publicKey: String, customName: String) {
+        val names = loadWalletNames()
+        val walletName = if (customName.isBlank()) generateDefaultWalletName() else customName.trim()
+        names[publicKey] = walletName
+        saveWalletNames(names)
+        Log.d("WalletManager", "Assigned custom name '$walletName' to wallet $publicKey")
     }
 
 

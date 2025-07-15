@@ -107,7 +107,7 @@ fun RenameWalletDialog(
                     }
                 }
             ) {
-                Text("Rename")
+                Text("Rename", color = Color.Black)
             }
         },
         dismissButton = {
@@ -302,7 +302,8 @@ fun SettingsScreen(
     walletManager: WalletManager, // Keep walletManager
     networkService: XianNetworkService, // Keep networkService
     snackbarHostState: SnackbarHostState, // Add snackbarHostState parameter
-    coroutineScope: CoroutineScope // Add coroutineScope parameter
+    coroutineScope: CoroutineScope, // Add coroutineScope parameter
+    walletViewModel: net.xian.xianwalletapp.ui.viewmodels.WalletViewModel // Add walletViewModel parameter
     // Removed preferredNftContract and walletAddress parameters
     // They are now collected from the WalletManager's flow
 ) {
@@ -376,6 +377,7 @@ fun SettingsScreen(
                     val success = walletManager.renameWallet(walletToRenameKey!!, newName)
                     if (success) {
                         renameTrigger++ // Increment trigger on success
+                        walletViewModel.refreshActiveWalletName() // Refresh wallet name in main screen immediately
                     }
                     coroutineScope.launch {
                         snackbarHostState.showSnackbar(

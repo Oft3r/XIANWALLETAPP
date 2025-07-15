@@ -8,6 +8,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import net.xian.xianwalletapp.ui.screens.WebBrowserScreen // Import the screen
 import net.xian.xianwalletapp.ui.screens.AdvancedScreen // Import the new screen
+import net.xian.xianwalletapp.ui.screens.SwapScreen // Import the swap screen
 import net.xian.xianwalletapp.ui.screens.TokenDetailScreen // Import the token detail screen
 // AboutXianScreen import removed as it's no longer navigated to directly
 // SnakeGameScreen import removed
@@ -27,6 +28,7 @@ object XianDestinations {
     const val RECEIVE_TOKEN = "receive_token"
     const val TOKEN_DETAIL = "token_detail"
     const val WEB_BROWSER = "web_browser"
+    const val SWAP = "swap"
     const val ADVANCED = "advanced"
     const val NEWS = "news"
     const val SETTINGS = "settings"
@@ -155,6 +157,39 @@ fun XianNavGraph(
         // Advanced screen (formerly Messenger)
         composable(XianDestinations.ADVANCED) {
             AdvancedScreen(navController, walletManager, networkService)
+        }
+
+        // Swap screen
+        composable(
+            route = "${XianDestinations.SWAP}?fromToken={fromToken}&toToken={toToken}",
+            arguments = listOf(
+                navArgument("fromToken") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("toToken") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val fromToken = backStackEntry.arguments?.getString("fromToken")
+            val toToken = backStackEntry.arguments?.getString("toToken")
+            // TODO: This navigation file appears to be unused. The actual navigation is in MainActivity.kt
+            // If this needs to be implemented, it should create a shared ViewModel like in MainActivity
+            // For now, commenting out to fix compilation error
+            /*
+            SwapScreen(
+                navController = navController,
+                walletManager = walletManager,
+                networkService = networkService,
+                initialFromToken = fromToken,
+                initialToToken = toToken,
+                viewModel = // Need to create shared ViewModel here
+            )
+            */
         }
 
         // News screen
