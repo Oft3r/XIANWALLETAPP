@@ -48,4 +48,10 @@ interface XianApiService {
     suspend fun getTokenInfo(
         @Path("contractName") contractName: String
     ): Response<TokenSupplyResponse>
+
+    @GET("https://xian-api.poc.workers.dev/token/{contractName}/balance/{address}")
+    suspend fun getTokenBalance(
+        @Path("contractName") contractName: String,
+        @Path("address") address: String
+    ): Response<TokenBalanceResponse>
 }

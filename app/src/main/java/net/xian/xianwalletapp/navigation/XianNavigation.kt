@@ -10,6 +10,7 @@ import net.xian.xianwalletapp.ui.screens.WebBrowserScreen // Import the screen
 import net.xian.xianwalletapp.ui.screens.AdvancedScreen // Import the new screen
 import net.xian.xianwalletapp.ui.screens.SwapScreen // Import the swap screen
 import net.xian.xianwalletapp.ui.screens.TokenDetailScreen // Import the token detail screen
+import net.xian.xianwalletapp.ui.screens.AddressBookScreen // Import the address book screen
 // AboutXianScreen import removed as it's no longer navigated to directly
 // SnakeGameScreen import removed
 import net.xian.xianwalletapp.wallet.WalletManager // Assuming you need these
@@ -35,6 +36,7 @@ object XianDestinations {
     const val PASSWORD_VERIFICATION = "password_verification"
     const val SETTINGS_SECURITY = "settings_security"
     const val SETTINGS_NETWORK = "settings_network"
+    const val ADDRESS_BOOK = "address_book"
     // SETTINGS_ABOUT_XIAN destination removed
     // SNAKE_GAME destination removed
 
@@ -93,6 +95,20 @@ fun XianNavGraph(
             route = "${XianDestinations.SEND_TOKEN}?${XianNavArgs.TOKEN_CONTRACT}={${XianNavArgs.TOKEN_CONTRACT}}&${XianNavArgs.TOKEN_SYMBOL}={${XianNavArgs.TOKEN_SYMBOL}}"
         ) {
             // TODO: Implement send token screen
+        }
+
+        // Address book screen
+        composable(
+            route = "${XianDestinations.ADDRESS_BOOK}?prefilledAddress={prefilledAddress}",
+            arguments = listOf(
+                navArgument("prefilledAddress") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) {
+            // TODO: Implement address book screen
         }
 
         // Receive token screen
@@ -195,6 +211,11 @@ fun XianNavGraph(
         // News screen
         composable(XianDestinations.NEWS) {
             // TODO: Implement news screen
+        }
+
+        // Address Book screen
+        composable(XianDestinations.ADDRESS_BOOK) {
+            AddressBookScreen(navController = navController)
         }
 
         // Settings screen

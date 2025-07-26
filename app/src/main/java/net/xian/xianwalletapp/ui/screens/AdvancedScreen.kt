@@ -47,6 +47,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import coil.compose.AsyncImage
 import net.xian.xianwalletapp.R
+import net.xian.xianwalletapp.ui.components.PasswordTextField
 
 // Python smart contract template for a standard token
 private const val TOKEN_CONTRACT_TEMPLATE = """
@@ -585,7 +586,7 @@ fun AdvancedScreen(
                                 if (isLoading) { // Use general isLoading for now
                                     CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                             } else {
-                                Text("Create Token")
+                                Text("Create Token", color = Color.Black)
                             }
                         }
                     } // Removed the "Cancel Create" Button
@@ -809,7 +810,7 @@ fun AdvancedScreen(
                         ) {
                              if (advIsSubmitting) {
                                 CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)                            } else {
-                                Text("Send Advanced Tx")
+                                Text("Send Advanced Tx", color = Color.Black)
                             }
                         }
                     }
@@ -1058,26 +1059,24 @@ private fun PasswordPromptDialog(
                 if (showPasswordField) {
                     Text("Wallet is locked. Please enter your password to proceed.")
                     Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
+                    PasswordTextField(
                         value = password,
                         onValueChange = { password = it },
                         label = { Text("Password") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                        modifier = Modifier.fillMaxWidth()
                     )
-                } else {                    Text("Confirm token creation transaction?") // Confirmation text when unlocked
+                } else {                    Text("Do you want to confirm this transaction?") // Confirmation text when unlocked
                 }
             }
         },
         confirmButton = {
             Button(onClick = { onConfirm(if (showPasswordField) password else null) }) {
-                Text("Confirm")
+                Text("Confirm", color = Color.Black)
             }
         },
         dismissButton = {
             Button(onClick = onDismiss) {
-                Text("Cancel")
+                Text("Cancel", color = Color.Black)
             }
         } // Closing brace for dismissButton lambda
     ) // Closing parenthesis for AlertDialog call

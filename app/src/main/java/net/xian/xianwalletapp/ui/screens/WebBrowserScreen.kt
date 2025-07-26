@@ -95,6 +95,7 @@ import net.xian.xianwalletapp.wallet.AuthRequestListener
 import net.xian.xianwalletapp.data.FaviconCacheManager // Import the cache manager
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import net.xian.xianwalletapp.ui.components.PasswordTextField
 import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -194,7 +195,8 @@ data class XAppInfo(
     val name: String,
     val url: String,
     val icon: androidx.compose.ui.graphics.vector.ImageVector, // Placeholder icon
-    val faviconUrl: String? = null // Optional MANUAL favicon URL
+    val faviconUrl: String? = null, // Optional MANUAL favicon URL
+    val localDrawableRes: Int? = null // Optional local drawable resource
 )
 
 // --- Banner Carousel Composable ---
@@ -206,7 +208,8 @@ fun BannerCarousel(
     // List of banner drawable resources with their corresponding URLs
     val bannerData: List<Pair<Int, String>> = listOf(
         net.xian.xianwalletapp.R.drawable.banner1 to "https://xns.domains",
-        net.xian.xianwalletapp.R.drawable.banner2 to "https://pixelsnek.xian.org"
+        net.xian.xianwalletapp.R.drawable.banner2 to "https://pixelsnek.xian.org",
+        net.xian.xianwalletapp.R.drawable.banner3 to "https://dex.xian.org"
     )
     
     // Create a large number of pages for infinite scroll effect
@@ -229,7 +232,7 @@ fun BannerCarousel(
     LaunchedEffect(isUserInteracting) {
         if (!isUserInteracting) {
             while (true) {
-                delay(5000L) // Wait 5 seconds between auto-scrolls
+                delay(3000L) // Wait 3 seconds between auto-scrolls
                 // Always increment the page (spiral effect in one direction)
                 val nextPage = pagerState.currentPage + 1
                 pagerState.animateScrollToPage(
@@ -274,6 +277,8 @@ fun BannerCarousel(
 @Composable
 fun DashboardContent(
     mainApps: List<XAppInfo>,
+    defiApps: List<XAppInfo>,
+    collectiblesApps: List<XAppInfo>,
     favoriteApps: List<XAppInfo>,
     onShortcutClick: (String) -> Unit,
     onRemoveFavoriteClick: (XAppInfo) -> Unit, // Add callback for removing favorites
@@ -399,14 +404,21 @@ fun DashboardContent(
                         verticalArrangement = Arrangement.Center
                     ) {
                         val placeholderPainter = rememberVectorPainter(image = app.icon)
-                        val imageUrl = app.faviconUrl ?: faviconUrls[app.url]
-
-                        Image(
-                            painter = rememberAsyncImagePainter(
+                        
+                        // Prioritize local drawable, then favicon URL, then placeholder
+                        val painter = if (app.localDrawableRes != null) {
+                            painterResource(id = app.localDrawableRes)
+                        } else {
+                            val imageUrl = app.faviconUrl ?: faviconUrls[app.url]
+                            rememberAsyncImagePainter(
                                 model = imageUrl,
                                 placeholder = placeholderPainter,
                                 error = placeholderPainter
-                            ),
+                            )
+                        }
+
+                        Image(
+                            painter = painter,
                             contentDescription = app.name,
                             modifier = Modifier.size(32.dp) // Much smaller icon size
                         )
@@ -445,97 +457,108 @@ fun DashboardContent(
             }
         }
         
-        Spacer(modifier = Modifier.height(8.dp)) // Space before Main XApps
+        Spacer(modifier = Modifier.height(8.dp)) // Space before categories
         
-        // --- Main XApps Section ---
-        Text(
-            text = "Main XApps",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(top = 8.dp, bottom = 8.dp) // Reduced top padding
-        )
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .border( // Add the gradient border
-                    width = 2.dp,
-                    brush = borderBrush, // Use the updated brush
-                    shape = MaterialTheme.shapes.medium // Match shape with Card's shape
-                ),
-            shape = MaterialTheme.shapes.medium, // Use medium rounded corners
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp) // Add some elevation
-        ) {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(4),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+        // Helper function to create category sections
+        @Composable
+        fun CategorySection(title: String, apps: List<XAppInfo>) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.padding(top = 8.dp, bottom = 8.dp)
+            )
+            Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 300.dp) // Set a max height to prevent excessive growth if many items
-                    // .padding(16.dp) // Padding is now handled by contentPadding
+                    .border(
+                        width = 2.dp,
+                        brush = borderBrush,
+                        shape = MaterialTheme.shapes.medium
+                    ),
+                shape = MaterialTheme.shapes.medium,
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
             ) {
-                gridItems(mainApps) { app -> // Use mainApps list here
-                    // Fetch favicon URL: Check cache first, then fetch if needed
-                    LaunchedEffect(app.url, faviconCacheManager) { // Add cache manager as key
-                        if (app.faviconUrl == null && !faviconUrls.containsKey(app.url)) {
-                            // 1. Check cache
-                            val cachedUrl = faviconCacheManager.getFaviconUrl(app.url)
-                            if (cachedUrl != null) {
-                                faviconUrls[app.url] = cachedUrl // Use cached URL
-                                Log.d("FaviconCache", "Using cached favicon for ${app.url}")
-                            } else {
-                                // 2. Fetch if not in cache
-                                Log.d("FaviconCache", "Fetching favicon for ${app.url}")
-                                faviconUrls[app.url] = null // Mark as fetching/default
-                                val fetchedUrl = fetchFaviconUrl(app.url)
-                                if (fetchedUrl != null) {
-                                    faviconUrls[app.url] = fetchedUrl // Update state
-                                    // 3. Save to cache after successful fetch
-                                    faviconCacheManager.saveFaviconUrl(app.url, fetchedUrl)
-                                    Log.d("FaviconCache", "Fetched and cached favicon for ${app.url}")
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(4),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 300.dp)
+                ) {
+                    gridItems(apps) { app ->
+                        // Fetch favicon URL: Check cache first, then fetch if needed
+                        LaunchedEffect(app.url, faviconCacheManager) {
+                            if (app.faviconUrl == null && !faviconUrls.containsKey(app.url)) {
+                                val cachedUrl = faviconCacheManager.getFaviconUrl(app.url)
+                                if (cachedUrl != null) {
+                                    faviconUrls[app.url] = cachedUrl
+                                    Log.d("FaviconCache", "Using cached favicon for ${app.url}")
                                 } else {
-                                    // Fetch failed, state remains null (triggers fallback)
-                                    Log.w("FaviconCache", "Failed to fetch favicon for ${app.url}")
+                                    Log.d("FaviconCache", "Fetching favicon for ${app.url}")
+                                    faviconUrls[app.url] = null
+                                    val fetchedUrl = fetchFaviconUrl(app.url)
+                                    if (fetchedUrl != null) {
+                                        faviconUrls[app.url] = fetchedUrl
+                                        faviconCacheManager.saveFaviconUrl(app.url, fetchedUrl)
+                                        Log.d("FaviconCache", "Fetched and cached favicon for ${app.url}")
+                                    } else {
+                                        Log.w("FaviconCache", "Failed to fetch favicon for ${app.url}")
+                                    }
                                 }
+                            } else if (app.faviconUrl != null) {
+                                faviconUrls[app.url] = app.faviconUrl
                             }
-                        } else if (app.faviconUrl != null) {
-                            // If manual faviconUrl is provided, ensure it's in the state map
-                            // (though Coil likely handles this fine, this ensures consistency if needed elsewhere)
-                            faviconUrls[app.url] = app.faviconUrl
+                        }
+
+                        Column(
+                            modifier = Modifier
+                                .clickable { onShortcutClick(app.url) }
+                                .padding(8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            val placeholderPainter = rememberVectorPainter(image = app.icon)
+                            
+                            val painter = if (app.localDrawableRes != null) {
+                                painterResource(id = app.localDrawableRes)
+                            } else {
+                                val imageUrl = app.faviconUrl ?: faviconUrls[app.url]
+                                rememberAsyncImagePainter(
+                                    model = imageUrl,
+                                    placeholder = placeholderPainter,
+                                    error = placeholderPainter
+                                )
+                            }
+
+                            Image(
+                                painter = painter,
+                                contentDescription = app.name,
+                                modifier = Modifier.size(64.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = app.name,
+                                textAlign = TextAlign.Center,
+                                fontSize = 14.sp,
+                                maxLines = 1
+                            )
                         }
                     }
-
-                    Column(
-                        modifier = Modifier
-                            .clickable { onShortcutClick(app.url) }
-                            .padding(8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        val placeholderPainter = rememberVectorPainter(image = app.icon)
-                        // Prioritize manual URL, then fetched URL, then placeholder
-                        val imageUrl = app.faviconUrl ?: faviconUrls[app.url]
-
-                        Image(
-                            painter = rememberAsyncImagePainter(
-                                model = imageUrl, // Use manual or fetched URL
-                                placeholder = placeholderPainter,
-                                error = placeholderPainter // Fallback to placeholder on error or if URL is null
-                            ),
-                            contentDescription = app.name,
-                            modifier = Modifier.size(64.dp) // Icon size
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = app.name,
-                            textAlign = TextAlign.Center,
-                            fontSize = 14.sp, // Text size
-                            maxLines = 1 // Ensure text doesn't wrap excessively
-                        )
-                    }
                 }
-            } // End LazyVerticalGrid for Main XApps
-        } // End Card for Main XApps
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+        
+        // --- Essentials Section ---
+        CategorySection("Essentials", mainApps)
+        
+        // --- DeFi Section ---
+        CategorySection("DeFi", defiApps)
+        
+        // --- Collectibles Section ---
+        CategorySection("Collectibles", collectiblesApps)
 
         // --- Favorite XApps Section ---
         
@@ -611,16 +634,21 @@ fun WebBrowserScreen(
     // val favoriteXApps = remember { mutableStateListOf<XAppInfo>() }
     // LaunchedEffect(walletManager) { ... }
 
-    // Define the list of official XApps
-    val officialXApps = listOf(
-        XAppInfo(name = "Xian.org", url = "https://xian.org", icon = Icons.Default.Language, faviconUrl = "https://xian.org/assets/img/favicon.ico"), // Manual URL
+    // Define the categorized XApps
+    val mainApps = listOf(
+        XAppInfo(name = "Xian.org", url = "https://xian.org", icon = Icons.Default.Language, faviconUrl = "https://xian.org/assets/img/favicon.ico"),
+        XAppInfo(name = "Xian Block Explorer", url = "https://explorer.xian.org", icon = Icons.Default.Language, faviconUrl = "https://explorer.xian.org/img/logo.bf1eed5b.png")
+    )
+    
+    val defiApps = listOf(
+        XAppInfo(name = "XIAN DEX", url = "https://dex.xian.org", icon = Icons.Default.Language, localDrawableRes = net.xian.xianwalletapp.R.drawable.xdex),
+        XAppInfo(name = "SnakeXchange", url = "https://snakexchange.org/", icon = Icons.Default.Language),
+        XAppInfo(name = "OTC", url = "https://xian-otc.site/open-offers", icon = Icons.Default.Language, localDrawableRes = net.xian.xianwalletapp.R.drawable.otc)
+    )
+    
+    val collectiblesApps = listOf(
         XAppInfo(name = "XNS Domains", url = "https://xns.domains/", icon = Icons.Default.Language),
-        XAppInfo(name = "PixelSnek", url = "https://pixelsnek.xian.org/", icon = Icons.Default.Language),
-        XAppInfo(name = "SnakeXchange", url = "https://snakexchange.org/", icon = Icons.Default.Language)
-        , // Add comma for the next item
-        XAppInfo(name = "Xian Block Explorer", url = "https://explorer.xian.org", icon = Icons.Default.Language, faviconUrl = "https://explorer.xian.org/img/logo.bf1eed5b.png"), // Manual URL
-        XAppInfo(name = "Snaklytics", url = "https://snaklytics.com", icon = Icons.Default.Language)
-        // Add more apps here later (just name, url, placeholder icon)
+        XAppInfo(name = "PixelSnek", url = "https://pixelsnek.xian.org/", icon = Icons.Default.Language)
     )
 
     // Estado para mostrar/ocultar la barra inferior según el scroll
@@ -884,7 +912,9 @@ fun WebBrowserScreen(
             // --- Conditional Content (Dashboard or WebView) ---
             if (showDashboard) {
                 DashboardContent(
-                    mainApps = officialXApps,
+                    mainApps = mainApps,
+                    defiApps = defiApps,
+                    collectiblesApps = collectiblesApps,
                     favoriteApps = favoriteXApps, // Pass the collected list
                     onShortcutClick = { targetUrl ->
                         currentWebViewUrl = targetUrl
@@ -1182,7 +1212,7 @@ fun WebBrowserScreen(
                                 jsPromptRequest = null
                             }
                         ) {
-                            Text("OK")
+                            Text("OK", color = Color.Black)
                         }
                     },
                     dismissButton = {
@@ -1193,7 +1223,7 @@ fun WebBrowserScreen(
                                 jsPromptRequest = null
                             }
                         ) {
-                            Text("Cancel")
+                            Text("Cancel", color = Color.Black)
                         }
                     }
                 )
@@ -1215,12 +1245,11 @@ fun WebBrowserScreen(
                         Column {
                             Text("Enter your wallet password to proceed with the transaction.")
                             Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedTextField(
+                            PasswordTextField(
                                 value = passwordInput,
                                 onValueChange = { passwordInput = it },
                                 label = { Text("Password") },
-                                singleLine = true,
-                                visualTransformation = PasswordVisualTransformation(),
+                                modifier = Modifier.fillMaxWidth(),
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                                 keyboardActions = KeyboardActions(onDone = { /* Handle validation/auth on button click */ })
                             )

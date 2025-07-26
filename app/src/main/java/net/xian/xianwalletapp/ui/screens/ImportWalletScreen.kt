@@ -18,6 +18,7 @@ import net.xian.xianwalletapp.navigation.XianDestinations
 import net.xian.xianwalletapp.wallet.WalletManager
 import net.xian.xianwalletapp.ui.theme.XianButtonType
 import net.xian.xianwalletapp.ui.theme.xianButtonColors
+import net.xian.xianwalletapp.ui.components.PasswordTextField
 
 /**
  * Screen for importing an existing wallet
@@ -119,29 +120,23 @@ fun ImportWalletScreen(navController: NavController, walletManager: WalletManage
             }
             
             // Password field
-            OutlinedTextField(
+            PasswordTextField(
                 value = password,
                 onValueChange = { password = it; errorMessage = null },
                 label = { Text("New Password") },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                singleLine = true
+                    .padding(bottom = 16.dp)
             )
             
             // Confirm password field
-            OutlinedTextField(
+            PasswordTextField(
                 value = confirmPassword,
                 onValueChange = { confirmPassword = it; errorMessage = null },
                 label = { Text("Confirm Password") },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                singleLine = true
+                    .padding(bottom = 8.dp)
             )
             
             // Password requirements

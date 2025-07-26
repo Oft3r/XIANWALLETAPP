@@ -230,7 +230,8 @@ fun ManageTokenList(
                                         }
                                     },
                                     colors = ButtonDefaults.buttonColors(
-                                        containerColor = MaterialTheme.colorScheme.primary
+                                        containerColor = MaterialTheme.colorScheme.primary,
+                                        contentColor = Color.Black
                                     )
                                 ) {
                                     Text("Save Order")

@@ -1,4 +1,3 @@
-
 package net.xian.xianwalletapp.workers
 
 import android.content.Context
@@ -14,13 +13,15 @@ import net.xian.xianwalletapp.workers.NotificationUtils
 class TransactionMonitorWorker(
     context: Context,
     workerParams: WorkerParameters
-) : CoroutineWorker(context, workerParams) {    override suspend fun doWork(): Result {
+) : CoroutineWorker(context, workerParams) {
+    
+    override suspend fun doWork(): Result {
         android.util.Log.d("TransactionMonitorWorker", "Starting transaction check")
         try {
-            val hasNewTransaction = checkForNewTransaction()
-            if (hasNewTransaction) {
+            val latestTransaction = checkForNewTransaction()
+            if (latestTransaction != null) {
                 android.util.Log.i("TransactionMonitorWorker", "New transaction detected! Showing notification")
-                showNotification("New transaction detected!", "Check your wallet for details.")
+                showTransactionNotification(latestTransaction)
             } else {
                 android.util.Log.d("TransactionMonitorWorker", "No new transactions found")
             }
@@ -29,32 +30,36 @@ class TransactionMonitorWorker(
             android.util.Log.e("TransactionMonitorWorker", "Error in worker execution", e)
             return Result.failure()
         }
-    }    /**
+    }
+    
+    /**
      * Verifica si hay una nueva transacción en la blockchain usando el mismo método que Activity.
      * Compara el hash de la transacción más reciente con el último guardado localmente.
+     * Retorna los detalles de la transacción si es nueva, null si no hay cambios.
      */
-    private suspend fun checkForNewTransaction(): Boolean {
+    private suspend fun checkForNewTransaction(): net.xian.xianwalletapp.data.LocalTransactionRecord? {
         val prefs = applicationContext.getSharedPreferences("wallet_prefs", Context.MODE_PRIVATE)
         val lastTxId = prefs.getString("last_tx_id", null)
         android.util.Log.d("TransactionMonitorWorker", "Last saved transaction ID: $lastTxId")
         
-        val latestTxId = getLatestNetworkTransactionHash()
-        android.util.Log.d("TransactionMonitorWorker", "Latest transaction ID: $latestTxId")
+        val latestTransaction = getLatestNetworkTransaction()
+        android.util.Log.d("TransactionMonitorWorker", "Latest transaction ID: ${latestTransaction?.txHash}")
 
-        return if (latestTxId != null && latestTxId != lastTxId) {
+        return if (latestTransaction != null && latestTransaction.txHash != lastTxId) {
             android.util.Log.d("TransactionMonitorWorker", "New transaction detected! Saving new ID")
-            prefs.edit().putString("last_tx_id", latestTxId).apply()
-            true
+            prefs.edit().putString("last_tx_id", latestTransaction.txHash).apply()
+            latestTransaction
         } else {
             android.util.Log.d("TransactionMonitorWorker", "No changes or no transactions found")
-            false
+            null
         }
     }
 
     /**
-     * Obtiene el hash de la transacción más reciente usando TransactionRepository y XianNetworkService,
+     * Obtiene la transacción más reciente usando TransactionRepository y XianNetworkService,
      * igual que la sección Activity de la wallet.
-     */    private suspend fun getLatestNetworkTransactionHash(): String? = withContext(Dispatchers.IO) {
+     */
+    private suspend fun getLatestNetworkTransaction(): net.xian.xianwalletapp.data.LocalTransactionRecord? = withContext(Dispatchers.IO) {
         try {
             // Obtener la public key activa desde WalletManager (sin reflexión)
             val walletManager = net.xian.xianwalletapp.wallet.WalletManager.getInstance(applicationContext)
@@ -86,19 +91,16 @@ class TransactionMonitorWorker(
             if (txList.isNullOrEmpty()) return@withContext null
 
             // El primer elemento es el más reciente (ordenado DESC)
-            val firstTx = txList.firstOrNull()
-            if (firstTx == null) return@withContext null
-
-            // Obtener el hash de la transacción (campo txHash)
-            return@withContext firstTx.txHash
+            return@withContext txList.firstOrNull()
         } catch (e: Exception) {
             android.util.Log.e("TransactionMonitorWorker", "Error checking for transactions", e)
         }
         return@withContext null
     }
 
-    private fun showNotification(title: String, message: String) {
+    private fun showTransactionNotification(transaction: net.xian.xianwalletapp.data.LocalTransactionRecord) {
         val channelId = "wallet_activity"
+        
         // Create an intent to open MainActivity when the notification is tapped
         val intent = android.content.Intent(applicationContext, net.xian.xianwalletapp.MainActivity::class.java)
         intent.flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -108,6 +110,39 @@ class TransactionMonitorWorker(
             intent,
             android.app.PendingIntent.FLAG_UPDATE_CURRENT or (if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) android.app.PendingIntent.FLAG_IMMUTABLE else 0)
         )
-        NotificationUtils.showNotificationIfPermitted(applicationContext, channelId, title, message, pendingIntent)
+        
+        // Format the transaction details
+        val title = if (transaction.type == "Sent") "Transaction Sent" else "Transaction Received"
+        val amountFormatted = try {
+            String.format("%.2f", transaction.amount.toDouble())
+        } catch (e: NumberFormatException) {
+            transaction.amount
+        }
+        val sign = if (transaction.type == "Sent") "-" else "+"
+        val amount = "$sign$amountFormatted ${transaction.symbol}"
+        
+        val otherPartyAddress = if (transaction.type == "Sent") transaction.recipient else transaction.sender
+        val addressLabel = if (transaction.type == "Sent") "To" else "From"
+        val addressDisplay = otherPartyAddress?.let { address ->
+            "$addressLabel: ${address.take(8)}...${address.takeLast(6)}"
+        } ?: ""
+        
+        val txDisplay = "TX: ${transaction.txHash.take(8)}...${transaction.txHash.takeLast(6)}"
+        
+        // Format timestamp
+        val formatter = java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm")
+            .withZone(java.time.ZoneId.systemDefault())
+        val timeDisplay = formatter.format(java.time.Instant.ofEpochMilli(transaction.timestamp))
+        
+        NotificationUtils.showTransactionNotification(
+            applicationContext,
+            channelId,
+            title,
+            amount,
+            addressDisplay,
+            txDisplay,
+            timeDisplay,
+            pendingIntent
+        )
     }
 }

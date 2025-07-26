@@ -91,8 +91,12 @@ class XianWebViewBridge(
         Log.d(TAG, "showTransactionApprovalDialog called from JavaScript: $txDetailsJson")
 
         // Check if authentication is required before showing the dialog
-        val needsAuth = !walletManager.getRequirePassword() || walletManager.getUnlockedPrivateKey() == null
-        Log.d(TAG, "Needs authentication before showing dialog? $needsAuth")
+        val requiresPasswordOnStartup = walletManager.getRequirePassword()
+        val hasUnlockedKey = walletManager.getUnlockedPrivateKey() != null
+        
+        val needsAuth = !hasUnlockedKey
+        
+        Log.d(TAG, "requiresPasswordOnStartup: $requiresPasswordOnStartup, hasUnlockedKey: $hasUnlockedKey, needsAuth: $needsAuth")
 
         if (needsAuth) {
             // Request authentication from the UI layer via the callback

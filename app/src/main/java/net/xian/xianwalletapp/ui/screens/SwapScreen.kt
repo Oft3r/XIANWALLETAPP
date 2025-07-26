@@ -6,8 +6,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Settings
@@ -43,6 +47,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlin.math.pow
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -58,8 +63,10 @@ import net.xian.xianwalletapp.ui.theme.xianButtonColors
 import net.xian.xianwalletapp.ui.viewmodels.WalletViewModel
 import net.xian.xianwalletapp.ui.viewmodels.WalletViewModelFactory
 import net.xian.xianwalletapp.wallet.WalletManager
+import net.xian.xianwalletapp.ui.components.PasswordTextField
 import org.json.JSONObject
 import java.util.Locale
+import java.text.DecimalFormat
 
 // Static logo mapping function for all available tokens (moved to file level for global access)
 fun getTokenLogo(contract: String): Any? {
@@ -110,12 +117,21 @@ fun SwapScreen(
     var showSettingsDialog by remember { mutableStateOf(false) }
     var selectedSlippage by remember { mutableStateOf(10.0) } // Default 10%
     var showXianFeeWarning by remember { mutableStateOf(false) }
+    var swapProgress by remember { mutableStateOf(0f) }
+    var swapStatusMessage by remember { mutableStateOf("") }
     
     // Precise balance states for SwapScreen (independent from ViewModel)
     var fromTokenPreciseBalance by remember { mutableStateOf<String?>(null) }
     var toTokenPreciseBalance by remember { mutableStateOf<String?>(null) }
     var isLoadingFromBalance by remember { mutableStateOf(false) }
     var isLoadingToBalance by remember { mutableStateOf(false) }
+    
+    // Focus state for auto-focus
+    val focusRequester = remember { FocusRequester() }
+    
+    // State for 24h price changes for all tokens in selector
+    var tokenPriceChanges by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
+    var isLoadingTokenPriceChanges by remember { mutableStateOf(false) }
     
     // Function to get precise balance using the dedicated API
     suspend fun getPreciseTokenBalance(tokenContract: String, walletAddress: String): String? {
@@ -241,6 +257,16 @@ fun SwapScreen(
         loadPreciseBalances()
     }
     
+    // Auto-focus when token changes
+    LaunchedEffect(fromTokenContract) {
+        kotlinx.coroutines.delay(100) // Small delay to ensure UI is ready
+        try {
+            focusRequester.requestFocus()
+        } catch (e: Exception) {
+            // Ignore focus request errors
+        }
+    }
+    
     // Collect state from ViewModel
     val tokens by viewModel.tokens.collectAsStateWithLifecycle()
     val tokenInfoMap by viewModel.tokenInfoMap.collectAsStateWithLifecycle()
@@ -286,6 +312,62 @@ fun SwapScreen(
             toTokenPreciseBalance
         } else {
             balanceMap[tokenContract]?.toString()
+        }
+    }
+    
+    // Load token price changes when the screen is first displayed
+    LaunchedEffect(Unit) {
+        isLoadingTokenPriceChanges = true
+        val priceChanges = mutableMapOf<String, Float>()
+        
+        try {
+            // Get all trading pairs
+            val allPairs = networkService.getAllPairs()
+            
+            // Define available tokens locally - including currency for XIAN price change
+            val tokenContracts = listOf("currency", "con_poop_coin", "con_xtfu", "con_xarb")
+            
+            // Load price changes for each token in parallel for faster loading
+            val deferredResults = tokenContracts.map { contract ->
+                async {
+                    try {
+                        val tokenPair = allPairs.find { pair ->
+                            pair.token0 == contract || pair.token1 == contract
+                        }
+                        
+                        if (tokenPair != null) {
+                            // Determine which token denomination to use
+                            val tokenDenomination = when {
+                                tokenPair.token0 == contract && tokenPair.token1 == "currency" -> 1 // We want XIAN per token
+                                tokenPair.token1 == contract && tokenPair.token0 == "currency" -> 0 // We want XIAN per token
+                                tokenPair.token0 == contract -> 1 // token1 per token0
+                                tokenPair.token1 == contract -> 0 // token0 per token1
+                                else -> 0 // default
+                            }
+                            
+                            val result = networkService.getPriceChange24h(tokenPair.id, tokenDenomination)
+                            if (result != null && result.isFinite()) {
+                                contract to result
+                            } else null
+                        } else null
+                    } catch (e: Exception) {
+                        android.util.Log.e("SwapScreen", "Error loading price change for $contract: ${e.message}")
+                        null
+                    }
+                }
+            }
+            
+            // Wait for all results and collect them
+            deferredResults.awaitAll().filterNotNull().forEach { (contract, priceChange) ->
+                priceChanges[contract] = priceChange
+            }
+            
+            tokenPriceChanges = priceChanges
+            android.util.Log.d("SwapScreen", "Token price changes loaded: $priceChanges")
+        } catch (e: Exception) {
+            android.util.Log.e("SwapScreen", "Error loading token price changes: ${e.message}")
+        } finally {
+            isLoadingTokenPriceChanges = false
         }
     }
     
@@ -507,6 +589,8 @@ fun SwapScreen(
     suspend fun performSwap(password: String?) {
         try {
             isLoading = true
+            swapProgress = 0f
+            swapStatusMessage = "Initiating swap..."
             
             val amount = fromAmount.toDoubleOrNull()
             if (amount == null || amount <= 0) {
@@ -541,6 +625,9 @@ fun SwapScreen(
             // Ensure keyToUse is non-null before proceeding
             val finalPrivateKey = keyToUse ?: throw IllegalStateException("Private key acquisition failed unexpectedly.")
             
+            swapProgress = 0.2f
+            swapStatusMessage = "Preparing token approval..."
+            
             // Calculate amount with 10% extra for approval
             val approvalAmount = amount * 1.1
             
@@ -549,6 +636,9 @@ fun SwapScreen(
                 put("amount", approvalAmount)
                 put("to", "con_oswap")
             }
+            
+            swapProgress = 0.4f
+            swapStatusMessage = "Approving tokens..."
             
             val approveResult = networkService.sendTransaction(
                 contract = fromTokenContract,
@@ -563,8 +653,14 @@ fun SwapScreen(
                 return
             }
             
+            swapProgress = 0.6f
+            swapStatusMessage = "Waiting for approval confirmation..."
+            
             // Wait a moment for the approval to be processed
             kotlinx.coroutines.delay(2000)
+            
+            swapProgress = 0.8f
+            swapStatusMessage = "Executing swap..."
             
             // Step 2: Execute the swap
             val swapKwargs = JSONObject().apply {
@@ -584,6 +680,8 @@ fun SwapScreen(
             )
             
             if (swapResult.success) {
+                swapProgress = 1f
+                swapStatusMessage = "Swap completed successfully!"
                 errorMessage = "Swap completed successfully! Transaction: ${swapResult.txHash}"
                 // Refresh balances
                 viewModel.refreshData()
@@ -591,14 +689,22 @@ fun SwapScreen(
                 fromAmount = ""
                 toAmount = ""
             } else {
+                swapProgress = 0f
+                swapStatusMessage = ""
                 errorMessage = "Swap failed: ${swapResult.errors ?: "Unknown error"}"
             }
             
         } catch (e: Exception) {
+            swapProgress = 0f
+            swapStatusMessage = ""
             errorMessage = "Error during swap: ${e.message}"
         } finally {
             isLoading = false
             showPasswordDialog = false
+            // Reset progress after a delay
+            kotlinx.coroutines.delay(2000)
+            swapProgress = 0f
+            swapStatusMessage = ""
         }
     }
     
@@ -642,6 +748,15 @@ fun SwapScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.background,
+                            MaterialTheme.colorScheme.background.copy(alpha = 0.95f)
+                        )
+                    )
+                )
                 .padding(paddingValues)
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -652,8 +767,9 @@ fun SwapScreen(
                     .fillMaxWidth()
                     .padding(bottom = 8.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -672,7 +788,7 @@ fun SwapScreen(
                         // Max clickable text
                         Text(
                             text = "Max",
-                            color = Color(0xFF4A90E2),
+                            color = XianPrimary,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier
@@ -755,7 +871,9 @@ fun SwapScreen(
                                 fromAmount = it
                                 showXianFeeWarning = false // Hide warning when user types manually
                             },
-                            modifier = Modifier.width(150.dp),
+                            modifier = Modifier
+                                .width(150.dp)
+                                .focusRequester(focusRequester),
                             placeholder = {
                                 Text(
                                     text = "0.0",
@@ -766,7 +884,13 @@ fun SwapScreen(
                             },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             singleLine = true,
-                            textStyle = MaterialTheme.typography.bodyLarge.copy(textAlign = TextAlign.End)
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(textAlign = TextAlign.End),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color.Transparent,
+                                unfocusedBorderColor = Color.Transparent,
+                                disabledBorderColor = Color.Transparent,
+                                errorBorderColor = Color.Transparent
+                            )
                         )
                     }
                     
@@ -848,8 +972,9 @@ fun SwapScreen(
                     .fillMaxWidth()
                     .padding(top = 8.dp, bottom = 24.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp)
@@ -1093,6 +1218,51 @@ fun SwapScreen(
             
             Spacer(modifier = Modifier.height(16.dp))
             
+            // Progress indicator during swap
+            if (isLoading && swapProgress > 0f) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Text(
+                            text = swapStatusMessage,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        
+                        LinearProgressIndicator(
+                            progress = swapProgress,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp)),
+                            color = XianPrimary,
+                            trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+                        )
+                        
+                        Text(
+                            text = "${(swapProgress * 100).toInt()}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
+                            textAlign = TextAlign.End
+                        )
+                    }
+                }
+            }
+            
             // Swap button
             val hasEnoughBalance = hasEnoughBalance(fromTokenContract, fromAmount)
             val isButtonEnabled = fromAmount.isNotEmpty() && fromAmount.toFloatOrNull() != null && !isLoading && isPairValid && hasEnoughBalance
@@ -1142,6 +1312,8 @@ fun SwapScreen(
                 selectedContract = fromTokenContract,
                 tokenInfoMap = tokenInfoMap,
                 imageLoader = viewModel.getImageLoader(),
+                tokenPriceChanges = tokenPriceChanges,
+                isLoadingPriceChanges = isLoadingTokenPriceChanges,
                 onTokenSelected = { contract, symbol ->
                     if (contract != toTokenContract) {
                         fromTokenContract = contract
@@ -1161,6 +1333,8 @@ fun SwapScreen(
                 selectedContract = toTokenContract,
                 tokenInfoMap = tokenInfoMap,
                 imageLoader = viewModel.getImageLoader(),
+                tokenPriceChanges = tokenPriceChanges,
+                isLoadingPriceChanges = isLoadingTokenPriceChanges,
                 onTokenSelected = { contract, symbol ->
                     if (contract != fromTokenContract) {
                         toTokenContract = contract
@@ -1210,10 +1384,13 @@ private fun TokenSelectorDialog(
     selectedContract: String,
     tokenInfoMap: Map<String, Any>,
     imageLoader: ImageLoader,
+    tokenPriceChanges: Map<String, Float>,
+    isLoadingPriceChanges: Boolean,
     onTokenSelected: (String, String) -> Unit,
     onDismiss: () -> Unit
 ) {
     // Use static logo mapping function from file level
+    val percentageFormatter = DecimalFormat("#,##0.00") // For percentage values (2 decimals)
     
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1260,7 +1437,9 @@ private fun TokenSelectorDialog(
                         
                         Spacer(modifier = Modifier.width(12.dp))
                         
-                        Column {
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
                             Text(
                                 text = symbol,
                                 style = MaterialTheme.typography.titleMedium,
@@ -1271,6 +1450,42 @@ private fun TokenSelectorDialog(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                        }
+                        
+                        // Show 24h price change percentage - hide for USDC, show for others including XIAN
+                        if (contract != "con_usdc") {
+                            val priceChange = tokenPriceChanges[contract]
+                            when {
+                                isLoadingPriceChanges -> {
+                                    // Show loading indicator while price changes are loading
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 1.5.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                priceChange != null && priceChange.isFinite() -> {
+                                    val isPositive = priceChange >= 0
+                                    val changeColor = if (isPositive) Color(0xFF4CAF50) else Color(0xFFF44336)
+                                    val changeText = if (isPositive) "+${percentageFormatter.format(priceChange)}%" else "${percentageFormatter.format(priceChange)}%"
+                                    
+                                    Text(
+                                        text = changeText,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = changeColor,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                                else -> {
+                                    // Show placeholder when no data is available
+                                    Text(
+                                        text = "--",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -1303,13 +1518,11 @@ private fun PasswordPromptDialog(
                 if (showPasswordField) {
                     Text("Wallet is locked. Please enter your password to proceed.")
                     Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
+                    PasswordTextField(
                         value = password,
                         onValueChange = { password = it },
                         label = { Text("Password") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                        modifier = Modifier.fillMaxWidth()
                     )
                 } else {
                     Text("Confirm swap transaction?") // Confirmation text when unlocked

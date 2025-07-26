@@ -37,6 +37,7 @@ import net.xian.xianwalletapp.navigation.XianDestinations
 import net.xian.xianwalletapp.wallet.WalletManager
 import net.xian.xianwalletapp.ui.theme.XianButtonType
 import net.xian.xianwalletapp.ui.theme.xianButtonColors
+import net.xian.xianwalletapp.ui.components.PasswordTextField
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -345,13 +346,11 @@ fun SecuritySettingsScreen(
                         if (!passwordVerified) {
                             Text("Enter your password to view your private key")
                             Spacer(modifier = Modifier.height(16.dp))
-                            OutlinedTextField(
+                            PasswordTextField(
                                 value = password,
                                 onValueChange = { password = it; errorMessage = null },
                                 label = { Text("Password") },
-                                visualTransformation = PasswordVisualTransformation(),
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true
+                                modifier = Modifier.fillMaxWidth()
                             )
 
                             if (errorMessage != null) {
@@ -534,13 +533,11 @@ fun SecuritySettingsScreen(
                     Column {
                         Text("Enter your current wallet password to proceed with enabling biometric unlock.")
                         Spacer(modifier = Modifier.height(16.dp))
-                        OutlinedTextField(
+                        PasswordTextField(
                             value = enablePassword,
                             onValueChange = { enablePassword = it; enableError = null },
                             label = { Text("Password") },
-                            visualTransformation = PasswordVisualTransformation(),
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
+                            modifier = Modifier.fillMaxWidth()
                         )
                         if (enableError != null) {
                             Text(

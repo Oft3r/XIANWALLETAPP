@@ -484,5 +484,27 @@ fun XianWalletApp(
                 coroutineScope = coroutineScope // Pass hoisted scope
             )
         }
+
+        composable(
+            route = "${XianDestinations.ADDRESS_BOOK}?prefilledAddress={prefilledAddress}",
+            arguments = listOf(
+                navArgument("prefilledAddress") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val prefilledAddress = backStackEntry.arguments?.getString("prefilledAddress")
+            AddressBookScreen(
+                navController = navController,
+                prefilledAddress = prefilledAddress,
+                onAddressSelected = { selectedAddress ->
+                    // Save selected address in savedStateHandle to be retrieved by SendToken screen
+                    navController.previousBackStackEntry?.savedStateHandle?.set("selected_address", selectedAddress)
+                    navController.popBackStack()
+                }
+            )
+        }
     }
 }

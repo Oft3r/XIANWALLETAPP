@@ -2,6 +2,7 @@ package net.xian.xianwalletapp.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,14 +16,14 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
-// Removed duplicate import
+
 import androidx.activity.result.contract.ActivityResultContracts
-// Removed duplicate import
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.outlined.ContactPage
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,7 +40,6 @@ import androidx.compose.ui.platform.LocalLifecycleOwner // Added for state colle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle // Added for state collection
 import androidx.lifecycle.viewmodel.compose.viewModel // Added for ViewModel injection
 import androidx.navigation.NavController
-// XianCrypto import removed as it's likely unused directly here now
 import net.xian.xianwalletapp.network.TransactionResult // Keep if used for result type
 import net.xian.xianwalletapp.network.XianNetworkService // Keep if needed for factory
 import net.xian.xianwalletapp.wallet.WalletManager // Keep if needed for factory
@@ -59,6 +59,9 @@ import net.xian.xianwalletapp.data.TransactionHistoryManager // Added
 import net.xian.xianwalletapp.ui.theme.XianButtonType
 import net.xian.xianwalletapp.ui.theme.xianButtonColors
 import net.xian.xianwalletapp.ui.components.QRScannerView // Added for integrated QR scanner
+import net.xian.xianwalletapp.navigation.XianDestinations // Added for navigation
+import net.xian.xianwalletapp.network.TokenBalanceResponse // Added for balance API
+import net.xian.xianwalletapp.ui.components.PasswordTextField
 
 /**
  * Screen for sending tokens to another address
@@ -101,6 +104,8 @@ fun SendTokenScreen(
     var isEstimatingFee by remember { mutableStateOf(false) } // Local loading state for button
     var isPasswordDialogForTx by remember { mutableStateOf(false) } // Track if password dialog is for this specific TX flow
     var showQRScanner by remember { mutableStateOf(false) } // State to show integrated QR scanner
+    var saveAddressAfterTransaction by remember { mutableStateOf(false) } // State for saving address checkbox
+    var isLoadingBalance by remember { mutableStateOf(false) } // State for loading balance
 
     // context variable moved up
 
@@ -114,6 +119,16 @@ fun SendTokenScreen(
             coroutineScope.launch {
                 snackbarHostState.showSnackbar("QR scan cancelled or failed.")
             }
+        }
+    }
+
+    // Listen for selected address from AddressBook screen
+    LaunchedEffect(navController.currentBackStackEntry) {
+        navController.currentBackStackEntry?.savedStateHandle?.get<String>("selected_address")?.let { selectedAddress ->
+            recipientAddress = selectedAddress
+            errorMessage = null
+            // Clear the saved state to prevent re-triggering
+            navController.currentBackStackEntry?.savedStateHandle?.remove<String>("selected_address")
         }
     }
 
@@ -256,6 +271,9 @@ fun SendTokenScreen(
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
+                },
+                actions = {
+                    // AddressBook icon moved to recipient address input field
                 }
             )
         },
@@ -317,11 +335,27 @@ fun SendTokenScreen(
                     .padding(bottom = 16.dp),
                 singleLine = true, // Added comma
                 trailingIcon = {
-                    IconButton(onClick = { launchScannerWithPermissionCheck() }) {
-                        Icon(
-                            imageVector = Icons.Default.CameraAlt,
-                            contentDescription = "Scan QR Code"
-                        )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = {
+                                navController.navigate(XianDestinations.ADDRESS_BOOK)
+                            }
+                        ) {
+                            Icon(
+                                Icons.Outlined.ContactPage,
+                                contentDescription = "Address Book",
+                                tint = XianPrimary
+                            )
+                        }
+                        IconButton(onClick = { launchScannerWithPermissionCheck() }) {
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = "Scan QR Code"
+                            )
+                        }
                     }
                 }
             )
@@ -369,18 +403,87 @@ fun SendTokenScreen(
             }
             // Removed extra closing parenthesis here
             
-            // Amount field
-            OutlinedTextField(
-                value = amount,
-                onValueChange = { amount = it; errorMessage = null },
-                label = { Text("Amount") },
+            // Amount field with Max button
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 16.dp),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                singleLine = true,
-                trailingIcon = { Text(symbol, modifier = Modifier.padding(end = 16.dp)) }
-            )
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = amount,
+                    onValueChange = { amount = it; errorMessage = null },
+                    label = { Text("Amount") },
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    trailingIcon = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(end = 8.dp)
+                        ) {
+                            Text(
+                                text = symbol,
+                                modifier = Modifier.padding(end = 8.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            TextButton(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        try {
+                                            isLoadingBalance = true
+                                            val networkService = XianNetworkService.getInstance(context)
+                                            val response = networkService.apiService.getTokenBalance(
+                                                contractName = contract,
+                                                address = publicKey
+                                            )
+                                            if (response.isSuccessful) {
+                                                response.body()?.let { balanceResponse ->
+                                                    // Apply deduction based on token type
+                                                    val deduction = if (contract.equals("currency", ignoreCase = true) || contract.equals("xian", ignoreCase = true)) {
+                                                        0.2 // XIAN token - deduct 0.2 for transaction fees
+                                                    } else {
+                                                        0.001 // Other tokens - deduct 0.001 for transaction fees
+                                                    }
+                                                    
+                                                    val maxAmount = (balanceResponse.balance - deduction).coerceAtLeast(0.0)
+                                                    amount = maxAmount.toString()
+                                                }
+                                            } else {
+                                                Log.e("SendTokenScreen", "Failed to fetch balance: ${response.message()}")
+                                                snackbarHostState.showSnackbar("Failed to fetch balance")
+                                            }
+                                        } catch (e: Exception) {
+                                            Log.e("SendTokenScreen", "Error fetching balance", e)
+                                            snackbarHostState.showSnackbar("Error fetching balance")
+                                        } finally {
+                                            isLoadingBalance = false
+                                        }
+                                    }
+                                },
+                                enabled = !isLoadingBalance,
+                                modifier = Modifier.height(32.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                if (isLoadingBalance) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(12.dp),
+                                        color = XianPrimary,
+                                        strokeWidth = 1.5.dp
+                                    )
+                                } else {
+                                    Text(
+                                        "Max",
+                                        fontSize = 11.sp,
+                                        color = XianPrimary,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+                    }
+                )
+            }
             
             // Error message
             if (errorMessage != null) {
@@ -536,6 +639,32 @@ fun SendTokenScreen(
                                 CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                             }
                         }
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        // Save address option - moved from above Review Transaction button
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { saveAddressAfterTransaction = !saveAddressAfterTransaction },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = saveAddressAfterTransaction,
+                                onCheckedChange = { saveAddressAfterTransaction = it },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = XianPrimary,
+                                    uncheckedColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Save this wallet address after transaction",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                modifier = Modifier.clickable { saveAddressAfterTransaction = !saveAddressAfterTransaction }
+                            )
+                        }
                     }
                 },
                 confirmButton = {
@@ -584,7 +713,14 @@ fun SendTokenScreen(
                                             contract = contract
                                         )
                                         transactionHistoryManager.addRecord(record)
-                                        navController.popBackStack()
+                                        
+                                        // Navigate to AddressBook with pre-filled address only if user chose to save
+                                        if (saveAddressAfterTransaction) {
+                                            navController.navigate("${XianDestinations.ADDRESS_BOOK}?prefilledAddress=${recipientToSend}")
+                                        } else {
+                                            navController.popBackStack()
+                                        }
+                                        
                                         Log.d("SendTokenScreen", "TRANSACTION SUCCESSFUL: $transactionHash")
                                     } else {
                                         errorMessage = result.errors ?: "Transaction failed with unknown error"
@@ -620,6 +756,8 @@ fun SendTokenScreen(
         // --- Password Dialog ---
         // Password dialog
         if (showPasswordDialog) {
+            var dialogErrorMessage by remember { mutableStateOf("") }
+            
             AlertDialog(
                 onDismissRequest = { showPasswordDialog = false },
                 title = { Text("Enter Password") },
@@ -627,15 +765,25 @@ fun SendTokenScreen(
                     Column {
                         Text("Please enter your wallet password to confirm the transaction.")
                         Spacer(modifier = Modifier.height(16.dp))
-                        OutlinedTextField(
+                        PasswordTextField(
                             value = password,
-                            onValueChange = { password = it },
+                            onValueChange = {
+                                password = it
+                                dialogErrorMessage = "" // Clear error when user types
+                            },
                             label = { Text("Password") },
-                            singleLine = true,
-                            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                             modifier = Modifier.fillMaxWidth()
                         )
+                        
+                        // Show error message within the dialog
+                        if (dialogErrorMessage.isNotEmpty()) {
+                            Text(
+                                text = dialogErrorMessage,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
                     }
                 },
                 confirmButton = {
@@ -649,14 +797,15 @@ fun SendTokenScreen(
                             }
 
                             isLoading = true // Show loading indicator while unlocking
-                            errorMessage = null // Clear previous errors
+                            dialogErrorMessage = "" // Clear dialog errors
                             coroutineScope.launch {
                                 var unlockedKey: ByteArray? = null
                                 try {
                                     // 1. Attempt to unlock wallet
                                     unlockedKey = walletManager.unlockWallet(password)
                                     if (unlockedKey == null) {
-                                        errorMessage = "Invalid password"
+                                        // Show error within dialog instead of main screen
+                                        dialogErrorMessage = "Invalid password"
                                         // Keep password dialog open, stop loading
                                         isLoading = false
                                         return@launch // Exit coroutine on invalid password
@@ -684,10 +833,10 @@ fun SendTokenScreen(
                                     // LaunchedEffect will handle showing the *Confirmation* Dialog
 
                                 } catch (e: Exception) {
-                                    errorMessage = "Error during unlock: ${e.message}"
+                                    // Show error within dialog for unlock errors
+                                    dialogErrorMessage = "Error during unlock: ${e.message}"
                                     Log.e("SendTokenScreen", "Exception after password entry", e)
-                                    showPasswordDialog = false // Dismiss on other errors
-                                    isPasswordDialogForTx = false
+                                    isLoading = false
                                 } finally {
                                     // Stop loading indicator *after* unlock attempt & fee request
                                     isLoading = false
@@ -697,14 +846,25 @@ fun SendTokenScreen(
                         colors = xianButtonColors(XianButtonType.SECONDARY),
                         enabled = password.isNotEmpty() && !isLoading // Disable while loading
                     ) {
-                        Text("Confirm")
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text("Confirm")
+                        }
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = {
-                        showPasswordDialog = false
-                        isPasswordDialogForTx = false // Reset flag on cancel
-                    }) {
+                    TextButton(
+                        onClick = {
+                            showPasswordDialog = false
+                            isPasswordDialogForTx = false // Reset flag on cancel
+                        },
+                        enabled = !isLoading
+                    ) {
                         Text("Cancel")
                     }
                 }

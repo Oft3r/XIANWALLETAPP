@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.XianWalletApp" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <style name="Theme.XianWalletApp" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <!-- Window behavior -->
         <item name="android:windowTranslucentStatus">true</item>
         <item name="android:windowTranslucentNavigation">false</item>

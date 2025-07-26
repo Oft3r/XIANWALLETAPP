@@ -93,3 +93,10 @@ data class RewardsData(
     val foundation_reward: Map<String, String>?,
     val masternode_reward: Map<String, String>?
 )
+
+// Data class for token balance API response
+data class TokenBalanceResponse(
+    val contractName: String,
+    val address: String,
+    val balance: Double
+)

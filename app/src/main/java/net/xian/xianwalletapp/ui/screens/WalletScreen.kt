@@ -84,6 +84,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.SpringSpec
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material.DismissValue
@@ -105,6 +107,8 @@ import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -186,7 +190,8 @@ fun WalletScreen(
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
-    val coroutineScope = rememberCoroutineScope()    // --- Collect State from ViewModel ---
+    val coroutineScope = rememberCoroutineScope()
+    val hapticFeedback = LocalHapticFeedback.current    // --- Collect State from ViewModel ---
     val publicKey by viewModel.publicKey.collectAsStateWithLifecycle() // Changed to collect from StateFlow
     val tokens by viewModel.tokens.collectAsStateWithLifecycle()
     val tokenInfoMap by viewModel.tokenInfoMap.collectAsStateWithLifecycle()
@@ -255,33 +260,170 @@ fun WalletScreen(
     
     // State for managing tokens mode
     var isManageMode by remember { mutableStateOf(false) }
+    
+    // State for wallet selector dropdown
+    var showWalletDropdown by remember { mutableStateOf(false) }
+    val availableWallets = remember(publicKey) { walletManager.getWalletPublicKeys() }
+
+    // Estado para el efecto de compresión y rebote dinámico
+    val swipeRefreshState = rememberSwipeRefreshState(false)
+    
+    // Calcular la escala basada en el progreso del swipe
+    // swipeRefreshState.indicatorOffset nos da la posición del indicador
+    val pullProgress = (swipeRefreshState.indicatorOffset / 200f).coerceIn(0f, 1f)
+    val dynamicScale = 1f - (pullProgress * 0.05f) // Compresión máxima del 5%
+    
+    // Animación suave para la escala
+    val animatedScale by animateFloatAsState(
+        targetValue = dynamicScale,
+        animationSpec = spring(
+            dampingRatio = 0.8f,
+            stiffness = 400f
+        ),
+        label = "DynamicCompressionScale"
+    )
 
     // Removed edit mode LaunchedEffect - now using separate Manage tab
     
     Scaffold(
         modifier = Modifier.statusBarsPadding(),
-        topBar = {            TopAppBar(
+        topBar = {
+            TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent, // Hacer la barra transparente
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.primary
                 ),
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "XIAN",
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = " WALLET",
-                            color = XianPrimaryVariant,
-                            fontWeight = FontWeight.Bold
-                        )
+                    // Wallet Selector Dropdown with loading indicator outside - Container Box
+                    Box {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(percent = 50),
+                                color = Color(0xFF252525), // Color un poco más claro que el oscuro original pero manteniendo el tono oscuro
+                                contentColor = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier
+                                    .clickable { showWalletDropdown = true }
+                                    .shadow(
+                                        elevation = 4.dp,
+                                        shape = RoundedCornerShape(percent = 50),
+                                        clip = false,
+                                        ambientColor = XianPrimary.copy(alpha = 0.2f),
+                                        spotColor = XianPrimaryVariant.copy(alpha = 0.25f)
+                                    )
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = activeWalletName?.takeIf { it.isNotBlank() } ?: "My Wallet",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = XianPrimary // Cambiar al color verde característico
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = if (showWalletDropdown) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                                        contentDescription = "Select Wallet",
+                                        modifier = Modifier.size(20.dp),
+                                        tint = XianPrimary // También cambiar el color de la flecha
+                                    )
+                                }
+                            }
+                            
+                            // Hourglass loading indicator outside the capsule
+                            if (isLoading) {
+                                Spacer(modifier = Modifier.width(12.dp))
+                                
+                                var rotation by remember { mutableStateOf(0f) }
+                                
+                                // Continuous rotation while loading
+                                LaunchedEffect(isLoading) {
+                                    while (isLoading) {
+                                        rotation += 360f
+                                        delay(1500) // Rotate every 1.5 seconds
+                                    }
+                                }
+                                
+                                val animatedRotation by animateFloatAsState(
+                                    targetValue = rotation,
+                                    animationSpec = tween(
+                                        durationMillis = 1500,
+                                        easing = LinearEasing
+                                    ),
+                                    label = "HourglassRotation"
+                                )
+                                
+                                Icon(
+                                    imageVector = Icons.Default.HourglassEmpty,
+                                    contentDescription = "Loading",
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .rotate(animatedRotation),
+                                    tint = XianPrimary
+                                )
+                            }
+                        }
+                        
+                        // Dropdown Menu con estilo personalizado - Ahora fuera del Row
+                        DropdownMenu(
+                            expanded = showWalletDropdown,
+                            onDismissRequest = { showWalletDropdown = false },
+                            offset = DpOffset(x = 0.dp, y = 4.dp), // Pequeño offset para posicionarlo justo debajo de la cápsula
+                            modifier = Modifier
+                                .widthIn(min = 200.dp)
+                                .background(
+                                    color = Color(0xFF252525), // Color un poco más claro que el oscuro original pero manteniendo el tono oscuro
+                                    shape = RoundedCornerShape(24.dp) // Puntas más redondas
+                                )
+                                .clip(RoundedCornerShape(24.dp)),
+                            containerColor = Color.Transparent, // Hacer el fondo del DropdownMenu transparente
+                            shadowElevation = 0.dp, // Eliminar completamente la sombra
+                            tonalElevation = 0.dp // Eliminar la elevación tonal
+                        ) {
+                            availableWallets.forEach { walletKey ->
+                                val walletName = walletManager.getWalletName(walletKey) ?: "Wallet"
+                                val isCurrentWallet = walletKey == publicKey
+                                
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(
+                                                text = walletName,
+                                                fontWeight = if (isCurrentWallet) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isCurrentWallet) XianPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            if (isCurrentWallet) {
+                                                Text(
+                                                    text = "✓",
+                                                    color = XianPrimary,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    },
+                                    onClick = {
+                                        if (!isCurrentWallet) {
+                                            walletManager.setActiveWallet(walletKey)
+                                            viewModel.refreshData() // Refresh data for new wallet
+                                        }
+                                        showWalletDropdown = false
+                                    }
+                                )
+                            }
+                        }
                     }
                 },
                 actions = {
                     // Connection status indicator
-                    Row(                        verticalAlignment = Alignment.CenterVertically,
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(end = 8.dp)
                     ) {
                         // Status text
@@ -289,10 +431,11 @@ fun WalletScreen(
                             text = if (isNodeConnected) "Connected" else "Disconnected",
                             fontSize = 12.sp,
                             color = if (isNodeConnected) 
-                                Color.White // Keeping text white when connected
+                                Color.White
                             else 
-                                Color(0xFFF44336) // Red for disconnected
-                        )                        
+                                Color(0xFFF44336)
+                        )
+                        
                         // Status indicator dot
                         Box(
                             modifier = Modifier
@@ -300,9 +443,9 @@ fun WalletScreen(
                                 .size(8.dp)
                                 .background(
                                     color = if (isNodeConnected) 
-                                        Color.Green // Changed to green for connected status
+                                        Color.Green
                                     else
-                                        Color(0xFFF44336), // Red for disconnected
+                                        Color(0xFFF44336),
                                     shape = CircleShape
                                 )
                         )
@@ -330,12 +473,16 @@ fun WalletScreen(
         }) { paddingValues ->
         Box(modifier = Modifier.fillMaxSize()) {
             SwipeRefresh(
-                state = rememberSwipeRefreshState(false), // Never show default indicator
+                state = swipeRefreshState, // Usar el estado personalizado
                 onRefresh = {
+                    // Vibración háptica sutil al completar el gesto
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                    
                     viewModel.refreshData()
                     // Restart transaction monitoring on refresh
                     restartTransactionMonitor(context)
                 },
+                indicator = { _, _ -> }, // Completamente deshabilitar el indicador por defecto
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(top = paddingValues.calculateTopPadding())
@@ -344,83 +491,57 @@ fun WalletScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
+                    .scale(animatedScale) // Aplicar la animación de escala a todo el contenido
             ) {
-                // XIAN Balance Card
+                // XIAN Balance Card with neon border effect
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 170.dp, max = 190.dp) // Set both min and max height constraints
-                        .padding(bottom = 16.dp),                    border = BorderStroke(
-                        width = 2.dp,
-                        brush = Brush.horizontalGradient(colors = listOf(XianPrimary, XianPrimaryVariant)) // Use new teal palette
-                    )
-                    // Removed background color
-                ) {
+                        .heightIn(min = 200.dp, max = 220.dp) // Increased height a bit for better spacing
+                        .padding(bottom = 16.dp)
+                        // Multiple shadow layers for neon effect
+                        .shadow(
+                            elevation = 8.dp,
+                            shape = RoundedCornerShape(24.dp),
+                            clip = false,
+                            ambientColor = XianPrimary.copy(alpha = 0.6f),
+                            spotColor = XianPrimary.copy(alpha = 0.8f)
+                        )
+                        .shadow(
+                            elevation = 16.dp,
+                            shape = RoundedCornerShape(24.dp),
+                            clip = false,
+                            ambientColor = XianPrimaryVariant.copy(alpha = 0.4f),
+                            spotColor = XianPrimaryVariant.copy(alpha = 0.6f)
+                        )
+                        .shadow(
+                            elevation = 24.dp,
+                            shape = RoundedCornerShape(24.dp),
+                            clip = false,
+                            ambientColor = XianPrimary.copy(alpha = 0.2f),
+                            spotColor = XianPrimary.copy(alpha = 0.3f)
+                        ),
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(
+                            width = 2.dp,
+                            brush = Brush.horizontalGradient(colors = listOf(XianPrimary, XianPrimaryVariant))
+                        ),
+                        elevation = CardDefaults.cardElevation(
+                            defaultElevation = 16.dp, // Reasonable elevation
+                            pressedElevation = 20.dp,
+                            focusedElevation = 18.dp,
+                            hoveredElevation = 18.dp
+                        )
+                    ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 14.dp, horizontal = 16.dp), // Keep padding as is
-                        horizontalAlignment = Alignment.CenterHorizontally, // Center items horizontally
-                        verticalArrangement = Arrangement.Top // Changed from Center to Top to allow manual spacing
+                            .padding(vertical = 16.dp, horizontal = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
-                        // Add spacing at the top to push content lower
-                        Spacer(modifier = Modifier.height(10.dp))
-                        
-                        // Label with hourglass loading indicator
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(percent = 50),
-                                color = MaterialTheme.colorScheme.secondaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.padding(bottom = 0.dp) // Adjusted to ensure alignment with balance
-                            ) {
-                                Text(
-                                    text = activeWalletName?.takeIf { it.isNotBlank() } ?: "My Wallet",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                                )
-                            }
-                            
-                            // Hourglass loading indicator to the right of wallet name
-                            if (isLoading) {
-                                Spacer(modifier = Modifier.width(8.dp))
-                                
-                                var rotation by remember { mutableStateOf(0f) }
-                                
-                                // Continuous rotation while loading
-                                LaunchedEffect(isLoading) {
-                                    while (isLoading) {
-                                        rotation += 360f
-                                        delay(1500) // Rotate every 1.5 seconds
-                                    }
-                                }
-                                
-                                val animatedRotation by animateFloatAsState(
-                                    targetValue = rotation,
-                                    animationSpec = tween(
-                                        durationMillis = 1500,
-                                        easing = LinearEasing
-                                    ),
-                                    label = "HourglassRotation"
-                                )
-                                
-                                Icon(
-                                    imageVector = Icons.Default.HourglassEmpty,
-                                    contentDescription = "Loading",
-                                    modifier = Modifier
-                                        .size(16.dp)
-                                        .rotate(animatedRotation),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
-
-                        // Use a larger spacer between label and balance for better visual balance
-                        Spacer(modifier = Modifier.height(15.dp))
+                        // Add top spacing to prevent balance from being too close to the top
+                        Spacer(modifier = Modifier.height(20.dp))
                         
                         // Calculate total balance across all tokens
                         if (staticXianPrice == null) {
@@ -456,7 +577,7 @@ fun WalletScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     text = if (isBalanceVisible) "$%.2f".format(Locale.US, totalBalance) else "••••",
-                                    fontSize = 55.sp, // Set specific larger font size
+                                    fontSize = 65.sp, // Increased font size from 55sp to 65sp
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                                     textAlign = TextAlign.Center
@@ -470,7 +591,45 @@ fun WalletScreen(
                                 }
                             }
                         }
-                    }
+                        
+                        // Wallet Address Section - INSIDE CARD, BOTTOM POSITION
+                        publicKey?.let { address ->
+                            val truncatedAddress = if (address.length >= 10) {
+                                "${address.take(5)}...${address.takeLast(5)}"
+                            } else {
+                                address
+                            }
+                            
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        clipboardManager.setText(AnnotatedString(address))
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("Address copied to clipboard")
+                                        }
+                                    }
+                                    .padding(vertical = 4.dp, horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = truncatedAddress,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color.White, // Changed to white
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = "Copy address",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    } // End of Column
                 } // End of Card
 
                 // Row moved outside the Card and text changed to English

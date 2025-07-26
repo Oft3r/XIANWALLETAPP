@@ -28,6 +28,7 @@ import net.xian.xianwalletapp.navigation.XianDestinations
 import net.xian.xianwalletapp.wallet.WalletManager
 import net.xian.xianwalletapp.ui.theme.XianButtonType
 import net.xian.xianwalletapp.ui.theme.xianButtonColors
+import net.xian.xianwalletapp.ui.components.PasswordTextField
 import kotlinx.coroutines.launch
 
 /**
@@ -176,16 +177,13 @@ fun PasswordVerificationScreen(
             )
             
             // Password field
-            OutlinedTextField(
+            PasswordTextField(
                 value = password,
                 onValueChange = { password = it; errorMessage = null },
                 label = { Text("Password") },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                singleLine = true
+                    .padding(bottom = 16.dp)
             )
             
             // Error message
