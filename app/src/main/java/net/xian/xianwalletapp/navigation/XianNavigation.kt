@@ -11,11 +11,13 @@ import net.xian.xianwalletapp.ui.screens.AdvancedScreen // Import the new screen
 import net.xian.xianwalletapp.ui.screens.SwapScreen // Import the swap screen
 import net.xian.xianwalletapp.ui.screens.TokenDetailScreen // Import the token detail screen
 import net.xian.xianwalletapp.ui.screens.AddressBookScreen // Import the address book screen
+import net.xian.xianwalletapp.ui.screens.CardBackgroundSelectorScreen // Import the card background selector screen
 // AboutXianScreen import removed as it's no longer navigated to directly
 // SnakeGameScreen import removed
 import net.xian.xianwalletapp.wallet.WalletManager // Assuming you need these
 import net.xian.xianwalletapp.network.XianNetworkService // Assuming you need these
 import net.xian.xianwalletapp.data.FaviconCacheManager // Import FaviconCacheManager
+import net.xian.xianwalletapp.ui.viewmodels.WalletViewModel // Import WalletViewModel
 /**
  * Navigation routes for the Xian wallet app
  */
@@ -30,6 +32,7 @@ object XianDestinations {
     const val TOKEN_DETAIL = "token_detail"
     const val WEB_BROWSER = "web_browser"
     const val SWAP = "swap"
+    const val STAKING = "staking"
     const val ADVANCED = "advanced"
     const val NEWS = "news"
     const val SETTINGS = "settings"
@@ -37,6 +40,7 @@ object XianDestinations {
     const val SETTINGS_SECURITY = "settings_security"
     const val SETTINGS_NETWORK = "settings_network"
     const val ADDRESS_BOOK = "address_book"
+    const val CARD_BACKGROUND_SELECTOR = "card_background_selector"
     // SETTINGS_ABOUT_XIAN destination removed
     // SNAKE_GAME destination removed
 
@@ -59,6 +63,7 @@ fun XianNavGraph(
     walletManager: WalletManager, // Add WalletManager parameter
     networkService: XianNetworkService, // Add XianNetworkService parameter
     faviconCacheManager: FaviconCacheManager, // Add FaviconCacheManager parameter
+    walletViewModel: WalletViewModel, // Add WalletViewModel parameter
     startDestination: String = XianDestinations.SPLASH
 ) {
     NavHost(
@@ -216,6 +221,14 @@ fun XianNavGraph(
         // Address Book screen
         composable(XianDestinations.ADDRESS_BOOK) {
             AddressBookScreen(navController = navController)
+        }
+
+        // Card Background Selector screen
+        composable(XianDestinations.CARD_BACKGROUND_SELECTOR) {
+            CardBackgroundSelectorScreen(
+                navController = navController,
+                viewModel = walletViewModel
+            )
         }
 
         // Settings screen

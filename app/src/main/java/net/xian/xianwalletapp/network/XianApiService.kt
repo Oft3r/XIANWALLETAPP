@@ -33,6 +33,9 @@ data class TokenSupplyResponse(
 interface XianApiService {
     @POST("graphql") // Changed from "graphiql" to "graphql"
     suspend fun getTransactions(@Body query: GraphQLQuery): Response<GraphQLResponse>
+    
+    @POST("graphql")
+    suspend fun getTokenTransactions(@Body query: GraphQLQuery): Response<AllTransactionsResponse>
 
     @GET("health")
     suspend fun checkHealth(): Response<HealthResponse>

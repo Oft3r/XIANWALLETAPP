@@ -29,19 +29,30 @@ import net.xian.xianwalletapp.navigation.XianDestinations
 @Composable
 fun TransactionRecordItem(
     record: LocalTransactionRecord,
-    navController: NavController
+    navController: NavController,
+    dense: Boolean = false,
+    topRounded: Boolean = true,
+    bottomRounded: Boolean = true
 ) {
     val formatter = remember { DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault()) }
     val formattedTimestamp = remember(record.timestamp) { formatter.format(Instant.ofEpochMilli(record.timestamp)) }
 
+    val outerPadding = if (dense) PaddingValues(vertical = 2.dp) else PaddingValues(vertical = 6.dp)
+    val shape = RoundedCornerShape(
+        topStart = if (topRounded) 8.dp else 2.dp,
+        topEnd = if (topRounded) 8.dp else 2.dp,
+        bottomStart = if (bottomRounded) 8.dp else 2.dp,
+        bottomEnd = if (bottomRounded) 8.dp else 2.dp
+    )
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp),
+            .padding(outerPadding),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface // Changed from surfaceVariant to surface
+            containerColor = MaterialTheme.colorScheme.surface
         ),
-        shape = RoundedCornerShape(8.dp)
+        shape = shape
     ) {
         Column(
             modifier = Modifier
@@ -62,7 +73,7 @@ fun TransactionRecordItem(
                     fontWeight = FontWeight.Bold
                 )
             }
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(if (dense) 2.dp else 4.dp))
             Text(
                 text = "${if (record.type == "Sent") "-" else "+"}${
                     try {
@@ -74,7 +85,7 @@ fun TransactionRecordItem(
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Medium
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(if (dense) 2.dp else 4.dp))
 
             val otherPartyAddress = if (record.type == "Sent") record.recipient else record.sender
             val addressLabel = if (record.type == "Sent") "To: " else "From: "
@@ -103,7 +114,7 @@ fun TransactionRecordItem(
                 }
             }
             
-            Spacer(modifier = Modifier.height(2.dp))
+            Spacer(modifier = Modifier.height(if (dense) 1.dp else 2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "TX: ${record.txHash.take(8)}...${record.txHash.takeLast(6)}",

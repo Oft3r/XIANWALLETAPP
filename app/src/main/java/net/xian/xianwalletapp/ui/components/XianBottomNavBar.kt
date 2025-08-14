@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Newspaper
 import androidx.compose.material.icons.filled.Work // Icono de maleta para Portafolio
+import androidx.compose.material.icons.filled.TrendingUp // Icono de gráfico ascendente para Staking
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -107,13 +108,27 @@ fun XianBottomNavBar(
                             }
                         }
                     )
+                    // Staking Item
+                    CustomNavItem(
+                        icon = Icons.Default.TrendingUp,
+                        label = "Staking",
+                        selected = selectedItem == 1,
+                        onClick = { 
+                            navigationViewModel.setSelectedNavItem(1)
+                            navController.navigate(XianDestinations.STAKING) {
+                                popUpTo(navController.graph.startDestinationId) { saveState = false }
+                                restoreState = true
+                                launchSingleTop = true
+                            }
+                        }
+                    )
                     // Web Browser Item
                     CustomNavItem(
                         icon = Icons.Default.Language,
                         label = "Browser",
-                        selected = selectedItem == 1,
+                        selected = selectedItem == 2,
                         onClick = { 
-                            navigationViewModel.setSelectedNavItem(1)
+                            navigationViewModel.setSelectedNavItem(2)
                             navController.navigate(XianDestinations.WEB_BROWSER) {
                                 popUpTo(navController.graph.startDestinationId) { saveState = false } // Changed from true to false
                                 restoreState = true
@@ -125,9 +140,9 @@ fun XianBottomNavBar(
                     CustomNavItem(
                         icon = Icons.Default.Build,
                         label = "Advanced",
-                        selected = selectedItem == 2,
+                        selected = selectedItem == 3,
                         onClick = { 
-                            navigationViewModel.setSelectedNavItem(2)
+                            navigationViewModel.setSelectedNavItem(3)
                             navController.navigate(XianDestinations.ADVANCED) {
                                 popUpTo(navController.graph.startDestinationId) { saveState = false } // Changed from true to false
                                 restoreState = true
@@ -139,9 +154,9 @@ fun XianBottomNavBar(
                     CustomNavItem(
                         icon = Icons.Default.Newspaper,
                         label = "News",
-                        selected = selectedItem == 3,
+                        selected = selectedItem == 4,
                         onClick = { 
-                            navigationViewModel.setSelectedNavItem(3)
+                            navigationViewModel.setSelectedNavItem(4)
                             navController.navigate(XianDestinations.NEWS) {
                                 popUpTo(navController.graph.startDestinationId) { saveState = false } // Changed from true to false
                                 restoreState = true

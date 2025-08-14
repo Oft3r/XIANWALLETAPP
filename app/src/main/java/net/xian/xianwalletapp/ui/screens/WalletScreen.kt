@@ -74,7 +74,7 @@ import androidx.compose.material.icons.filled.Visibility // For View icon
 import androidx.compose.material.icons.filled.VisibilityOff // For Hide icon
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.SwapHoriz
-import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.Eco // Icono de planta/eco para Farm
 import androidx.compose.material.icons.filled.Build // Import for Build icon
 import androidx.compose.material.icons.filled.Person // Import Person icon
 import androidx.compose.material.icons.filled.ArrowDropDown // Import for dropdown arrow down
@@ -102,6 +102,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
 
 import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -173,6 +174,24 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.unit.DpOffset
 
 /**
+ * Helper function to get background resource ID from background name
+ */
+private fun getBackgroundResourceId(backgroundName: String?): Int? {
+    return when (backgroundName) {
+        "wallpaper1" -> R.drawable.wallpaper1
+        "wallpaper2" -> R.drawable.wallpaper2
+        "wallpaper3" -> R.drawable.wallpaper3
+        "wallpaper4" -> R.drawable.wallpaper4
+        "wallpaper5" -> R.drawable.wallpaper5
+        "wallpaper6" -> R.drawable.wallpaper6
+        "wallpaper7" -> R.drawable.wallpaper7
+        "wallpaper8" -> R.drawable.wallpaper8
+        "dark" -> -1 // Special case for dark background
+        else -> null
+    }
+}
+
+/**
  * Main wallet screen showing token balances and actions
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
@@ -200,8 +219,10 @@ fun WalletScreen(
     val poopPrice by viewModel.poopPrice.collectAsStateWithLifecycle() // Collect POOP price state
     val xtfuPrice by viewModel.xtfuPrice.collectAsStateWithLifecycle() // Collect XTFU price state
     val xarbPrice by viewModel.xarbPrice.collectAsStateWithLifecycle() // Collect XARB price state
+    val xwtPrice by viewModel.xwtPrice.collectAsStateWithLifecycle() // Collect XWT price state
     val activeWalletName by viewModel.activeWalletName.collectAsStateWithLifecycle()
     val isBalanceVisible by viewModel.isBalanceVisible.collectAsStateWithLifecycle()
+    val selectedCardBackground by viewModel.selectedCardBackground.collectAsStateWithLifecycle()
     
     // Special handling for XIAN price - only load once at startup, not during refresh
     // Store the first non-null price we receive
@@ -533,13 +554,47 @@ fun WalletScreen(
                             hoveredElevation = 18.dp
                         )
                     ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 16.dp, horizontal = 16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                    // Use Box to allow absolute positioning of the edit icon and background image
+                    Box(
+                        modifier = Modifier.fillMaxSize()
                     ) {
+                        // Background image or color if selected
+                        selectedCardBackground?.let { backgroundName ->
+                            getBackgroundResourceId(backgroundName)?.let { resourceId ->
+                                when (resourceId) {
+                                    -1 -> {
+                                        // Dark background
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(
+                                                    color = Color(0xFF1A1A1A).copy(alpha = 0.8f),
+                                                    shape = RoundedCornerShape(24.dp)
+                                                )
+                                        )
+                                    }
+                                    else -> {
+                                        // Image background
+                                        Image(
+                                            painter = painterResource(id = resourceId),
+                                            contentDescription = "Card background",
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .clip(RoundedCornerShape(24.dp)),
+                                            contentScale = ContentScale.Crop,
+                                            alpha = 0.3f // Make it subtle so text remains readable
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 16.dp, horizontal = 16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
                         // Add top spacing to prevent balance from being too close to the top
                         Spacer(modifier = Modifier.height(20.dp))
                         
@@ -560,6 +615,7 @@ fun WalletScreen(
                             val currentPoopPrice = poopPrice
                             val currentXtfuPrice = xtfuPrice
                             val currentXarbPrice = xarbPrice
+                            val currentXwtPrice = xwtPrice
                               val xianUsdValue = balanceMap["currency"]?.let { it * currentXianPrice } ?: 0f
                             val poopUsdValue = if (currentPoopPrice != null && balanceMap["con_poop_coin"] != null) {
                                 balanceMap["con_poop_coin"]!! * currentPoopPrice * currentXianPrice
@@ -570,9 +626,12 @@ fun WalletScreen(
                             val xarbUsdValue = if (currentXarbPrice != null && balanceMap["con_xarb"] != null) {
                                 balanceMap["con_xarb"]!! * currentXarbPrice * currentXianPrice
                             } else 0f
+                            val xwtUsdValue = if (currentXwtPrice != null && balanceMap["con_xwt"] != null) {
+                                balanceMap["con_xwt"]!! * currentXwtPrice * currentXianPrice
+                            } else 0f
                             val usdcValue = balanceMap["con_usdc"] ?: 0f // Direct USD value
                             
-                            val totalBalance = xianUsdValue + poopUsdValue + xtfuUsdValue + xarbUsdValue + usdcValue
+                            val totalBalance = xianUsdValue + poopUsdValue + xtfuUsdValue + xarbUsdValue + xwtUsdValue + usdcValue
 
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
@@ -630,6 +689,25 @@ fun WalletScreen(
                             }
                         }
                     } // End of Column
+
+                    // Edit icon in top-right corner
+                    IconButton(
+                        onClick = {
+                            navController.navigate(XianDestinations.CARD_BACKGROUND_SELECTOR)
+                        },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                            .size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit balance card",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                } // End of Box
                 } // End of Card
 
                 // Row moved outside the Card and text changed to English
@@ -680,23 +758,23 @@ fun WalletScreen(
                         )
                     }
 
-                    // Staking Option
+                    // Farm Option
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.clickable {
-                            val urlToLoad = "https://snakexchange.org/farms/"
+                            val urlToLoad = "https://dex.xian.org/#farms"
                             val encodedUrl = URLEncoder.encode(urlToLoad, StandardCharsets.UTF_8.toString())
                             navController.navigate("${XianDestinations.WEB_BROWSER}?url=$encodedUrl")
                         }
                     ) {
                         Icon(
-                            imageVector = Icons.Default.AccountBalance, // Using AccountBalance for Staking
-                            contentDescription = "Staking",
+                            imageVector = Icons.Default.Eco, // Icono de planta/eco para Farm
+                            contentDescription = "Farming",
                             tint = MaterialTheme.colorScheme.onSurface // Adjusted tint for outside card
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Staking",
+                            text = "Farming",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurface // Adjusted color for outside card
                         )
@@ -904,6 +982,7 @@ fun WalletScreen(
                                             poopPrice = if (contract == "con_poop_coin") poopPrice else null, // Pasar el precio de POOP
                                             xtfuPrice = if (contract == "con_xtfu") xtfuPrice else null, // Pasar el precio de XTFU
                                             xarbPrice = if (contract == "con_xarb") xarbPrice else null, // Pasar el precio de XARB
+                                            xwtPrice = if (contract == "con_xwt") xwtPrice else null, // Pasar el precio de XWT
                                             imageLoader = viewModel.getImageLoader(), // Pass the custom image loader
                                             balanceVisible = isBalanceVisible, // Pass balance visibility state
                                             onSendClick = {
@@ -1258,6 +1337,7 @@ fun TokenItem(
     poopPrice: Float? = null, // Añadir precio de POOP en XIAN
     xtfuPrice: Float? = null, // Añadir precio de XTFU en XIAN
     xarbPrice: Float? = null, // Añadir precio de XARB en XIAN
+    xwtPrice: Float? = null, // Añadir precio de XWT en XIAN
     imageLoader: ImageLoader, // Add ImageLoader parameter
     balanceVisible: Boolean, // Add balance visibility parameter
     onSendClick: () -> Unit,
@@ -1292,6 +1372,7 @@ fun TokenItem(
                 "con_poop_coin" -> poopPrice
                 "con_xtfu" -> xtfuPrice
                 "con_xarb" -> xarbPrice
+                "con_xwt" -> xwtPrice
                 else -> null
             },
             imageLoader = imageLoader, // Pass down the loader
@@ -1456,6 +1537,7 @@ fun SwipeableTokenCard(
                     AsyncImage(
                         model = when {
                             contract == "con_xarb" -> "file:///android_asset/xarb.jpg"
+                            contract == "con_xwt" -> R.drawable.xwtlogo
                             else -> logoUrl
                         },
                         imageLoader = imageLoader, // Use the custom image loader

@@ -447,6 +447,17 @@ fun XianWalletApp(
             )
         }
         
+        composable(XianDestinations.STAKING) {
+            StakingScreen(
+                navController = navController,
+                walletManager = walletManager,
+                networkService = networkService,
+                navigationViewModel = viewModel(
+                    factory = NavigationViewModelFactory(SavedStateHandle())
+                )
+            )
+        }
+        
         composable(XianDestinations.SETTINGS) {
             // SettingsScreen now collects active wallet state directly from WalletManager
             // No need to pass walletAddress or preferredNftContract as parameters anymore
@@ -482,6 +493,14 @@ fun XianWalletApp(
                 networkService = networkService,
                 snackbarHostState = snackbarHostState, // Pass hoisted state
                 coroutineScope = coroutineScope // Pass hoisted scope
+            )
+        }
+
+        // Card Background Selector screen
+        composable(XianDestinations.CARD_BACKGROUND_SELECTOR) {
+            CardBackgroundSelectorScreen(
+                navController = navController,
+                viewModel = walletViewModel
             )
         }
 

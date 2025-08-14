@@ -6,6 +6,19 @@ import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.background
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlin.random.Random
 
 import android.util.Log
 
@@ -15,6 +28,9 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import androidx.compose.runtime.LaunchedEffect
 import androidx.activity.compose.rememberLauncherForActivityResult
 
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,6 +39,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.outlined.ContactPage
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -96,7 +114,10 @@ fun SendTokenScreen(
     val context = LocalContext.current // Get context for permission check and history manager
     val transactionHistoryManager = remember { TransactionHistoryManager(context) } // Pass context variable
     var showConfirmationDialog by remember { mutableStateOf(false) }
-    var confirmationDetails by remember { mutableStateOf<Triple<String, String, String>?>(null) } // recipient, amount, fee    // Collect state from ViewModel
+    var confirmationDetails by remember { mutableStateOf<Triple<String, String, String>?>(null) } // recipient, amount, fee
+    var showTransactionProcessing by remember { mutableStateOf(false) }
+    var showTransactionSuccess by remember { mutableStateOf(false) }
+    var transactionSuccessDetails by remember { mutableStateOf<Triple<String, String, String>?>(null) } // amount, symbol, recipient    // Collect state from ViewModel
     val resolvedXnsAddress by viewModel.resolvedXnsAddress.collectAsStateWithLifecycle()
     val isXnsAddress by viewModel.isXnsAddress.collectAsStateWithLifecycle()
     val isResolvingXns by viewModel.isResolvingXns.collectAsStateWithLifecycle()
@@ -671,8 +692,12 @@ fun SendTokenScreen(
                     Button(
                         onClick = {
                             showConfirmationDialog = false // Dismiss confirmation dialog
+                            showTransactionProcessing = true // Show processing modal
                             viewModel.clearFeeEstimationState() // Clear state on confirm too
                             val (recipientToSend, amountToSend, _) = confirmationDetails!! // Destructure details
+
+                            // Store details for success modal
+                            transactionSuccessDetails = Triple(amountToSend, symbol, recipientToSend)
 
                             // --- Start: Logic moved from original button's onClick ---
                             // Wallet is guaranteed to be unlocked here (either was already, or password was just entered)
@@ -680,13 +705,13 @@ fun SendTokenScreen(
 
                             if (unlockedPrivateKey == null) {
                                 // This shouldn't happen in the new flow, but handle defensively
+                                showTransactionProcessing = false
                                 errorMessage = "Wallet key unavailable. Please try again."
                                 Log.e("SendTokenScreen", "Confirm & Send clicked but private key is null unexpectedly.")
                                 return@Button
                             }
 
                             // Proceed to send the transaction
-                            isLoading = true
                             coroutineScope.launch {
                                 try {
                                     val result = viewModel.sendTokenTransaction(
@@ -714,23 +739,20 @@ fun SendTokenScreen(
                                         )
                                         transactionHistoryManager.addRecord(record)
                                         
-                                        // Navigate to AddressBook with pre-filled address only if user chose to save
-                                        if (saveAddressAfterTransaction) {
-                                            navController.navigate("${XianDestinations.ADDRESS_BOOK}?prefilledAddress=${recipientToSend}")
-                                        } else {
-                                            navController.popBackStack()
-                                        }
+                                        // Show success modal
+                                        showTransactionProcessing = false
+                                        showTransactionSuccess = true
                                         
                                         Log.d("SendTokenScreen", "TRANSACTION SUCCESSFUL: $transactionHash")
                                     } else {
+                                        showTransactionProcessing = false
                                         errorMessage = result.errors ?: "Transaction failed with unknown error"
                                         Log.e("SendTokenScreen", "Transaction failed: ${result.errors}")
                                     }
                                 } catch (e: Exception) {
+                                    showTransactionProcessing = false
                                     errorMessage = "Error during transaction: ${e.message}"
                                     Log.e("SendTokenScreen", "Exception during transaction", e)
-                                } finally {
-                                    isLoading = false
                                 }
                             }
                             // --- End: Logic moved from original button's onClick ---
@@ -750,6 +772,157 @@ fun SendTokenScreen(
                         Text("Cancel")
                     }
                 }
+            )
+        }
+
+        // --- Transaction Processing Modal ---
+        if (showTransactionProcessing) {
+            AlertDialog(
+                onDismissRequest = { /* Prevent dismissal during processing */ },
+                title = null,
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        // Hourglass loading indicator with rotation animation
+                        var rotation by remember { mutableStateOf(0f) }
+                        
+                        LaunchedEffect(Unit) {
+                            while (showTransactionProcessing) {
+                                rotation += 360f
+                                delay(1500) // Rotate every 1.5 seconds
+                            }
+                        }
+                        
+                        val animatedRotation by animateFloatAsState(
+                            targetValue = rotation,
+                            animationSpec = tween(
+                                durationMillis = 1500,
+                                easing = LinearEasing
+                            ),
+                            label = "HourglassRotation"
+                        )
+                        
+                        Icon(
+                            imageVector = Icons.Default.HourglassEmpty,
+                            contentDescription = "Processing",
+                            tint = XianPrimary,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .rotate(animatedRotation)
+                        )
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        Text(
+                            text = "Processing Transaction...",
+                            style = MaterialTheme.typography.bodyLarge,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                },
+                confirmButton = { /* No buttons during processing */ },
+                dismissButton = { /* No buttons during processing */ }
+            )
+        }
+
+        // --- Transaction Success Modal ---
+        if (showTransactionSuccess && transactionSuccessDetails != null) {
+            // Trigger haptic feedback when success modal appears
+            LaunchedEffect(showTransactionSuccess) {
+                if (showTransactionSuccess) {
+                    val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager
+                        vibratorManager.defaultVibrator
+                    } else {
+                        @Suppress("DEPRECATION")
+                        context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                    }
+                    
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        vibrator.vibrate(VibrationEffect.createOneShot(200, VibrationEffect.DEFAULT_AMPLITUDE))
+                    } else {
+                        @Suppress("DEPRECATION")
+                        vibrator.vibrate(200)
+                    }
+                }
+            }
+            
+            AlertDialog(
+                onDismissRequest = { /* Prevent dismissal, user must click OK */ },
+                title = null,
+                text = {
+                    Box(
+                        modifier = Modifier
+                            .wrapContentSize()
+                            .padding(24.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.wrapContentSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            // Success checkmark circle
+                            Box(
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .background(
+                                        color = Color.Cyan,
+                                        shape = CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Success",
+                                    tint = Color.Black, // Changed from White to Black
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
+                            
+                            Spacer(modifier = Modifier.height(24.dp))
+                            
+                            val (amount, tokenSymbol, recipient) = transactionSuccessDetails!!
+                            val shortAddress = "${recipient.take(6)}...${recipient.takeLast(6)}"
+                            
+                            Text(
+                                text = "You sent $amount $tokenSymbol tokens to $shortAddress",
+                                style = MaterialTheme.typography.bodyLarge,
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        
+                        // Confetti effect - positioned absolutely within the dialog bounds
+                        ConfettiEffect(
+                            modifier = Modifier.matchParentSize()
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val recipientAddress = transactionSuccessDetails?.third
+                            showTransactionSuccess = false
+                            transactionSuccessDetails = null
+                            
+                            // Navigate to AddressBook with pre-filled address only if user chose to save
+                            if (saveAddressAfterTransaction && recipientAddress != null) {
+                                navController.navigate("${XianDestinations.ADDRESS_BOOK}?prefilledAddress=${recipientAddress}")
+                            } else {
+                                navController.popBackStack()
+                            }
+                        },
+                        colors = xianButtonColors(XianButtonType.PRIMARY)
+                    ) {
+                        Text("OK")
+                    }
+                },
+                dismissButton = { /* No cancel button, user must click OK */ }
             )
         }
 
@@ -894,6 +1067,105 @@ fun SendTokenScreen(
     }
 }
 
+@Composable
+private fun ConfettiEffect(
+    modifier: Modifier = Modifier
+) {
+    var showConfetti by remember { mutableStateOf(true) }
+    var confettiAlpha by remember { mutableStateOf(1f) }
+    
+    // Timer to stop confetti after 2 seconds
+    LaunchedEffect(Unit) {
+        delay(2000) // Wait 2 seconds
+        showConfetti = false
+        // Fade out animation
+        val fadeOutDuration = 500L
+        val steps = 20
+        val stepDelay = fadeOutDuration / steps
+        val alphaStep = 1f / steps
+        
+        repeat(steps) {
+            confettiAlpha -= alphaStep
+            delay(stepDelay)
+        }
+        confettiAlpha = 0f
+    }
+    
+    if (showConfetti || confettiAlpha > 0f) {
+        val confettiPieces = remember { 
+            (1..20).map { // Reduced from 30 to 20 pieces for better performance in smaller space
+                ConfettiPiece(
+                    x = Random.nextFloat(),
+                    y = Random.nextFloat(),
+                    color = listOf(
+                        Color.Red, Color.Blue, Color.Green, Color.Yellow, 
+                        Color.Magenta, Color.Cyan, Color(0xFFFF9800)
+                    ).random(),
+                    size = Random.nextFloat() * 6f + 3f // Slightly smaller pieces
+                )
+            }
+        }
+        
+        val infiniteTransition = rememberInfiniteTransition(label = "confetti")
+        
+        Box(modifier = modifier.alpha(confettiAlpha)) {
+            confettiPieces.forEach { piece ->
+                val animatedY by infiniteTransition.animateFloat(
+                    initialValue = -0.1f,
+                    targetValue = 1.1f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(
+                            durationMillis = (2000 + Random.nextInt(1000)),
+                            easing = LinearEasing
+                        ),
+                        repeatMode = RepeatMode.Restart
+                    ),
+                    label = "confetti_y_${piece.hashCode()}"
+                )
+                
+                val animatedRotation by infiniteTransition.animateFloat(
+                    initialValue = 0f,
+                    targetValue = 360f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(
+                            durationMillis = (1000 + Random.nextInt(500)),
+                            easing = LinearEasing
+                        ),
+                        repeatMode = RepeatMode.Restart
+                    ),
+                    label = "confetti_rotation_${piece.hashCode()}"
+                )
+                
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .graphicsLayer {
+                            translationX = piece.x * size.width
+                            translationY = animatedY * size.height
+                            rotationZ = animatedRotation
+                            alpha = if (animatedY > 0.8f) (1f - (animatedY - 0.8f) / 0.2f) else 1f
+                        }
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(piece.size.dp)
+                            .background(
+                                color = piece.color,
+                                shape = CircleShape
+                            )
+                    )
+                }
+            }
+        }
+    }
+}
+
+private data class ConfettiPiece(
+    val x: Float,
+    val y: Float,
+    val color: Color,
+    val size: Float
+)
 
 // Helper function to show notification
 private fun showTransactionSuccessNotification(

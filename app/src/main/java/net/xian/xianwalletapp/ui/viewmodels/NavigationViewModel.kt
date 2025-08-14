@@ -34,9 +34,10 @@ class NavigationViewModel(
     fun syncSelectedItemWithRoute(route: String) {
         val index = when (route) {
             "wallet" -> 0
-            "web_browser" -> 1
-            "advanced" -> 2
-            "news" -> 3
+            "staking" -> 1
+            "web_browser" -> 2
+            "advanced" -> 3
+            "news" -> 4
             else -> return // Don't change for other routes
         }
         setSelectedNavItem(index)

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import net.xian.xianwalletapp.data.TransactionRepository // Import TransactionRepository
+import net.xian.xianwalletapp.data.TokenPriceRepository // Import TokenPriceRepository
 import net.xian.xianwalletapp.data.db.AppDatabase
 import net.xian.xianwalletapp.network.RetrofitClient // Import RetrofitClient
 import net.xian.xianwalletapp.network.XianNetworkService
@@ -23,10 +24,12 @@ class WalletViewModelFactory(
             val database = AppDatabase.getDatabase(context)
             val nftDao = database.nftCacheDao()
             val tokenCacheDao = database.tokenCacheDao()
-            // Create TransactionRepository instance here
+            val tokenPriceCacheDao = database.tokenPriceCacheDao()
+            // Create repository instances
             val apiService = RetrofitClient.instance // Get XianApiService
             val transactionRepository = TransactionRepository(apiService) // Create Repository
-            return WalletViewModel(context, walletManager, networkService, nftDao, tokenCacheDao, transactionRepository) as T // Pass context and repository with tokenCacheDao
+            val tokenPriceRepository = TokenPriceRepository(tokenPriceCacheDao, networkService) // Create Price Repository
+            return WalletViewModel(context, walletManager, networkService, nftDao, tokenCacheDao, transactionRepository, tokenPriceRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

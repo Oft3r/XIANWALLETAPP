@@ -37,6 +37,7 @@ import java.time.Duration // Added for calculating remaining days
 import java.time.Instant // Already imported
 import net.xian.xianwalletapp.data.LocalTransactionRecord // For transaction history
 import net.xian.xianwalletapp.data.TransactionRepository // For transaction history
+import net.xian.xianwalletapp.data.TokenPriceRepository // For price caching
 import kotlinx.coroutines.flow.catch
 // Imports para Vico Chart
 import com.patrykandpatrick.vico.core.entry.ChartEntryModelProducer
@@ -88,7 +89,8 @@ class WalletViewModel(
     private val networkService: XianNetworkService,
     private val nftCacheDao: NftCacheDao, // Add DAO as dependency
     private val tokenCacheDao: TokenCacheDao, // Add TokenCacheDao as dependency
-    private val transactionRepository: TransactionRepository // Added TransactionRepository
+    private val transactionRepository: TransactionRepository, // Added TransactionRepository
+    private val tokenPriceRepository: TokenPriceRepository // Added TokenPriceRepository
 ) : ViewModel() {
     
     // Initialize TokenLogoCacheManager for permanent image caching
@@ -143,36 +145,93 @@ class WalletViewModel(
             initialValue = emptyList()
         )
 
-    private val _xianPriceInfo = MutableStateFlow<Pair<Float, Float>?>(null)
-    val xianPriceInfo: StateFlow<Pair<Float, Float>?> = _xianPriceInfo.asStateFlow()
+    // --- Cached Price State Flows (Cache-First Pattern) ---
+    val xianPriceInfo: StateFlow<Pair<Float, Float>?> = tokenPriceRepository
+        .getTokenPriceInfo("currency")
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null
+        )
 
-    private val _xianPrice = MutableStateFlow<Float?>(null)
-    val xianPrice: StateFlow<Float?> = _xianPrice.asStateFlow()
+    val xianPrice: StateFlow<Float?> = tokenPriceRepository
+        .getTokenPrice("currency")
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null
+        )
 
     private val _activeWalletName = MutableStateFlow<String?>(null)
     val activeWalletName: StateFlow<String?> = _activeWalletName.asStateFlow()
 
-    // --- POOP Price State Flows ---
-    private val _poopPriceInfo = MutableStateFlow<Pair<Float, Float>?>(null)
-    val poopPriceInfo: StateFlow<Pair<Float, Float>?> = _poopPriceInfo.asStateFlow()
+    // --- POOP Price State Flows (Cache-First) ---
+    val poopPriceInfo: StateFlow<Pair<Float, Float>?> = tokenPriceRepository
+        .getTokenPriceInfo("con_poop_coin")
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null
+        )
 
-    private val _poopPrice = MutableStateFlow<Float?>(null)
-    val poopPrice: StateFlow<Float?> = _poopPrice.asStateFlow()
-    // --- End POOP Price State Flows ---    // --- XTFU Price State Flows ---
-    private val _xtfuPriceInfo = MutableStateFlow<Pair<Float, Float>?>(null)
-    val xtfuPriceInfo: StateFlow<Pair<Float, Float>?> = _xtfuPriceInfo.asStateFlow()
+    val poopPrice: StateFlow<Float?> = tokenPriceRepository
+        .getTokenPrice("con_poop_coin")
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null
+        )
 
-    private val _xtfuPrice = MutableStateFlow<Float?>(null)
-    val xtfuPrice: StateFlow<Float?> = _xtfuPrice.asStateFlow()
-    // --- End XTFU Price State Flows ---
+    // --- XTFU Price State Flows (Cache-First) ---
+    val xtfuPriceInfo: StateFlow<Pair<Float, Float>?> = tokenPriceRepository
+        .getTokenPriceInfo("con_xtfu")
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null
+        )
 
-    // --- XARB Price State Flows ---
-    private val _xarbPriceInfo = MutableStateFlow<Pair<Float, Float>?>(null)
-    val xarbPriceInfo: StateFlow<Pair<Float, Float>?> = _xarbPriceInfo.asStateFlow()
+    val xtfuPrice: StateFlow<Float?> = tokenPriceRepository
+        .getTokenPrice("con_xtfu")
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null
+        )
 
-    private val _xarbPrice = MutableStateFlow<Float?>(null)
-    val xarbPrice: StateFlow<Float?> = _xarbPrice.asStateFlow()
-    // --- End XARB Price State Flows ---
+    // --- XARB Price State Flows (Cache-First) ---
+    val xarbPriceInfo: StateFlow<Pair<Float, Float>?> = tokenPriceRepository
+        .getTokenPriceInfo("con_xarb")
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null
+        )
+
+    val xarbPrice: StateFlow<Float?> = tokenPriceRepository
+        .getTokenPrice("con_xarb")
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null
+        )
+
+    // --- XWT Price State Flows (Cache-First) ---
+    val xwtPriceInfo: StateFlow<Pair<Float, Float>?> = tokenPriceRepository
+        .getTokenPriceInfo("con_xwt")
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null
+        )
+
+    val xwtPrice: StateFlow<Float?> = tokenPriceRepository
+        .getTokenPrice("con_xwt")
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null
+        )
 
     // --- NFT List Flow from Database --- //
     // Use flatMapLatest to switch the underlying Flow when the public key changes
@@ -208,6 +267,17 @@ class WalletViewModel(
 
     private val _transactionHistoryError = MutableStateFlow<String?>(null)
     val transactionHistoryError: StateFlow<String?> = _transactionHistoryError.asStateFlow()
+
+    // --- Token-Specific Transaction History States ---
+    private val _tokenTransactionHistory = MutableStateFlow<List<LocalTransactionRecord>>(EMPTY_TRANSACTION_HISTORY)
+    val tokenTransactionHistory: StateFlow<List<LocalTransactionRecord>> = _tokenTransactionHistory.asStateFlow()
+
+    private val _isTokenTransactionHistoryLoading = MutableStateFlow(false)
+    val isTokenTransactionHistoryLoading: StateFlow<Boolean> = _isTokenTransactionHistoryLoading.asStateFlow()
+
+    private val _tokenTransactionHistoryError = MutableStateFlow<String?>(null)
+    val tokenTransactionHistoryError: StateFlow<String?> = _tokenTransactionHistoryError.asStateFlow()
+
     // --- End of Transaction History States ---
 
     // --- Displayed NFT Info --- //
@@ -231,6 +301,10 @@ class WalletViewModel(
     // --- Balance Visibility State ---
     private val _isBalanceVisible = MutableStateFlow(walletManager.isBalanceVisible())
     val isBalanceVisible: StateFlow<Boolean> = _isBalanceVisible.asStateFlow()
+
+    // --- Balance Card Background State ---
+    private val _selectedCardBackground = MutableStateFlow(walletManager.getSelectedCardBackground())
+    val selectedCardBackground: StateFlow<String?> = _selectedCardBackground.asStateFlow()
 
     private val _resolvedXnsAddress = MutableStateFlow<String?>(null)
     val resolvedXnsAddress: StateFlow<String?> = _resolvedXnsAddress.asStateFlow()
@@ -306,6 +380,8 @@ class WalletViewModel(
                         _xnsNameExpirations.value = EMPTY_XNS_EXPIRATIONS // Clear expirations
                         _transactionHistory.value = EMPTY_TRANSACTION_HISTORY // Clear transaction history
                         _transactionHistoryError.value = null // Clear errors
+                        _tokenTransactionHistory.value = EMPTY_TRANSACTION_HISTORY // Clear token transaction history
+                        _tokenTransactionHistoryError.value = null // Clear token transaction errors
                         _balanceMap.value = EMPTY_BALANCE_MAP // Clear balance map to prevent stale total balance
                         // No need to clear _nftList, the flatMapLatest will switch the source Flow
                         _displayedNftInfo.value = null // Clear displayed NFT
@@ -323,7 +399,9 @@ class WalletViewModel(
                             _isLoading.value = false
                             _isNftLoading.value = false
                             _transactionHistory.value = EMPTY_TRANSACTION_HISTORY
-                            _isTransactionHistoryLoading.value = false                            // Clear chart data as well
+                            _isTransactionHistoryLoading.value = false
+                            _tokenTransactionHistory.value = EMPTY_TRANSACTION_HISTORY
+                            _isTokenTransactionHistoryLoading.value = false                            // Clear chart data as well
                             chartModelProducer.setEntries(EMPTY_CHART_ENTRIES)
                             _isChartLoading.value = false
                             _chartError.value = null
@@ -343,6 +421,10 @@ class WalletViewModel(
         preloadTokenLogosFromCache()
         loadTransactionHistory() // Load initial transaction history        // Start periodic connectivity check
         startConnectivityChecks()
+        
+        // Start periodic price refresh for all supported tokens
+        val supportedTokens = listOf("currency", "con_poop_coin", "con_xtfu", "con_xarb", "con_xwt")
+        tokenPriceRepository.startPeriodicRefresh(supportedTokens)
     }
 
     // --- Public Functions for UI Interaction ---
@@ -532,6 +614,12 @@ class WalletViewModel(
         Log.d("WalletViewModel", "Balance visibility set to: $newVisibility")
     }
 
+    fun setSelectedCardBackground(backgroundName: String?) {
+        _selectedCardBackground.value = backgroundName
+        walletManager.setSelectedCardBackground(backgroundName)
+        Log.d("WalletViewModel", "Card background set to: $backgroundName")
+    }
+
     fun refreshData() {
         Log.d("WalletViewModel", "Manual refresh triggered.")
         // Reset token list from manager in case it changed
@@ -539,6 +627,12 @@ class WalletViewModel(
         // Force load data
         loadData(force = true)
         loadTransactionHistory(force = true) // Refresh transaction history
+        
+        // Force refresh all token prices
+        viewModelScope.launch {
+            val supportedTokens = listOf("currency", "con_poop_coin", "con_xtfu", "con_xarb", "con_xwt")
+            tokenPriceRepository.refreshMultiplePrices(supportedTokens)
+        }
     }
     
     fun refreshActiveWalletName() {
@@ -1110,63 +1204,8 @@ class WalletViewModel(
             // Cache token logos after network sync
             cacheTokenLogosFromInfoMap(networkTokenInfoMap)
 
-            // Fetch XIAN price info
-            try {
-                val xianPriceResult = networkService.getXianPriceInfo()
-                val reserves = xianPriceResult.second
-                _xianPriceInfo.value = reserves
-                _xianPrice.value = reserves?.let { 
-                    if (it.second != 0f) it.first / it.second else 0f
-                }
-                Log.d("WalletViewModel", "Fetched XIAN Price: ${_xianPrice.value} (Reserves: $reserves)")
-            } catch (e: Exception) {
-                 Log.e("WalletViewModel", "Error fetching XIAN price info", e)
-            }
-
-            // --- Fetch POOP Price Info --- 
-            try {
-                val poopInfo = networkService.getPoopPriceInfo()
-                _poopPriceInfo.value = poopInfo
-                // Calculate POOP price (XIAN / POOP)
-                _poopPrice.value = poopInfo?.let { (reserve0_poop, reserve1_xian) ->
-                    if (reserve0_poop != 0f) reserve1_xian / reserve0_poop else 0f // Note: XIAN / POOP
-                }
-                Log.d("WalletViewModel", "Fetched POOP Price: ${_poopPrice.value} (Reserves: $poopInfo)")
-            } catch (e: Exception) {
-                Log.e("WalletViewModel", "Error fetching POOP price info", e)
-                _poopPrice.value = null // Ensure price is null on error
-            }
-            // --- End Fetch POOP Price Info ---
-              // --- Fetch XTFU Price Info --- 
-            try {
-                val xtfuInfo = networkService.getXtfuPriceInfo()
-                _xtfuPriceInfo.value = xtfuInfo
-                // Calculate XTFU price (XIAN / XTFU)
-                _xtfuPrice.value = xtfuInfo?.let { (reserve0_xtfu, reserve1_xian) ->
-                    if (reserve0_xtfu != 0f) reserve1_xian / reserve0_xtfu else 0f // Note: XIAN / XTFU
-                }
-                Log.d("WalletViewModel", "Fetched XTFU Price: ${_xtfuPrice.value} (Reserves: $xtfuInfo)")
-            } catch (e: Exception) {
-                Log.e("WalletViewModel", "Error fetching XTFU price info", e)
-                _xtfuPrice.value = null // Ensure price is null on error
-            }
-            // --- End Fetch XTFU Price Info ---
-
-            // --- Fetch XARB Price Info --- 
-            try {
-                val xarbInfo = networkService.getXarbPriceInfo()
-                _xarbPriceInfo.value = xarbInfo
-                // Calculate XARB price (XIAN / XARB)
-                _xarbPrice.value = xarbInfo?.let { (reserve0_xarb, reserve1_xian) ->
-                    if (reserve0_xarb != 0f) reserve1_xian / reserve0_xarb else 0f // Note: XIAN / XARB
-                }
-                Log.d("WalletViewModel", "Fetched XARB Price: ${_xarbPrice.value} (Reserves: $xarbInfo)")
-            } catch (e: Exception) {
-                Log.e("WalletViewModel", "Error fetching XARB price info", e)
-                _xarbPrice.value = null // Ensure price is null on error
-            }
-            // --- End Fetch XARB Price Info ---
-
+            // Note: Price fetching is now handled by TokenPriceRepository in background
+            // The UI will automatically update when prices are available from cache or network
 
             // --- Fetch NFTs and XNS Names & Expirations --- //
             var fetchedNetworkNfts: List<NftInfo> = emptyList()
@@ -1581,6 +1620,46 @@ class WalletViewModel(
                 _transactionHistory.value = EMPTY_TRANSACTION_HISTORY // Clear history on error
             } finally {
                 _isTransactionHistoryLoading.value = false
+            }
+        }
+    }
+
+    // --- Token-Specific Transaction History Loading Function ---
+    fun loadTokenTransactionHistory(tokenContract: String, force: Boolean = false) {
+        val currentKey = _publicKeyFlow.value
+        if (currentKey.isEmpty()) {
+            Log.w("WalletViewModel", "Cannot load token transaction history, public key is empty.")
+            _tokenTransactionHistory.value = EMPTY_TRANSACTION_HISTORY
+            _isTokenTransactionHistoryLoading.value = false
+            _tokenTransactionHistoryError.value = null
+            return
+        }
+
+        if (!force && _tokenTransactionHistory.value.isNotEmpty() && _tokenTransactionHistoryError.value == null) {
+            Log.d("WalletViewModel", "Token transaction history already loaded and no error, skipping reload unless forced.")
+            return
+        }
+
+        viewModelScope.launch {
+            Log.d("WalletViewModel", "Loading token transaction history for contract: $tokenContract, key: $currentKey")
+            _isTokenTransactionHistoryLoading.value = true
+            _tokenTransactionHistoryError.value = null
+
+            try {
+                val history = transactionRepository.getTokenTransactions(currentKey, tokenContract)
+                _tokenTransactionHistory.value = history
+
+                if (history.isEmpty()) {
+                    Log.d("WalletViewModel", "No token transaction history found for contract: $tokenContract, key: $currentKey")
+                } else {
+                    Log.d("WalletViewModel", "Loaded ${history.size} token transactions for contract: $tokenContract, key: $currentKey")
+                }
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error loading token transaction history", e)
+                _tokenTransactionHistoryError.value = "Failed to load token transaction history: ${e.localizedMessage}"
+                _tokenTransactionHistory.value = EMPTY_TRANSACTION_HISTORY // Clear history on error
+            } finally {
+                _isTokenTransactionHistoryLoading.value = false
             }
         }
     }

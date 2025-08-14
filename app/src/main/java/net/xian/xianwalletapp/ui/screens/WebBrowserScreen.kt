@@ -3,6 +3,8 @@ package net.xian.xianwalletapp.ui.screens
 import android.view.ViewGroup
 import android.view.View
 import android.widget.Toast
+import android.os.Bundle
+import androidx.compose.runtime.mutableStateListOf
 
 import android.webkit.WebView
 import android.webkit.JsPromptResult
@@ -32,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import coil.compose.rememberAsyncImagePainter
+import coil.compose.AsyncImagePainter
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.LinearEasing
@@ -64,6 +67,8 @@ import androidx.compose.material.icons.filled.Star // Import Star icon
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.filled.MoreVert // Import More Vert icon for three dots
+import androidx.compose.material.icons.filled.Close // Import Close icon
+import androidx.compose.material.icons.filled.Minimize // Import Minimize icon
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
@@ -100,6 +105,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import net.xian.xianwalletapp.ui.components.XianBottomNavBar // Import the shared navigation bar
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -115,7 +121,16 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.collectAsState // Import collectAsState
 // TODO: Add import for actual Xian logo resource if available
 // import net.xian.xianwalletapp.R
-// import androidx.compose.ui.res.painterResource
+ // import androidx.compose.ui.res.painterResource
+
+// Drag + overlay imports for draggable bubbles
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 
 // Helper function to normalize URLs for comparison (top-level)
 private fun normalizeUrlForComparison(url: String?): String? {
@@ -182,7 +197,16 @@ private suspend fun fetchFaviconUrl(baseUrl: String): String? {
                  Log.e("FaviconFetch", "Malformed URL found: base=$baseUrl, icon=$iconLink", e)
                  null
             }
-            absoluteIconUrl
+            // Prefer absoluteIconUrl; fallback to Google favicon service for domain
+            absoluteIconUrl ?: run {
+                try {
+                    val host = URL(baseUrl).host
+                    "https://www.google.com/s2/favicons?sz=64&domain=$host"
+                } catch (e: MalformedURLException) {
+                    Log.e("FaviconFetch", "Failed to derive host for Google favicon service: $baseUrl", e)
+                    null
+                }
+            }
 
         } catch (e: Exception) { // Catch network or parsing errors
             Log.e("FaviconFetch", "Error fetching favicon for $baseUrl: ${e.message}")
@@ -190,13 +214,20 @@ private suspend fun fetchFaviconUrl(baseUrl: String): String? {
         }
     }
 }
-// Data class for XApp shortcuts
+ // Data class for XApp shortcuts
 data class XAppInfo(
     val name: String,
     val url: String,
     val icon: androidx.compose.ui.graphics.vector.ImageVector, // Placeholder icon
     val faviconUrl: String? = null, // Optional MANUAL favicon URL
     val localDrawableRes: Int? = null // Optional local drawable resource
+)
+
+// Data class to keep minimized web page state
+data class MinimizedPage(
+    val title: String,
+    val url: String,
+    val state: android.os.Bundle
 )
 
 // --- Banner Carousel Composable ---
@@ -207,9 +238,10 @@ fun BannerCarousel(
 ) {
     // List of banner drawable resources with their corresponding URLs
     val bannerData: List<Pair<Int, String>> = listOf(
-        net.xian.xianwalletapp.R.drawable.banner1 to "https://xns.domains",
+        net.xian.xianwalletapp.R.drawable.banner1 to "https://xwtplatform.com",
         net.xian.xianwalletapp.R.drawable.banner2 to "https://pixelsnek.xian.org",
-        net.xian.xianwalletapp.R.drawable.banner3 to "https://dex.xian.org"
+        net.xian.xianwalletapp.R.drawable.banner3 to "https://dex.xian.org",
+        net.xian.xianwalletapp.R.drawable.banner4 to "https://xns.domains"
     )
     
     // Create a large number of pages for infinite scroll effect
@@ -342,10 +374,7 @@ fun DashboardContent(
         } else {
             // Default favorites for demonstration
             listOf(
-                XAppInfo(name = "Xian.org", url = "https://xian.org", icon = Icons.Default.Language, faviconUrl = "https://xian.org/assets/img/favicon.ico"),
-                XAppInfo(name = "XNS Domains", url = "https://xns.domains/", icon = Icons.Default.Language),
-                XAppInfo(name = "PixelSnek", url = "https://pixelsnek.xian.org/", icon = Icons.Default.Language),
-                XAppInfo(name = "SnakeXchange", url = "https://snakexchange.org/", icon = Icons.Default.Language)
+                XAppInfo(name = "XWT Platform", url = "https://xwtplatform.com", icon = Icons.Default.Language, localDrawableRes = net.xian.xianwalletapp.R.drawable.xwtlogo2)
             )
         }
 
@@ -420,7 +449,15 @@ fun DashboardContent(
                         Image(
                             painter = painter,
                             contentDescription = app.name,
-                            modifier = Modifier.size(32.dp) // Much smaller icon size
+                            modifier = Modifier
+                                .size(32.dp) // Much smaller icon size
+                                .then(
+                                    if (app.localDrawableRes == net.xian.xianwalletapp.R.drawable.xwtlogo2) {
+                                        Modifier.clip(CircleShape) // Make XWT Platform logo circular
+                                    } else {
+                                        Modifier
+                                    }
+                                )
                         )
                         Spacer(modifier = Modifier.height(4.dp)) // Smaller spacer
                         Text(
@@ -629,6 +666,12 @@ fun WebBrowserScreen(
     // Collect favorites from DataStore Flow as State
     val favoriteXAppsState = walletManager.loadFavoritesFlow().collectAsState(initial = emptyList())
     val favoriteXApps = favoriteXAppsState.value // Get the actual list from the state
+    
+    // Minimized pages (in-app bubbles)
+    val minimizedPages = remember { mutableStateListOf<MinimizedPage>() }
+    var restoreBundle by remember { mutableStateOf<android.os.Bundle?>(null) }
+    val bubbleFaviconUrls = remember { mutableStateMapOf<String, String?>() }
+    val bubblePositions = remember { mutableStateMapOf<String, IntOffset>() }
 
     // REMOVE the old mutableStateListOf and LaunchedEffect
     // val favoriteXApps = remember { mutableStateListOf<XAppInfo>() }
@@ -643,7 +686,8 @@ fun WebBrowserScreen(
     val defiApps = listOf(
         XAppInfo(name = "XIAN DEX", url = "https://dex.xian.org", icon = Icons.Default.Language, localDrawableRes = net.xian.xianwalletapp.R.drawable.xdex),
         XAppInfo(name = "SnakeXchange", url = "https://snakexchange.org/", icon = Icons.Default.Language),
-        XAppInfo(name = "OTC", url = "https://xian-otc.site/open-offers", icon = Icons.Default.Language, localDrawableRes = net.xian.xianwalletapp.R.drawable.otc)
+        XAppInfo(name = "OTC", url = "https://xian-otc.site/open-offers", icon = Icons.Default.Language, localDrawableRes = net.xian.xianwalletapp.R.drawable.otc),
+        XAppInfo(name = "XWT Platform", url = "https://xwtplatform.com", icon = Icons.Default.Language, localDrawableRes = net.xian.xianwalletapp.R.drawable.xwtlogo)
     )
     
     val collectiblesApps = listOf(
@@ -881,6 +925,129 @@ fun WebBrowserScreen(
                                         )
                                     }
                                 )
+
+                                // Minimize option
+                                DropdownMenuItem(
+                                    text = { Text("Minimize") },
+                                    onClick = {
+                                        val webView = webViewRef.value
+                                        if (webView != null) {
+                                            try {
+                                                val bundle = Bundle()
+                                                webView.saveState(bundle)
+                                                val pageTitle = webView.title ?: urlInput
+                                                minimizedPages.add(
+                                                    MinimizedPage(
+                                                        title = pageTitle,
+                                                        url = currentWebViewUrl,
+                                                        state = bundle
+                                                    )
+                                                )
+                                                Toast.makeText(context, "Minimized to bubble", Toast.LENGTH_SHORT).show()
+                                            } catch (e: Exception) {
+                                                Log.e("WebBrowserScreen", "Error minimizing page", e)
+                                                Toast.makeText(context, "Failed to minimize", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                        showDashboard = true
+                                        showBottomBar = true
+                                        isLoading = false
+                                        focusManager.clearFocus()
+                                        webViewRef.value = null
+                                        showOptionsMenu = false
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Filled.Minimize,
+                                            contentDescription = "Minimize",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                        
+                        // Close button - only show when web is loaded (not in dashboard)
+                        IconButton(
+                            onClick = {
+                                showDashboard = true
+                                showBottomBar = true
+                                isLoading = false
+                                focusManager.clearFocus()
+                            },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .border(
+                                    width = 1.dp,
+                                    color = MaterialTheme.colorScheme.error.copy(alpha = 0.6f),
+                                    shape = CircleShape
+                                )
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Close Web Browser",
+                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        floatingActionButton = {
+            if (false) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.End
+                ) {
+                    minimizedPages.toList().forEach { page ->
+                        // Resolve favicon for bubble (cache first, then fetch)
+                        LaunchedEffect(page.url, faviconCacheManager) {
+                            if (!bubbleFaviconUrls.containsKey(page.url)) {
+                                val cachedUrl = faviconCacheManager.getFaviconUrl(page.url)
+                                if (cachedUrl != null) {
+                                    bubbleFaviconUrls[page.url] = cachedUrl
+                                } else {
+                                    bubbleFaviconUrls[page.url] = null
+                                    val fetchedUrl = fetchFaviconUrl(page.url)
+                                    if (fetchedUrl != null) {
+                                        bubbleFaviconUrls[page.url] = fetchedUrl
+                                        faviconCacheManager.saveFaviconUrl(page.url, fetchedUrl)
+                                    }
+                                }
+                            }
+                        }
+
+                        val bubblePainter = bubbleFaviconUrls[page.url]?.let { url ->
+                            rememberAsyncImagePainter(model = url)
+                        }
+
+                        FloatingActionButton(
+                            onClick = {
+                                restoreBundle = page.state
+                                currentWebViewUrl = page.url
+                                urlInput = page.url
+                                isLoading = true
+                                showDashboard = false
+                                showBottomBar = true
+                                minimizedPages.remove(page)
+                            },
+                            shape = CircleShape,
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            if (bubblePainter != null) {
+                                Image(
+                                    painter = bubblePainter,
+                                    contentDescription = page.title,
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .clip(CircleShape)
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Language,
+                                    contentDescription = "Restore"
+                                )
                             }
                         }
                     }
@@ -937,11 +1104,24 @@ fun WebBrowserScreen(
                     onLastScrollYChange = { lastScrollY = it }
                 )
             } else {
-               // WebView                // Apply a clipped container for the WebView with rounded corners
+               // WebView - Apply a clipped container for the WebView with rounded corners and gradient border
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .clip(RoundedCornerShape(8.dp)) // Add rounded corners to the WebView container
+                        .padding(4.dp) // Space for the gradient border
+                        .border(
+                            width = 2.dp,
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(
+                                    XianPrimary.copy(alpha = 0.6f),
+                                    XianPrimaryVariant.copy(alpha = 0.8f),
+                                    XianPrimary.copy(alpha = 0.6f)
+                                )
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        .clip(RoundedCornerShape(12.dp)) // Increased corner radius for better visual appeal
+                        .shadow(6.dp, RoundedCornerShape(12.dp)) // Enhanced shadow for more depth
                 ) {
                     AndroidView(
                         factory = { context ->
@@ -1162,9 +1342,15 @@ fun WebBrowserScreen(
                             bridge.setWebView(this) // Pasar la referencia del WebView al bridge
                             addJavascriptInterface(bridge, "XianWalletBridge")
                             
-                            // Initial load
-                            Log.d("WebBrowserScreen", "AndroidView.factory: Loading initial URL: $currentWebViewUrl")
-                            loadUrl(currentWebViewUrl)
+                            // Initial load or restore minimized state
+                            if (restoreBundle != null) {
+                                Log.d("WebBrowserScreen", "AndroidView.factory: Restoring minimized page state")
+                                restoreState(restoreBundle!!)
+                                restoreBundle = null
+                            } else {
+                                Log.d("WebBrowserScreen", "AndroidView.factory: Loading initial URL: $currentWebViewUrl")
+                                loadUrl(currentWebViewUrl)
+                            }
                         }.also {
                             webViewRef.value = it
                         }
@@ -1180,6 +1366,8 @@ fun WebBrowserScreen(
                         }                    },
                     modifier = Modifier.fillMaxSize()
                 )
+                
+
                 } // Close the Box with the clip modifier
             } // End of if/else for Dashboard/WebView
 
@@ -1292,45 +1480,245 @@ fun WebBrowserScreen(
                         ) { Text("Cancel", color = Color.Black) }
                     }
                 )
-            }            // Loading indicator mejorado con mensaje de estado
+            }
+            
+            // Enhanced loading indicator with improved visual design
             // Show loading indicator when navigating to WebView but before content is shown/loaded
-            if (!showDashboard) { // Siempre mostrar algún indicador de estado cuando se muestra el WebView
+            if (!showDashboard) { // Always show some status indicator when WebView is displayed
                 if (isLoading) {
-                    // Mostrar barra de progreso mientras carga
-                    LinearProgressIndicator(
+                    // Enhanced loading progress bar with gradient effect
+                    Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 2.dp)
-                            .clip(RoundedCornerShape(4.dp)), // Bordes redondeados para el indicador
-                        color = MaterialTheme.colorScheme.primary, // Color principal
-                        trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) // Color de fondo más sutil
-                    )
-                } else {
-                    // Mostrar indicador de página cargada
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp)
-                            .padding(top = 2.dp, bottom = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.End
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle, 
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            "Página cargada", 
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
+                        Column(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    "Loading website...",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            LinearProgressIndicator(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(4.dp)),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                            )
+                        }
+                    }
+                } else {
+                    // Enhanced page loaded indicator
+                    AnimatedVisibility(
+                        visible = true,
+                        enter = fadeIn() + slideInVertically(),
+                        exit = fadeOut() + slideOutVertically()
+                    ) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 2.dp),
+                            shape = RoundedCornerShape(6.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    "Website loaded successfully",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
                     }
                 }
             }
 
         } // Closes the main Column
+
+        // Draggable minimized bubbles overlay (global, above content)
+        if (minimizedPages.isNotEmpty()) {
+            val configuration = LocalConfiguration.current
+            val density = LocalDensity.current
+
+            // Screen bounds in px
+            val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }.toInt()
+            val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }.toInt()
+
+            // Bubble visuals
+            val bubbleSize = 48.dp
+            val bubbleSizePx = with(density) { bubbleSize.toPx() }.toInt()
+            val marginPx = with(density) { 16.dp.toPx() }.toInt()
+
+            minimizedPages.forEachIndexed { index, page ->
+                // Resolve favicon for bubble (cache first, then fetch)
+                LaunchedEffect(page.url, faviconCacheManager) {
+                    if (!bubbleFaviconUrls.containsKey(page.url)) {
+                        val cachedUrl = faviconCacheManager.getFaviconUrl(page.url)
+                        if (cachedUrl != null) {
+                            bubbleFaviconUrls[page.url] = cachedUrl
+                        } else {
+                            bubbleFaviconUrls[page.url] = null
+                            val fetchedUrl = fetchFaviconUrl(page.url)
+                            if (fetchedUrl != null) {
+                                bubbleFaviconUrls[page.url] = fetchedUrl
+                                faviconCacheManager.saveFaviconUrl(page.url, fetchedUrl)
+                            }
+                        }
+                    }
+                }
+
+                // Default stacked position (right-bottom, going up)
+                val defaultX = (screenWidthPx - bubbleSizePx - marginPx).coerceAtLeast(0)
+                val defaultYBase = (screenHeightPx - marginPx - bubbleSizePx)
+                val defaultY = (defaultYBase - index * (bubbleSizePx + marginPx)).coerceAtLeast(0)
+                val key = page.url
+
+                // Initialize position for this bubble if not set
+                if (!bubblePositions.containsKey(key)) {
+                    bubblePositions[key] = IntOffset(defaultX, defaultY)
+                }
+
+                val currentOffset = bubblePositions[key]!!
+
+                Popup(
+                    offset = currentOffset,
+                    properties = PopupProperties(focusable = false) // non-modal overlay
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(bubbleSize)
+                            .pointerInput(key, screenWidthPx, screenHeightPx, bubbleSizePx) {
+                                detectDragGestures(
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        val prev = bubblePositions[key] ?: currentOffset
+                                        var newX = prev.x + dragAmount.x.toInt()
+                                        var newY = prev.y + dragAmount.y.toInt()
+                                        // Keep inside screen
+                                        newX = newX.coerceIn(0, screenWidthPx - bubbleSizePx)
+                                        newY = newY.coerceIn(0, screenHeightPx - bubbleSizePx)
+                                        bubblePositions[key] = IntOffset(newX, newY)
+                                    }
+                                )
+                            }
+                    ) {
+                        // Billiard ball style bubble: show sequential number (1-based index) always
+                        // Design: circular gradient / solid with white top band and black number centered
+                        FloatingActionButton(
+                            onClick = {
+                                restoreBundle = page.state
+                                currentWebViewUrl = page.url
+                                urlInput = page.url
+                                isLoading = true
+                                showDashboard = false
+                                showBottomBar = true
+                                minimizedPages.remove(page)
+                                bubblePositions.remove(key)
+                            },
+                            shape = CircleShape,
+                            containerColor = Color.Transparent, // We'll draw custom background
+                            modifier = Modifier
+                                .fillMaxSize()
+                        ) {
+                            // Choose a base color deterministically from index (pool ball palette 1..15 simplified)
+                            val poolColors = listOf(
+                                Color(0xFFFFD700), // 1 Yellow
+                                Color(0xFF0000FF), // 2 Blue
+                                Color(0xFFFF0000), // 3 Red
+                                Color(0xFF8B008B), // 4 Purple
+                                Color(0xFFFFA500), // 5 Orange
+                                Color(0xFF006400), // 6 Green
+                                Color(0xFF800000), // 7 Maroon
+                                Color(0xFF000000), // 8 Black
+                                Color(0xFFFFD700), // 9 (same as 1 with stripe)
+                                Color(0xFF0000FF), // 10
+                                Color(0xFFFF0000), // 11
+                                Color(0xFF8B008B), // 12
+                                Color(0xFFFFA500), // 13
+                                Color(0xFF006400), // 14
+                                Color(0xFF800000)  // 15
+                            )
+                            val number = index + 1
+                            val baseColor = poolColors[(number - 1) % poolColors.size]
+                            // Determine if striped (numbers 9-15 in real pool). We'll render a white band.
+                            val isStriped = number in 9..15
+
+                            // Layered drawing
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape)
+                                    .background(baseColor)
+                                    .border(2.dp, Color.White, CircleShape)
+                                    .shadow(8.dp, CircleShape, ambientColor = Color.Black.copy(alpha = 0.4f), spotColor = Color.Black.copy(alpha = 0.4f))
+                            ) {
+                                if (isStriped) {
+                                    // White horizontal stripe centered
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(18.dp)
+                                            .align(Alignment.Center)
+                                            .background(Color.White.copy(alpha = 0.9f))
+                                    )
+                                }
+                                // Inner white circle behind number (like billiard ball number area) only if solid OR striped
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .align(Alignment.Center)
+                                        .clip(CircleShape)
+                                        .background(Color.White)
+                                ) {
+                                    Text(
+                                        text = number.toString(),
+                                        modifier = Modifier.align(Alignment.Center),
+                                        color = Color.Black,
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     } // Closes the Scaffold lambda
 }

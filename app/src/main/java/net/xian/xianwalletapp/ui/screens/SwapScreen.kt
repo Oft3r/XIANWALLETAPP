@@ -73,6 +73,7 @@ fun getTokenLogo(contract: String): Any? {
     return when (contract) {
         "currency" -> R.drawable.xian_logo
         "con_xarb" -> "file:///android_asset/xarb.jpg"
+        "con_xwt" -> R.drawable.xwtlogo
         "con_xtfu" -> "https://snakexchange.org/icons/con_xtfu.png"
         "con_poop_coin" -> "https://emojiisland.com/cdn/shop/products/Poop_Emoji_7b204f05-eec6-4496-91b1-351acc03d2c7_large.png"
         "con_usdc" -> "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png"
@@ -191,6 +192,7 @@ fun SwapScreen(
             "con_poop_coin", "poop" -> "POOP"
             "con_xtfu", "xtfu" -> "XTFU"
             "con_xarb", "xarb" -> "XARB"
+            "con_xwt", "xwt" -> "XWT"
             else -> "UNKNOWN"
         }
     }
@@ -275,6 +277,7 @@ fun SwapScreen(
     val poopPrice by viewModel.poopPrice.collectAsStateWithLifecycle()
     val xtfuPrice by viewModel.xtfuPrice.collectAsStateWithLifecycle()
     val xarbPrice by viewModel.xarbPrice.collectAsStateWithLifecycle()
+    val xwtPrice by viewModel.xwtPrice.collectAsStateWithLifecycle()
     
     // Helper function to check if user has enough balance for the swap
     fun hasEnoughBalance(tokenContract: String, requiredAmount: String): Boolean {
@@ -325,7 +328,7 @@ fun SwapScreen(
             val allPairs = networkService.getAllPairs()
             
             // Define available tokens locally - including currency for XIAN price change
-            val tokenContracts = listOf("currency", "con_poop_coin", "con_xtfu", "con_xarb")
+            val tokenContracts = listOf("currency", "con_poop_coin", "con_xtfu", "con_xarb", "con_xwt")
             
             // Load price changes for each token in parallel for faster loading
             val deferredResults = tokenContracts.map { contract ->
@@ -377,15 +380,16 @@ fun SwapScreen(
         Triple("con_usdc", "USDC", "USD Coin"),
         Triple("con_poop_coin", "POOP", "Poop Coin"),
         Triple("con_xtfu", "XTFU", "XTFU Token"),
-        Triple("con_xarb", "XARB", "XARB Token")
+        Triple("con_xarb", "XARB", "XARB Token"),
+        Triple("con_xwt", "XWT", "XWT Token")
     )
     
     // Function to validate if a trading pair exists
     fun isValidTradingPair(fromToken: String, toToken: String): Boolean {
         // Valid pairs are only between currency and other tokens (no token-to-token swaps)
         return when {
-            fromToken == "currency" && toToken in listOf("con_usdc", "con_poop_coin", "con_xtfu", "con_xarb") -> true
-            toToken == "currency" && fromToken in listOf("con_usdc", "con_poop_coin", "con_xtfu", "con_xarb") -> true
+            fromToken == "currency" && toToken in listOf("con_usdc", "con_poop_coin", "con_xtfu", "con_xarb", "con_xwt") -> true
+            toToken == "currency" && fromToken in listOf("con_usdc", "con_poop_coin", "con_xtfu", "con_xarb", "con_xwt") -> true
             else -> false
         }
     }
@@ -402,6 +406,8 @@ fun SwapScreen(
             fromToken == "con_xtfu" && toToken == "currency" -> xtfuPrice
             fromToken == "currency" && toToken == "con_xarb" -> xarbPrice?.let { 1f / it }
             fromToken == "con_xarb" && toToken == "currency" -> xarbPrice
+            fromToken == "currency" && toToken == "con_xwt" -> xwtPrice?.let { 1f / it }
+            fromToken == "con_xwt" && toToken == "currency" -> xwtPrice
             else -> null
         }
         
@@ -422,6 +428,9 @@ fun SwapScreen(
             (fromToken == "currency" && toToken == "con_xarb") ||
             (fromToken == "con_xarb" && toToken == "currency") -> 15000f // Lowest liquidity
             
+            (fromToken == "currency" && toToken == "con_xwt") ||
+            (fromToken == "con_xwt" && toToken == "currency") -> 20000f // Medium-low liquidity
+            
             else -> 10000f // Default small pool
         }
         
@@ -435,6 +444,7 @@ fun SwapScreen(
                 "con_poop_coin" -> poopPrice?.let { tradeAmount * it } ?: 0f
                 "con_xtfu" -> xtfuPrice?.let { tradeAmount * it } ?: 0f
                 "con_xarb" -> xarbPrice?.let { tradeAmount * it } ?: 0f
+                "con_xwt" -> xwtPrice?.let { tradeAmount * it } ?: 0f
                 else -> 0f
             }
         }
@@ -559,6 +569,28 @@ fun SwapScreen(
                 }
                 fromTokenContract == "con_xarb" && toTokenContract == "currency" -> {
                     xarbPrice?.let { price ->
+                        val baseAmount = amount * price
+                        val calculatedImpact = calculatePriceImpact(amount, fromTokenContract, toTokenContract)
+                        priceImpact = calculatedImpact
+                        val impactReduction = baseAmount * (calculatedImpact / 100f)
+                        val finalAmount = baseAmount - impactReduction
+                        toAmount = "%.6f".format(Locale.US, finalAmount)
+                        swapRate = price
+                    }
+                }
+                fromTokenContract == "currency" && toTokenContract == "con_xwt" -> {
+                    xwtPrice?.let { price ->
+                        val baseAmount = amount / price
+                        val calculatedImpact = calculatePriceImpact(amount, fromTokenContract, toTokenContract)
+                        priceImpact = calculatedImpact
+                        val impactReduction = baseAmount * (calculatedImpact / 100f)
+                        val finalAmount = baseAmount - impactReduction
+                        toAmount = "%.6f".format(Locale.US, finalAmount)
+                        swapRate = 1f / price
+                    }
+                }
+                fromTokenContract == "con_xwt" && toTokenContract == "currency" -> {
+                    xwtPrice?.let { price ->
                         val baseAmount = amount * price
                         val calculatedImpact = calculatePriceImpact(amount, fromTokenContract, toTokenContract)
                         priceImpact = calculatedImpact

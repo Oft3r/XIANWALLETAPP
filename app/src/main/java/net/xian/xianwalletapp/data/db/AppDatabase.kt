@@ -5,12 +5,13 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [NftCacheEntity::class, TokenCacheEntity::class, AddressBookEntity::class], version = 5, exportSchema = false)
+@Database(entities = [NftCacheEntity::class, TokenCacheEntity::class, AddressBookEntity::class, TokenPriceCacheEntity::class], version = 6, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun nftCacheDao(): NftCacheDao
     abstract fun tokenCacheDao(): TokenCacheDao
     abstract fun addressBookDao(): AddressBookDao
+    abstract fun tokenPriceCacheDao(): TokenPriceCacheDao
 
     companion object {
         @Volatile

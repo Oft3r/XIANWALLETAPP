@@ -88,17 +88,18 @@ fun ManageTokenList(
         !tokens.contains(predefined.contract)
     }
     
-    // Filter added tokens (exclude XIAN currency as it can't be removed)
-    val addedTokens = tokens.filter { it != "currency" }
+    // Filter added tokens (exclude default tokens as they can't be removed)
+    val defaultTokens = setOf("currency", "con_xwt")
+    val addedTokens = tokens.filter { it !in defaultTokens }
     
-    // Local state for reordering (exclude "currency" from reorderable tokens)
-    val reorderableTokens = tokens.filter { it != "currency" }
+    // Local state for reordering (exclude default tokens from reorderable tokens)
+    val reorderableTokens = tokens.filter { it !in defaultTokens }
     var localTokenOrder by remember { mutableStateOf(reorderableTokens) }
     var isReorderMode by remember { mutableStateOf(false) }
     
     // Update local order when tokens change
     LaunchedEffect(tokens) {
-        localTokenOrder = tokens.filter { it != "currency" }
+        localTokenOrder = tokens.filter { it !in defaultTokens }
     }
     
     // Function to move item in list
@@ -217,12 +218,9 @@ fun ManageTokenList(
                             if (isReorderMode) {
                                 Button(
                                     onClick = {
-                                        // Reconstruct the full token list with "currency" first
-                                        val fullTokenOrder = if (tokens.contains("currency")) {
-                                            listOf("currency") + localTokenOrder
-                                        } else {
-                                            localTokenOrder
-                                        }
+                                        // Reconstruct the full token list with default tokens first
+                                        val defaultTokensInOrder = defaultTokens.filter { it in tokens }
+                                        val fullTokenOrder = defaultTokensInOrder + localTokenOrder
                                         viewModel.reorderTokens(fullTokenOrder)
                                         isReorderMode = false
                                         coroutineScope.launch {
@@ -258,7 +256,7 @@ fun ManageTokenList(
                     }
                 }
 
-                // Show only reorderable tokens (currency is excluded from this view)
+                // Show only reorderable tokens (default tokens are excluded from this view)
                 itemsIndexed(localTokenOrder) { index, contract ->
                     val tokenInfo = tokenInfoMap[contract]
                     AddedTokenItem(
@@ -381,6 +379,7 @@ private fun AddedTokenItem(
                 model = when {
                     contract == "con_xarb" -> "file:///android_asset/xarb.jpg"
                     contract == "con_xtfu" -> "https://snakexchange.org/icons/con_xtfu.png"
+                    contract == "con_xwt" -> R.drawable.xwtlogo
                     else -> logoUrl
                 },
                 imageLoader = viewModel.getImageLoader(), // Use the cached image loader
@@ -487,6 +486,7 @@ private fun AvailableTokenItem(
                 model = when {
                     token.contract == "con_xarb" -> "file:///android_asset/xarb.jpg"
                     token.contract == "con_xtfu" -> "https://snakexchange.org/icons/con_xtfu.png"
+                    token.contract == "con_xwt" -> R.drawable.xwtlogo
                     else -> token.logoUrl
                 },
                 imageLoader = viewModel.getImageLoader(), // Use the cached image loader

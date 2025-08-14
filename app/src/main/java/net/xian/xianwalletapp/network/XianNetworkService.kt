@@ -1495,6 +1495,236 @@ class XianNetworkService private constructor(private val context: Context) {
     }
 
     /**
+     * Simulate a transaction to get the result without broadcasting it
+     *
+     * @param payload The transaction payload as JSONObject
+     * @return The simulation result or null if failed
+     */
+    suspend fun simulateTransaction(payload: JSONObject): Any? = withContext(Dispatchers.IO) {
+        try {
+            // Check connectivity first
+            if (!checkNodeConnectivity()) {
+                android.util.Log.e("XianNetworkService", "No connection to node, cannot simulate transaction.")
+                return@withContext null
+            }
+
+            // Convert payload to hex string
+            val payloadBytes = payload.toString().toByteArray(Charsets.UTF_8)
+            val payloadHex = payloadBytes.joinToString("") { "%02x".format(it) }
+
+            // Construct URL for simulate_tx
+            val pathWithQuotes = "\"/simulate_tx/$payloadHex\""
+            val encodedPath = java.net.URLEncoder.encode(pathWithQuotes, "UTF-8")
+            val simulateUrl = "$rpcUrl/abci_query?path=$encodedPath"
+
+            android.util.Log.d("XianNetworkService", "Simulating transaction with URL: $simulateUrl")
+
+            val request = Request.Builder().url(simulateUrl).build()
+            val response = client.newCall(request).execute()
+
+            if (!response.isSuccessful) {
+                android.util.Log.w("XianNetworkService", "Failed to simulate transaction: ${response.code} ${response.message}")
+                return@withContext null
+            }
+
+            val responseBody = response.body?.string() ?: "{}"
+            android.util.Log.d("XianNetworkService", "Simulate transaction response: $responseBody")
+
+            val json = JSONObject(responseBody)
+            
+            // Check for errors
+            if (json.has("error")) {
+                val errorObj = json.optJSONObject("error")
+                val errorMessage = errorObj?.optString("data", json.optString("error")) ?: "Unknown error"
+                android.util.Log.w("XianNetworkService", "Simulation error: $errorMessage")
+                return@withContext null
+            }
+
+            val resultObj = json.optJSONObject("result")
+            val responseObj = resultObj?.optJSONObject("response")
+            val simulateValue = responseObj?.optString("value")
+
+            if (simulateValue == null || simulateValue.isEmpty() || simulateValue == "AA==") {
+                android.util.Log.d("XianNetworkService", "Simulation returned null or empty value")
+                return@withContext null
+            }
+
+            // Decode Base64 result
+            val decodedBytes = Base64.decode(simulateValue, Base64.DEFAULT)
+            val decodedString = String(decodedBytes)
+            android.util.Log.d("XianNetworkService", "Simulation decoded result: $decodedString")
+
+            // Try to parse as JSON first
+            return@withContext try {
+                val resultJson = JSONObject(decodedString)
+                if (resultJson.has("result")) {
+                    val result = resultJson.get("result")
+                    // Handle different result types
+                    when (result) {
+                        is String -> result
+                        is Number -> result
+                        is Boolean -> result
+                        is JSONArray -> {
+                            // Convert JSONArray to List
+                            val list = mutableListOf<Any?>()
+                            for (i in 0 until result.length()) {
+                                list.add(result.get(i))
+                            }
+                            list
+                        }
+                        else -> result
+                    }
+                } else {
+                    decodedString
+                }
+            } catch (e: Exception) {
+                // If not JSON, return as string
+                decodedString
+            }
+
+        } catch (e: Exception) {
+            android.util.Log.e("XianNetworkService", "Error simulating transaction: ${e.message}", e)
+            return@withContext null
+        }
+    }
+
+    /**
+     * Submit a transaction to the blockchain
+     *
+     * @param contract The contract name
+     * @param method The method name to call
+     * @param kwargs The method arguments as JSONObject
+     * @param publicKey The public key for signing
+     * @param privateKey The private key for signing
+     * @return The transaction hash if successful, null otherwise
+     */
+    suspend fun submitTransaction(
+        contract: String,
+        method: String,
+        kwargs: JSONObject,
+        publicKey: String,
+        privateKey: ByteArray
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            // Check connectivity first
+            if (!checkNodeConnectivity()) {
+                android.util.Log.e("XianNetworkService", "No connection to node, cannot submit transaction.")
+                return@withContext null
+            }
+
+            // Get chain ID
+            val chainIdValue = getChainID()
+            android.util.Log.d("XianNetworkService", "Using chain ID: $chainIdValue")
+
+            // Create transaction payload
+            val payload = JSONObject().apply {
+                put("contract", contract)
+                put("function", method)
+                put("kwargs", kwargs)
+                put("stamps_supplied", 100000) // Default stamp limit
+                put("chain_id", chainIdValue) // Add chain_id to payload
+            }
+
+            val transaction = JSONObject().apply {
+                put("payload", payload)
+            }
+
+            android.util.Log.d("XianNetworkService", "Submitting transaction: $transaction")
+
+            // Sign the transaction
+            val signedTransaction = signTransaction(transaction, privateKey)
+            
+            // Convert to hex string for broadcasting
+            val signedTxHex = signedTransaction.toString().toByteArray(Charsets.UTF_8)
+                .joinToString("") { "%02x".format(it) }
+
+            // Broadcast the transaction
+            val (success, txHash) = broadcastTransaction(signedTxHex)
+
+            return@withContext if (success && txHash.isNotEmpty()) {
+                android.util.Log.d("XianNetworkService", "Transaction submitted successfully: $txHash")
+                txHash
+            } else {
+                android.util.Log.e("XianNetworkService", "Transaction submission failed")
+                null
+            }
+
+        } catch (e: Exception) {
+            android.util.Log.e("XianNetworkService", "Error submitting transaction: ${e.message}", e)
+            return@withContext null
+        }
+    }
+
+
+
+    /**
+     * Send a transaction to the blockchain (used by SwapScreen and other components)
+     *
+     * @param contract The contract name
+     * @param method The method name to call
+     * @param kwargs The method arguments as JSONObject
+     * @param privateKey The private key for signing
+     * @param stampLimit The stamp limit for the transaction
+     * @return TransactionResult with success status and transaction hash or error
+     */
+    suspend fun sendTransaction(
+        contract: String,
+        method: String,
+        kwargs: JSONObject,
+        privateKey: ByteArray,
+        stampLimit: Long = 100000
+    ): TransactionResult = withContext(Dispatchers.IO) {
+        try {
+            // Check connectivity first
+            if (!checkNodeConnectivity()) {
+                android.util.Log.e("XianNetworkService", "No connection to node, cannot send transaction.")
+                return@withContext TransactionResult(txHash = "", success = false, errors = "No connection to node")
+            }
+
+            val publicKey = walletManager.getPublicKey()
+            if (publicKey == null) {
+                return@withContext TransactionResult(txHash = "", success = false, errors = "Public key not available")
+            }
+
+            // Create transaction payload
+            val payload = JSONObject().apply {
+                put("contract", contract)
+                put("function", method)
+                put("kwargs", kwargs)
+                put("stamps_supplied", stampLimit)
+            }
+
+            val transaction = JSONObject().apply {
+                put("payload", payload)
+            }
+
+            android.util.Log.d("XianNetworkService", "Sending transaction: $transaction")
+
+            // Sign the transaction
+            val signedTransaction = signTransaction(transaction, privateKey)
+            
+            // Convert to hex string for broadcasting
+            val signedTxHex = signedTransaction.toString().toByteArray(Charsets.UTF_8)
+                .joinToString("") { "%02x".format(it) }
+
+            // Broadcast the transaction
+            val (success, txHash) = broadcastTransaction(signedTxHex)
+
+            return@withContext if (success && txHash.isNotEmpty()) {
+                android.util.Log.d("XianNetworkService", "Transaction sent successfully: $txHash")
+                TransactionResult(txHash = txHash, success = true, errors = "", status = "confirmed")
+            } else {
+                android.util.Log.e("XianNetworkService", "Transaction failed to broadcast")
+                TransactionResult(txHash = "", success = false, errors = "Failed to broadcast transaction", status = "failed")
+            }
+
+        } catch (e: Exception) {
+            android.util.Log.e("XianNetworkService", "Error sending transaction: ${e.message}", e)
+            return@withContext TransactionResult(txHash = "", success = false, errors = e.message ?: "Unknown error", status = "failed")
+        }
+    }
+
+    /**
      * Get the chain ID from the Xian network
      *
      * @return The chain ID as a String
@@ -2320,6 +2550,43 @@ class XianNetworkService private constructor(private val context: Context) {
     }
 
     /**
+     * Fetches the reserve balances for the XWT/XIAN pair (con_xwt / currency).
+     * @return Pair<Float, Float>? representing (reserve0 (XWT), reserve1 (XIAN)), or null if fetching fails.
+     */
+    suspend fun getXwtPriceInfo(): Pair<Float, Float>? = withContext(Dispatchers.IO) {
+        val allPairs = getAllPairs() // Consider caching this result if called frequently
+        if (allPairs.isEmpty()) {
+            android.util.Log.w("XianNetworkService", "No pairs found, cannot get XWT price info.")
+            return@withContext null
+        }
+
+        // Find the XWT/XIAN pair (con_xwt / currency)
+        val xwtXianPair = allPairs.find {
+            (it.token0 == "con_xwt" && it.token1 == "currency") ||
+            (it.token1 == "con_xwt" && it.token0 == "currency")
+        }
+
+        if (xwtXianPair == null) {
+            android.util.Log.w("XianNetworkService", "XWT/XIAN pair not found in the list of pairs.")
+            return@withContext null
+        }
+
+        android.util.Log.d("XianNetworkService", "Found XWT/XIAN pair with ID: ${xwtXianPair.id}")
+        val reserves = getReservesForPair(xwtXianPair.id)
+
+        // Ensure the returned reserves match the expected order (XWT, XIAN)
+        return@withContext if (reserves != null) {
+            if (xwtXianPair.token0 == "con_xwt") {
+                reserves // Order is already (XWT, XIAN)
+            } else {
+                Pair(reserves.second, reserves.first) // Swap to (XWT, XIAN)
+            }
+        } else {
+            null
+        }
+    }
+
+    /**
      * Fetches swap events for a specific token pair from GraphQL
      * Used for generating historical price charts
      * @param pairId The pair ID to fetch swap events for
@@ -2521,6 +2788,8 @@ class XianNetworkService private constructor(private val context: Context) {
             return@withContext null
         }
     }
+
+
 }
 
 /**
@@ -2537,3 +2806,4 @@ data class SwapEvent(
     val caller: String,
     val signer: String
 )
+

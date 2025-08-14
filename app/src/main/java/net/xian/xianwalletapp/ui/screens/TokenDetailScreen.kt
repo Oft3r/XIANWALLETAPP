@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Newspaper
 import androidx.compose.material3.*
 import androidx.compose.animation.*
 import androidx.compose.runtime.*
@@ -57,6 +58,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.text.DecimalFormat
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.layout.heightIn
+import net.xian.xianwalletapp.data.LocalTransactionRecord
+import net.xian.xianwalletapp.ui.components.TransactionRecordItem
+import net.xian.xianwalletapp.ui.components.LargeBouncingDotsLoader
 
 /**
  * Token detail screen showing price card, balance, and action buttons
@@ -78,6 +91,7 @@ fun TokenDetailScreen(
     val poopPrice by viewModel.poopPrice.collectAsStateWithLifecycle()
     val xtfuPrice by viewModel.xtfuPrice.collectAsStateWithLifecycle()
     val xarbPrice by viewModel.xarbPrice.collectAsStateWithLifecycle()
+    val xwtPrice by viewModel.xwtPrice.collectAsStateWithLifecycle()
     val isChartLoading by viewModel.isChartLoading.collectAsStateWithLifecycle()
     val chartError by viewModel.chartError.collectAsStateWithLifecycle()
     val chartNormalizationType by viewModel.chartNormalizationType.collectAsStateWithLifecycle()
@@ -113,6 +127,7 @@ fun TokenDetailScreen(
         "con_poop_coin" -> poopPrice
         "con_xtfu" -> xtfuPrice
         "con_xarb" -> xarbPrice
+        "con_xwt" -> xwtPrice
         else -> null
     }    // Create formatters for different values
     val usdFormatter = DecimalFormat("#,##0.0000") // For USD values (4 decimals)
@@ -174,29 +189,59 @@ fun TokenDetailScreen(
             try {
                 // First, find the trading pair for this token
                 val allPairs = networkService.getAllPairs()
-                val tokenPair = allPairs.find { pair ->
-                    pair.token0 == tokenContract || pair.token1 == tokenContract
+                android.util.Log.d("TokenDetailScreen", "Found ${allPairs.size} pairs, looking for token: $tokenContract")
+                
+                val tokenPair = if (tokenContract == "currency") {
+                    // For XIAN currency, look for XIAN/USDC pair
+                    allPairs.find { pair ->
+                        (pair.token0 == "currency" && pair.token1 == "con_usdc") ||
+                        (pair.token1 == "currency" && pair.token0 == "con_usdc")
+                    }
+                } else {
+                    // For other tokens, look for token/XIAN pair
+                    allPairs.find { pair ->
+                        (pair.token0 == tokenContract && pair.token1 == "currency") ||
+                        (pair.token1 == tokenContract && pair.token0 == "currency")
+                    }
                 }
                 
                 if (tokenPair != null) {
+                    android.util.Log.d("TokenDetailScreen", "Found pair for $tokenContract: ${tokenPair.id} (${tokenPair.token0}/${tokenPair.token1})")
+                    
                     // Determine which token denomination to use:
-                    // 0 = token0-per-token1 (default), 1 = token1-per-token0
-                    val tokenDenomination = when {
-                        tokenPair.token0 == tokenContract && tokenPair.token1 == "currency" -> 1 // We want XIAN per token
-                        tokenPair.token1 == tokenContract && tokenPair.token0 == "currency" -> 0 // We want XIAN per token
-                        tokenPair.token0 == tokenContract -> 1 // token1 per token0
-                        tokenPair.token1 == tokenContract -> 0 // token0 per token1
-                        else -> 0 // default
+                    val tokenDenomination = if (tokenContract == "currency") {
+                        // For XIAN, we want USD per XIAN (USDC per XIAN)
+                        if (tokenPair.token0 == "currency") {
+                            1 // token1 (USDC) per token0 (XIAN)
+                        } else {
+                            0 // token0 (USDC) per token1 (XIAN)
+                        }
+                    } else {
+                        // For other tokens, we want XIAN per token
+                        if (tokenPair.token0 == tokenContract) {
+                            1 // token1 (XIAN) per token0 (our token)
+                        } else {
+                            0 // token0 (XIAN) per token1 (our token)
+                        }
                     }
                     
+                    android.util.Log.d("TokenDetailScreen", "Using denomination $tokenDenomination for pair ${tokenPair.id}")
+                    
                     val result = networkService.getPriceChange24h(tokenPair.id, tokenDenomination)
-                    priceChange24h = if (result != null && result.isFinite()) result else null
+                    priceChange24h = if (result != null && result.isFinite()) {
+                        android.util.Log.d("TokenDetailScreen", "Successfully loaded 24h price change: $result% for $tokenContract")
+                        result
+                    } else {
+                        android.util.Log.w("TokenDetailScreen", "Invalid price change result: $result for $tokenContract")
+                        null
+                    }
                 } else {
-                    android.util.Log.w("TokenDetailScreen", "No trading pair found for token $tokenContract")
+                    val pairType = if (tokenContract == "currency") "XIAN/USDC" else "$tokenContract/XIAN"
+                    android.util.Log.w("TokenDetailScreen", "No trading pair found for $pairType")
                     priceChange24h = null
                 }
             } catch (e: Exception) {
-                android.util.Log.e("TokenDetailScreen", "Error loading 24h price change: ${e.message}")
+                android.util.Log.e("TokenDetailScreen", "Error loading 24h price change for $tokenContract: ${e.message}", e)
                 priceChange24h = null
             } finally {
                 isLoadingPriceChange = false
@@ -286,34 +331,80 @@ fun TokenDetailScreen(
                                 if (isLoadingPriceChange) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(top = 4.dp)
+                                        modifier = Modifier.padding(top = 8.dp)
                                     ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            strokeWidth = 2.dp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
                                         Text(
                                             text = "Loading 24h change...",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                                         )
-                                    }                                } else if (priceChange24h != null && priceChange24h!!.isFinite()) {
+                                    }
+                                } else if (priceChange24h != null && priceChange24h!!.isFinite()) {
                                     val isPositive = priceChange24h!! >= 0
                                     val changeColor = if (isPositive) Color(0xFF4CAF50) else Color(0xFFF44336)
                                     val changeText = if (isPositive) "+${percentageFormatter.format(priceChange24h)}%" else "${percentageFormatter.format(priceChange24h)}%"
+                                    val changeIcon = if (isPositive) "▲" else "▼"
                                     
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(top = 4.dp)
+                                    Surface(
+                                        modifier = Modifier.padding(top = 8.dp),
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = changeColor.copy(alpha = 0.1f)
                                     ) {
-                                        Text(
-                                            text = changeText,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = changeColor,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "(24h)",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                        ) {
+                                            Text(
+                                                text = changeIcon,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = changeColor,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = changeText,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = changeColor,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "24h",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    }
+                                } else if (tokenContract != "currency") {
+                                    // Show "No data" message for non-XIAN tokens when price change is not available
+                                    Surface(
+                                        modifier = Modifier.padding(top = 8.dp),
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                        ) {
+                                            Text(
+                                                text = "—",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "24h data unavailable",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                            )
+                                        }
                                     }
                                 }
                             } else {
@@ -665,120 +756,25 @@ fun TokenDetailScreen(
             
             Spacer(modifier = Modifier.height(32.dp))
             
-            // Additional token information
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                ) {
-                    Text(
-                        text = "Token Information",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
-                    
-                    // Contract address
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Contract:",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = if (tokenContract == "currency") "Native XIAN" else tokenContract,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium,
-                            textAlign = TextAlign.End,
-                            modifier = Modifier.weight(1f).padding(start = 8.dp)
-                        )
-                    }
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                      // Symbol
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Symbol:",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = tokenSymbol,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium
-                        )                    }
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    // Holders
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Holders:",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        
-                        if (isLoadingHolders) {
-                            Text(
-                                text = "Loading...",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        } else {
-                            Text(
-                                text = holdersCount?.let { "$it" } ?: "N/A",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    // Total Supply
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Total Supply:",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        
-                        if (isLoadingTotalSupply) {
-                            Text(
-                                text = "Loading...",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        } else {
-                            Text(
-                                text = totalSupply ?: "N/A",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                }
-            }
+            // Expandable Token Information Section
+            ExpandableTokenInformationSection(
+                tokenContract = tokenContract,
+                tokenSymbol = tokenSymbol,
+                holdersCount = holdersCount,
+                isLoadingHolders = isLoadingHolders,
+                totalSupply = totalSupply,
+                isLoadingTotalSupply = isLoadingTotalSupply
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            // Token Activity Section (expandable like Token Information)
+            ExpandableTokenActivitySection(
+                viewModel = viewModel,
+                tokenContract = tokenContract,
+                tokenSymbol = tokenSymbol,
+                navController = navController
+            )
         }
     }
 }
@@ -854,5 +850,417 @@ fun SimpleCryptoChart(
                 cap = StrokeCap.Round
             )
         )
+    }
+}
+/**
+ * Expandable Token Activity Section showing token-specific transaction history
+ */
+@Composable
+fun ExpandableTokenActivitySection(
+    viewModel: WalletViewModel,
+    tokenContract: String,
+    tokenSymbol: String,
+    navController: NavController
+) {
+    var isExpanded by remember { mutableStateOf(false) }
+
+    // Collect token transaction states from ViewModel
+    val tokenTransactionHistory by viewModel.tokenTransactionHistory.collectAsStateWithLifecycle()
+    val isTokenTransactionHistoryLoading by viewModel.isTokenTransactionHistoryLoading.collectAsStateWithLifecycle()
+    val tokenTransactionHistoryError by viewModel.tokenTransactionHistoryError.collectAsStateWithLifecycle()
+
+    // Load token transaction history when the component is first composed or token changes
+    LaunchedEffect(tokenContract) {
+        viewModel.loadTokenTransactionHistory(tokenContract, force = true)
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // Header - Always visible, with same color as activity cards (surface)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .clickable { isExpanded = !isExpanded }
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "$tokenSymbol Activity",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (isExpanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            // Expandable content
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+                ) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(bottom = 12.dp),
+                        thickness = 0.5.dp,
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                    )
+
+                    when {
+                        isTokenTransactionHistoryLoading -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(200.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    LargeBouncingDotsLoader()
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Loading $tokenSymbol transactions...",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+                        }
+
+                        tokenTransactionHistoryError != null -> {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = "Error",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Error: $tokenTransactionHistoryError",
+                                    color = MaterialTheme.colorScheme.error,
+                                    textAlign = TextAlign.Center,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Button(
+                                    onClick = {
+                                        viewModel.loadTokenTransactionHistory(tokenContract, force = true)
+                                    }
+                                ) {
+                                    Text("Retry")
+                                }
+                            }
+                        }
+
+                        tokenTransactionHistory.isEmpty() -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(120.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Newspaper,
+                                        contentDescription = "No transactions",
+                                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "No $tokenSymbol transactions found",
+                                        textAlign = TextAlign.Center,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+                        }
+
+                        else -> {
+                            // Filter out consecutive duplicates and group by date
+                            val distinctTransactionHistory = tokenTransactionHistory.fold(mutableListOf<LocalTransactionRecord>()) { acc, record ->
+                                if (acc.isEmpty() || acc.last() != record) {
+                                    acc.add(record)
+                                }
+                                acc
+                            }
+
+                            // Group transactions by date
+                            val groupedTransactions = distinctTransactionHistory
+                                .groupBy { record ->
+                                    java.time.Instant.ofEpochMilli(record.timestamp)
+                                        .atZone(java.time.ZoneId.systemDefault())
+                                        .toLocalDate()
+                                }
+                                .toSortedMap(compareByDescending { it })
+
+                            // Show limited number of transactions (e.g., last 15)
+                            val maxTransactionsToShow = 15
+                            var transactionCount = 0
+
+                            LazyColumn(
+                                modifier = Modifier.heightIn(max = 400.dp)
+                            ) {
+                                groupedTransactions.forEach { (date, records) ->
+                                    if (transactionCount < maxTransactionsToShow) {
+                                        item {
+                                            // Date header
+                                            Text(
+                                                text = date.format(
+                                                    java.time.format.DateTimeFormatter
+                                                        .ofPattern("MMMM d")
+                                                        .withLocale(java.util.Locale.ENGLISH)
+                                                ),
+                                                style = MaterialTheme.typography.titleSmall,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 8.dp),
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+
+                                        val recordsToShow = records.take(maxTransactionsToShow - transactionCount)
+                                        itemsIndexed(recordsToShow) { index, record ->
+                                            val isFirst = index == 0
+                                            val isLast = index == recordsToShow.size - 1
+                                            TransactionRecordItem(
+                                                record = record,
+                                                navController = navController,
+                                                dense = true,
+                                                topRounded = isFirst,
+                                                bottomRounded = isLast
+                                            )
+
+                                            transactionCount++
+                                        }
+                                    }
+                                }
+
+                                // Show "View All" option if there are more transactions
+                                if (distinctTransactionHistory.size > maxTransactionsToShow) {
+                                    item {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        TextButton(
+                                            onClick = {
+                                                // Navigate to full activity view or expand the list
+                                                // For now, we'll just reload to show more
+                                                viewModel.loadTokenTransactionHistory(tokenContract, force = true)
+                                            },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(
+                                                text = "View All ${distinctTransactionHistory.size} Transactions",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+/**
+
+ * Expandable Token Information Section
+ */
+@Composable
+fun ExpandableTokenInformationSection(
+    tokenContract: String,
+    tokenSymbol: String,
+    holdersCount: Int?,
+    isLoadingHolders: Boolean,
+    totalSupply: String?,
+    isLoadingTotalSupply: Boolean
+) {
+    var isExpanded by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            // Header - Always visible
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isExpanded = !isExpanded }
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Token Information",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                
+                Icon(
+                    imageVector = if (isExpanded) 
+                        Icons.Default.KeyboardArrowUp 
+                    else 
+                        Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (isExpanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            
+            // Expandable content
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+                ) {
+                    // Add a subtle divider
+                    HorizontalDivider(
+                        modifier = Modifier.padding(bottom = 12.dp),
+                        thickness = 0.5.dp,
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                    )
+                    
+                    // Contract address
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Contract:",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = if (tokenContract == "currency") "Native XIAN" else tokenContract,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.End,
+                            modifier = Modifier.weight(1f).padding(start = 8.dp)
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // Symbol
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Symbol:",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = tokenSymbol,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // Holders
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Holders:",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        
+                        if (isLoadingHolders) {
+                            Text(
+                                text = "Loading...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        } else {
+                            Text(
+                                text = holdersCount?.let { "$it" } ?: "N/A",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // Total Supply
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Total Supply:",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        
+                        if (isLoadingTotalSupply) {
+                            Text(
+                                text = "Loading...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        } else {
+                            Text(
+                                text = totalSupply ?: "N/A",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }

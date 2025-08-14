@@ -94,9 +94,51 @@ data class RewardsData(
     val masternode_reward: Map<String, String>?
 )
 
+// Data classes for allTransactions GraphQL response
+data class AllTransactionsResponse(
+    val data: AllTransactionsData?
+)
+
+data class AllTransactionsData(
+    val allTransactions: AllTransactionsConnection?
+)
+
+data class AllTransactionsConnection(
+    val edges: List<TransactionEdgeNode>?
+)
+
+data class TransactionEdgeNode(
+    val node: TransactionNodeData?
+)
+
+data class TransactionNodeData(
+    val sender: String?,
+    val function: String?,
+    val created: String?,
+    val jsonContent: JsonContentData?
+)
+
 // Data class for token balance API response
 data class TokenBalanceResponse(
     val contractName: String,
     val address: String,
     val balance: Double
 )
+
+// Data classes for contract method information
+data class ContractArgument(
+    val name: String,
+    val type: String
+)
+
+data class ContractMethod(
+    val name: String,
+    val arguments: List<ContractArgument>?
+)
+
+// Wrapper class for contract methods response
+data class MethodsWrapper(
+    val methods: List<ContractMethod>?
+)
+
+

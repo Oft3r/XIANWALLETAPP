@@ -7,8 +7,54 @@ import net.xian.xianwalletapp.network.XianApiService
 import net.xian.xianwalletapp.network.GraphQLResponse // This should now refer to the one in NetworkTransactionModels.kt
 import net.xian.xianwalletapp.network.NetworkTransactionDetails // Ensure this is imported if not nested directly under GraphQLResponse
 import net.xian.xianwalletapp.network.StateChangeNodeData // Import this if needed for nodeValue type
+import net.xian.xianwalletapp.network.AllTransactionsResponse // Import for token transactions
+import net.xian.xianwalletapp.network.TransactionNodeData // Import for token transaction node data
 
 class TransactionRepository(private val apiService: XianApiService) {
+
+    // Fetches token-specific transactions from the network
+    suspend fun getTokenTransactions(userAddress: String, tokenContract: String): List<LocalTransactionRecord> {
+        // Construct the GraphQL query for token-specific transactions
+        val query = """
+            query TokenTransactions {
+              allTransactions(
+                condition: { success: true }
+                filter: {
+                  contract: { equalTo: "$tokenContract" }
+                  and: { sender: { equalTo: "$userAddress" } }
+                }
+                orderBy: BLOCK_TIME_DESC
+                first: 15
+              ) {
+                edges {
+                  node {
+                    sender
+                    function
+                    created
+                    jsonContent
+                  }
+                }
+              }
+            }
+        """
+
+        return try {
+            val response = apiService.getTokenTransactions(GraphQLQuery(query))
+            if (response.isSuccessful && response.body() != null) {
+                response.body()!!.data?.allTransactions?.edges?.mapNotNull { edge ->
+                    edge.node?.let { networkTx ->
+                        mapTokenNetworkToLocalRecord(networkTx, userAddress, tokenContract)
+                    }
+                } ?: emptyList()
+            } else {
+                Log.e("TransactionRepository", "Error fetching token transactions: ${response.code()} - ${response.message()}")
+                emptyList()
+            }
+        } catch (e: Exception) {
+            Log.e("TransactionRepository", "Exception fetching token transactions", e)
+            emptyList()
+        }
+    }
 
     // Fetches transactions from the network and maps them to LocalTransactionRecord
     suspend fun getNetworkTransactions(userAddress: String): List<LocalTransactionRecord> {
@@ -224,6 +270,160 @@ class TransactionRepository(private val apiService: XianApiService) {
             sender = inferredSender,
             txHash = txHashDisplay,
             contract = payloadContract // Store the main contract from payload
+        )
+    }
+
+    private fun mapTokenNetworkToLocalRecord(
+        networkTxData: TransactionNodeData,
+        currentUserAddress: String,
+        tokenContract: String
+    ): LocalTransactionRecord? {
+        val jsonContent = networkTxData.jsonContent ?: return null
+
+        // Parse timestamp from multiple sources with fallbacks
+        val timestampMillis = try {
+            // First try to get timestamp from b_meta.nanos (most accurate)
+            jsonContent.b_meta?.nanos?.let { nanosStr ->
+                try {
+                    val nanos = nanosStr.toLong()
+                    nanos / 1_000_000 // Convert nanoseconds to milliseconds
+                } catch (e: NumberFormatException) {
+                    Log.w("TransactionRepository", "Failed to parse nanos: $nanosStr", e)
+                    null
+                }
+            } ?: 
+            // Fallback to created field
+            networkTxData.created?.let { createdStr ->
+                try {
+                    // Try different date formats
+                    when {
+                        createdStr.contains("T") -> {
+                            // ISO format: 2024-01-15T10:30:45Z or 2024-01-15T10:30:45.123Z
+                            java.time.Instant.parse(createdStr).toEpochMilli()
+                        }
+                        createdStr.matches(Regex("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}")) -> {
+                            // SQL format: 2024-01-15 10:30:45
+                            val formatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                            java.time.LocalDateTime.parse(createdStr, formatter)
+                                .atZone(java.time.ZoneId.systemDefault())
+                                .toInstant()
+                                .toEpochMilli()
+                        }
+                        createdStr.matches(Regex("\\d+")) -> {
+                            // Unix timestamp (seconds or milliseconds)
+                            val timestamp = createdStr.toLong()
+                            if (timestamp > 1_000_000_000_000L) {
+                                // Already in milliseconds
+                                timestamp
+                            } else {
+                                // In seconds, convert to milliseconds
+                                timestamp * 1000
+                            }
+                        }
+                        else -> {
+                            Log.w("TransactionRepository", "Unknown date format: $createdStr")
+                            null
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w("TransactionRepository", "Failed to parse created timestamp: $createdStr", e)
+                    null
+                }
+            } ?: System.currentTimeMillis() // Final fallback
+        } catch (e: Exception) {
+            Log.e("TransactionRepository", "Error parsing timestamp", e)
+            System.currentTimeMillis()
+        }
+
+        // Debug logging for timestamp parsing
+        Log.d("TransactionRepository", "Token transaction - created: ${networkTxData.created}, b_meta.nanos: ${jsonContent.b_meta?.nanos}, final timestamp: $timestampMillis")
+
+        val txHashDisplay = jsonContent.tx_result?.hash ?: jsonContent.b_meta?.hash ?: "N/A"
+        val payloadContract = jsonContent.payload?.contract ?: tokenContract
+        val payloadFunction = jsonContent.payload?.function ?: "Unknown Function"
+        val payloadSender = jsonContent.payload?.sender
+
+        var inferredType = payloadFunction
+        var inferredAmount = "0.00"
+        var inferredSymbol = mapContractToSymbol(tokenContract)
+        var inferredRecipient: String? = null
+        var inferredSender: String? = payloadSender
+
+        // Extract amount and recipient from payload kwargs
+        val kwargs = jsonContent.payload?.kwargs
+        if (kwargs != null) {
+            // Try to get amount from various possible fields
+            inferredAmount = (kwargs["amount"] as? String) 
+                ?: (kwargs["amountIn"] as? String)
+                ?: (kwargs["amountOut"] as? String)
+                ?: "0.00"
+
+            // Try to get recipient from various possible fields
+            inferredRecipient = (kwargs["to"] as? String)
+                ?: (kwargs["recipient"] as? String)
+                ?: payloadContract
+        }
+
+        // Analyze events for more accurate information
+        val events = jsonContent.tx_result?.events ?: emptyList()
+        val transferEvents = events.filter { event ->
+            event.event == "Transfer" && event.contract == tokenContract
+        }
+
+        if (transferEvents.isNotEmpty()) {
+            val transferEvent = transferEvents.first()
+            val eventFrom = transferEvent.data_indexed?.get("from") as? String
+            val eventTo = transferEvent.data_indexed?.get("to") as? String
+            val eventAmount = transferEvent.data?.get("amount") as? String
+
+            if (eventAmount != null) {
+                inferredAmount = eventAmount
+            }
+
+            inferredSender = eventFrom
+            inferredRecipient = eventTo
+
+            // Determine transaction type based on user involvement
+            inferredType = when {
+                eventFrom == currentUserAddress && eventTo != currentUserAddress -> "Sent"
+                eventTo == currentUserAddress && eventFrom != currentUserAddress -> "Received"
+                eventFrom == currentUserAddress && eventTo == currentUserAddress -> "Self Transfer"
+                else -> payloadFunction
+            }
+        } else {
+            // No transfer events, determine type based on function and sender
+            inferredType = when {
+                payloadSender == currentUserAddress -> when (payloadFunction.lowercase()) {
+                    "transfer" -> "Sent"
+                    "approve" -> "Approved"
+                    "stake" -> "Staked"
+                    "unstake" -> "Unstaked"
+                    else -> payloadFunction
+                }
+                else -> payloadFunction
+            }
+        }
+
+        // Filter out "approve" transactions
+        if (inferredType.lowercase().contains("approve") || payloadFunction.lowercase() == "approve") {
+            return null // Skip approve transactions
+        }
+
+        // Check transaction success
+        val txSuccess = jsonContent.tx_result?.status == "0"
+        if (!txSuccess) {
+            inferredType = "Failed: $inferredType"
+        }
+
+        return LocalTransactionRecord(
+            timestamp = timestampMillis,
+            type = inferredType.take(30),
+            amount = inferredAmount,
+            symbol = inferredSymbol,
+            recipient = inferredRecipient,
+            sender = inferredSender,
+            txHash = txHashDisplay,
+            contract = tokenContract
         )
     }
 }
