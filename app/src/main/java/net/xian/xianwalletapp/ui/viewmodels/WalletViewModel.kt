@@ -11,7 +11,7 @@ import net.xian.xianwalletapp.data.db.NftCacheDao // Import DAO
 import net.xian.xianwalletapp.data.db.NftCacheEntity // Import Entity
 import net.xian.xianwalletapp.data.db.TokenCacheDao // Import TokenCacheDao
 import net.xian.xianwalletapp.data.db.TokenCacheEntity // Import TokenCacheEntity
-import net.xian.xianwalletapp.data.TokenLogoCacheManager // Import TokenLogoCacheManager
+import net.xian.xianwalletapp.data.ImprovedTokenLogoCacheManager // Import ImprovedTokenLogoCacheManager
 import net.xian.xianwalletapp.data.NftImageCacheManager
 import net.xian.xianwalletapp.network.TokenInfo
 import net.xian.xianwalletapp.network.XianNetworkService

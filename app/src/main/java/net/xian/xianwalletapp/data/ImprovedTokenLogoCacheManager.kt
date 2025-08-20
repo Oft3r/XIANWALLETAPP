@@ -207,7 +207,8 @@ class ImprovedTokenLogoCacheManager(private val context: Context) {
                 diskCacheMaxSize = diskCache?.maxSize ?: 0L,
                 memoryCacheSize = memoryCache?.size ?: 0,
                 memoryCacheMaxSize = memoryCache?.maxSize ?: 0,
-                diskCacheDirectory = diskCache?.directory?.absolutePath ?: "Unknown"
+                // Use toString() to support both File and Path-like types
+                diskCacheDirectory = diskCache?.directory?.let { it.toString() } ?: "Unknown"
             )
         }
     }
