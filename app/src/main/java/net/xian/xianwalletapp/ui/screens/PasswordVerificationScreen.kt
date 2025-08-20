@@ -1,6 +1,5 @@
 package net.xian.xianwalletapp.ui.screens
 
-import android.widget.Toast
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
@@ -45,7 +44,7 @@ fun PasswordVerificationScreen(
     var password by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
-    val snackbarHostState = remember { SnackbarHostState() }
+    val toastHostState = net.xian.xianwalletapp.ui.components.rememberToastHostState()
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
     val activity = LocalContext.current as? FragmentActivity // Use safe cast
@@ -63,9 +62,7 @@ fun PasswordVerificationScreen(
                 super.onAuthenticationError(errorCode, errString)
                 // Handle error, e.g., show a Snackbar or Toast
                 // Don't call onPasswordVerified() here
-                coroutineScope.launch {
-                    snackbarHostState.showSnackbar("Biometric authentication error: $errString")
-                }
+                coroutineScope.launch { toastHostState.show("Biometric authentication error: $errString", net.xian.xianwalletapp.ui.components.ToastType.Error) }
                 showBiometricPrompt = false // Hide prompt state if error occurs
             }
 
@@ -79,24 +76,18 @@ fun PasswordVerificationScreen(
                         onPasswordVerified()
                     } else {
                         // Failed to unlock wallet even after successful biometric auth (e.g., Keystore issue)
-                        coroutineScope.launch {
-                            snackbarHostState.showSnackbar("Failed to unlock wallet after biometric authentication.")
-                        }
+                        coroutineScope.launch { toastHostState.show("Failed to unlock wallet after biometric authentication.", net.xian.xianwalletapp.ui.components.ToastType.Error) }
                     }
                 } ?: run {
                     // CryptoObject or Cipher was null - should not happen with correct setup
-                    coroutineScope.launch {
-                        snackbarHostState.showSnackbar("Biometric authentication error: Crypto object missing.")
-                    }
+                    coroutineScope.launch { toastHostState.show("Biometric authentication error: Crypto object missing.", net.xian.xianwalletapp.ui.components.ToastType.Error) }
                 }
             }
 
             override fun onAuthenticationFailed() {
                 super.onAuthenticationFailed()
                 // Handle failure (biometric recognized but not valid)
-                coroutineScope.launch {
-                    snackbarHostState.showSnackbar("Biometric authentication failed.")
-                }
+                coroutineScope.launch { toastHostState.show("Biometric authentication failed.", net.xian.xianwalletapp.ui.components.ToastType.Error) }
                 showBiometricPrompt = false // Hide prompt state on failure
             }
         })
@@ -137,16 +128,12 @@ fun PasswordVerificationScreen(
                 // Use safe call ?.authenticate and handle null case
                 biometricPrompt?.authenticate(promptInfo, BiometricPrompt.CryptoObject(cipher)) ?: run {
                     // Handle case where biometricPrompt is null (activity cast failed)
-                    coroutineScope.launch {
-                        snackbarHostState.showSnackbar("Biometric prompt unavailable on this device.")
-                    }
+                    coroutineScope.launch { toastHostState.show("Biometric prompt unavailable on this device.", net.xian.xianwalletapp.ui.components.ToastType.Error) }
                     showBiometricPrompt = false // Reset prompt state
                 }
             } else {
                 // Handle error: Keystore key might be missing or invalid
-                coroutineScope.launch {
-                    snackbarHostState.showSnackbar("Error preparing biometric prompt. Please try password.")
-                }
+                coroutineScope.launch { toastHostState.show("Error preparing biometric prompt. Please try password.", net.xian.xianwalletapp.ui.components.ToastType.Error) }
                 showBiometricPrompt = false // Don't show prompt if cipher failed
             }
             // Reset the trigger state immediately after attempting authentication
@@ -155,17 +142,24 @@ fun PasswordVerificationScreen(
     }
     
     
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) }
-    ) { paddingValues ->
-        Column(
+    Scaffold { paddingValues ->
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
         ) {
+            net.xian.xianwalletapp.ui.components.TopToastHost(
+                state = toastHostState,
+                modifier = Modifier.align(Alignment.TopEnd)
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+            
             // Title
             Text(
                 text = "Unlock Your Wallet",
@@ -214,9 +208,7 @@ fun PasswordVerificationScreen(
                     } else {
                         // Password is incorrect
                         errorMessage = "Invalid password"
-                        coroutineScope.launch {
-                            snackbarHostState.showSnackbar("Invalid password. Please try again.")
-                        }
+                        coroutineScope.launch { toastHostState.show("Invalid password. Please try again.", net.xian.xianwalletapp.ui.components.ToastType.Error) }
                     }
                 },
                 modifier = Modifier
@@ -251,6 +243,8 @@ fun PasswordVerificationScreen(
                     Text("Use Biometrics", fontSize = 16.sp)
                 }
             }
+            }
         }
     }
 }
+

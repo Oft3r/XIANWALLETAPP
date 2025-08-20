@@ -16,6 +16,9 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material3.*
+import net.xian.xianwalletapp.ui.components.TopToastHost
+import net.xian.xianwalletapp.ui.components.ToastType
+import net.xian.xianwalletapp.ui.components.rememberToastHostState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,11 +39,8 @@ import kotlinx.coroutines.launch
 import net.xian.xianwalletapp.R
 import net.xian.xianwalletapp.ui.viewmodels.WalletViewModel
 import net.xian.xianwalletapp.ui.viewmodels.PredefinedToken
+// Toast system imports (ToastHostState utilities live elsewhere in project)
 
-/**
- * Component for managing tokens - adding and removing tokens
- * This replaces the edit mode functionality and acts as a separate screen/tab
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ManageTokenList(
@@ -50,25 +50,23 @@ fun ManageTokenList(
     onShowBottomBarChange: (Boolean) -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
-    val snackbarHostState = remember { SnackbarHostState() }
+    // Replace SnackbarHostState with toast host state
+    val toastHostState = rememberToastHostState()
     
-    // Collect state from ViewModel
     val tokens by viewModel.tokens.collectAsStateWithLifecycle()
     val tokenInfoMap by viewModel.tokenInfoMap.collectAsStateWithLifecycle()
     val predefinedTokens by viewModel.predefinedTokens.collectAsStateWithLifecycle()
     
-    // Local state for manual token addition
     var contractAddress by remember { mutableStateOf("") }
+    var isVerifying by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
     var textFieldWidthPx by remember { mutableStateOf(0) }
     val density = LocalDensity.current
     
-    // Scroll state for managing bottom bar visibility
     val listState = rememberLazyListState()
     var lastScrollIndex by remember { mutableStateOf(0) }
     var lastScrollOffset by remember { mutableStateOf(0) }
     
-    // Track scroll to show/hide bottom bar
     LaunchedEffect(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
         val index = listState.firstVisibleItemIndex
         val offset = listState.firstVisibleItemScrollOffset
@@ -159,34 +157,47 @@ fun ManageTokenList(
                                 trailingIcon = {
                                     IconButton(
                                         onClick = {
-                                            if (contractAddress.isNotBlank()) {
+                                            if (contractAddress.isNotBlank() && !isVerifying) {
+                                                isVerifying = true
                                                 viewModel.addTokenAndRefresh(contractAddress) { result ->
                                                     coroutineScope.launch {
                                                         val message = when (result) {
-                                                            net.xian.xianwalletapp.wallet.TokenAddResult.SUCCESS ->
-                                                                "Token added successfully"
-                                                            net.xian.xianwalletapp.wallet.TokenAddResult.ALREADY_EXISTS ->
-                                                                "Token is already in your wallet"
-                                                            net.xian.xianwalletapp.wallet.TokenAddResult.INVALID_CONTRACT ->
-                                                                "Invalid contract address"
-                                                            net.xian.xianwalletapp.wallet.TokenAddResult.NO_ACTIVE_WALLET ->
-                                                                "No active wallet found"
-                                                            net.xian.xianwalletapp.wallet.TokenAddResult.FAILED ->
-                                                                "Failed to add token"
+                                                            net.xian.xianwalletapp.wallet.TokenAddResult.SUCCESS -> "Token added successfully"
+                                                            net.xian.xianwalletapp.wallet.TokenAddResult.ALREADY_EXISTS -> "Token is already in your wallet"
+                                                            net.xian.xianwalletapp.wallet.TokenAddResult.INVALID_CONTRACT -> "Contract not found or invalid"
+                                                            net.xian.xianwalletapp.wallet.TokenAddResult.NO_ACTIVE_WALLET -> "No active wallet found"
+                                                            net.xian.xianwalletapp.wallet.TokenAddResult.FAILED -> "Failed to add token"
                                                         }
-                                                        snackbarHostState.showSnackbar(message)
+                                                        val type = when (result) {
+                                                            net.xian.xianwalletapp.wallet.TokenAddResult.SUCCESS -> ToastType.Success
+                                                            net.xian.xianwalletapp.wallet.TokenAddResult.ALREADY_EXISTS -> ToastType.Info
+                                                            net.xian.xianwalletapp.wallet.TokenAddResult.INVALID_CONTRACT -> ToastType.Error
+                                                            net.xian.xianwalletapp.wallet.TokenAddResult.NO_ACTIVE_WALLET -> ToastType.Error
+                                                            net.xian.xianwalletapp.wallet.TokenAddResult.FAILED -> ToastType.Error
+                                                        }
+                                                        toastHostState.show(message, type)
+                                                        isVerifying = false
+                                                        if (result == net.xian.xianwalletapp.wallet.TokenAddResult.SUCCESS) {
+                                                            contractAddress = ""
+                                                        }
                                                     }
                                                 }
-                                                contractAddress = ""
                                             }
                                         },
-                                        enabled = !expanded && contractAddress.isNotBlank()
+                                        enabled = !expanded && contractAddress.isNotBlank() && !isVerifying
                                     ) {
-                                        Icon(
-                                            Icons.Default.Add,
-                                            contentDescription = "Add Token",
-                                            modifier = Modifier.size(20.dp)
-                                        )
+                                        if (isVerifying) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(20.dp),
+                                                strokeWidth = 2.dp
+                                            )
+                                        } else {
+                                            Icon(
+                                                Icons.Default.Add,
+                                                contentDescription = "Add Token",
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
                                     }
                                 }
                             )
@@ -224,7 +235,7 @@ fun ManageTokenList(
                                         viewModel.reorderTokens(fullTokenOrder)
                                         isReorderMode = false
                                         coroutineScope.launch {
-                                            snackbarHostState.showSnackbar("Token order saved")
+                                            toastHostState.show("Token order saved", ToastType.Success)
                                         }
                                     },
                                     colors = ButtonDefaults.buttonColors(
@@ -274,7 +285,7 @@ fun ManageTokenList(
                             {
                                 viewModel.removeToken(contract)
                                 coroutineScope.launch {
-                                    snackbarHostState.showSnackbar("Token removed")
+                                    toastHostState.show("Token removed", ToastType.Info)
                                 }
                             }
                         } else null
@@ -301,18 +312,20 @@ fun ManageTokenList(
                             viewModel.addTokenAndRefresh(token.contract) { result ->
                                 coroutineScope.launch {
                                     val message = when (result) {
-                                        net.xian.xianwalletapp.wallet.TokenAddResult.SUCCESS ->
-                                            "${token.name} added successfully"
-                                        net.xian.xianwalletapp.wallet.TokenAddResult.ALREADY_EXISTS ->
-                                            "${token.name} is already in your wallet"
-                                        net.xian.xianwalletapp.wallet.TokenAddResult.INVALID_CONTRACT ->
-                                            "Invalid contract address"
-                                        net.xian.xianwalletapp.wallet.TokenAddResult.NO_ACTIVE_WALLET ->
-                                            "No active wallet found"
-                                        net.xian.xianwalletapp.wallet.TokenAddResult.FAILED ->
-                                            "Failed to add ${token.name}"
+                                        net.xian.xianwalletapp.wallet.TokenAddResult.SUCCESS -> "${token.name} added successfully"
+                                        net.xian.xianwalletapp.wallet.TokenAddResult.ALREADY_EXISTS -> "${token.name} is already in your wallet"
+                                        net.xian.xianwalletapp.wallet.TokenAddResult.INVALID_CONTRACT -> "Invalid contract address"
+                                        net.xian.xianwalletapp.wallet.TokenAddResult.NO_ACTIVE_WALLET -> "No active wallet found"
+                                        net.xian.xianwalletapp.wallet.TokenAddResult.FAILED -> "Failed to add ${token.name}"
                                     }
-                                    snackbarHostState.showSnackbar(message)
+                                    val type = when (result) {
+                                        net.xian.xianwalletapp.wallet.TokenAddResult.SUCCESS -> ToastType.Success
+                                        net.xian.xianwalletapp.wallet.TokenAddResult.ALREADY_EXISTS -> ToastType.Info
+                                        net.xian.xianwalletapp.wallet.TokenAddResult.INVALID_CONTRACT -> ToastType.Error
+                                        net.xian.xianwalletapp.wallet.TokenAddResult.NO_ACTIVE_WALLET -> ToastType.Error
+                                        net.xian.xianwalletapp.wallet.TokenAddResult.FAILED -> ToastType.Error
+                                    }
+                                    toastHostState.show(message, type)
                                 }
                             }
                         }
@@ -338,16 +351,13 @@ fun ManageTokenList(
                 }
             }
         }
-        
-        // SnackbarHost positioned above the bottom navigation bar
+        // Toast overlay replacing previous bottom snackbar
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .align(Alignment.BottomCenter)
-                .padding(start = 16.dp, end = 16.dp, bottom = 80.dp, top = 16.dp)
-        ) {
-            SnackbarHost(snackbarHostState)
-        }
+                .align(Alignment.TopEnd)
+                .padding(top = 4.dp, end = 4.dp)
+        ) { TopToastHost(state = toastHostState) }
     }
 }
 

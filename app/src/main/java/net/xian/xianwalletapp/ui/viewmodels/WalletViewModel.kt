@@ -12,6 +12,7 @@ import net.xian.xianwalletapp.data.db.NftCacheEntity // Import Entity
 import net.xian.xianwalletapp.data.db.TokenCacheDao // Import TokenCacheDao
 import net.xian.xianwalletapp.data.db.TokenCacheEntity // Import TokenCacheEntity
 import net.xian.xianwalletapp.data.TokenLogoCacheManager // Import TokenLogoCacheManager
+import net.xian.xianwalletapp.data.NftImageCacheManager
 import net.xian.xianwalletapp.network.TokenInfo
 import net.xian.xianwalletapp.network.XianNetworkService
 import net.xian.xianwalletapp.network.SwapEvent // Added for chart data
@@ -26,9 +27,14 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.flatMapLatest // Import flatMapLatest
 import kotlinx.coroutines.flow.flowOf // Import flowOf
+import kotlinx.coroutines.flow.combine // For portfolio snapshot
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext // Added for background operations
 import kotlinx.coroutines.Dispatchers // Added for IO dispatcher
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
 import org.json.JSONObject // Added import
 import java.math.BigDecimal // Added import
 import java.text.NumberFormat // For fee formatting
@@ -43,6 +49,7 @@ import kotlinx.coroutines.flow.catch
 import com.patrykandpatrick.vico.core.entry.ChartEntryModelProducer
 import com.patrykandpatrick.vico.core.entry.entryOf
 import com.patrykandpatrick.vico.core.entry.FloatEntry
+import kotlin.math.abs
 
 // Define default empty states
 private val EMPTY_TOKEN_INFO_MAP: Map<String, TokenInfo> = emptyMap()
@@ -71,7 +78,8 @@ val chartTimeframe: StateFlow<ChartTimeframe> = _chartTimeframe.asStateFlow()
 data class PredefinedToken(
     val name: String,
     val contract: String,
-    val logoUrl: String? = null // Añadir URL del logo
+    val logoUrl: String? = null, // Añadir URL del logo
+    val symbol: String? = null // Símbolo personalizado del token
 )
 
 // --- Fee Estimation State ---
@@ -92,9 +100,14 @@ class WalletViewModel(
     private val transactionRepository: TransactionRepository, // Added TransactionRepository
     private val tokenPriceRepository: TokenPriceRepository // Added TokenPriceRepository
 ) : ViewModel() {
+    companion object {
+        private const val DEBUG_PERF = true // set false to silence attribution debug logs
+    }
     
-    // Initialize TokenLogoCacheManager for permanent image caching
-    private val tokenLogoCacheManager = TokenLogoCacheManager(context)
+    // Initialize ImprovedTokenLogoCacheManager for permanent image caching
+    private val tokenLogoCacheManager = ImprovedTokenLogoCacheManager(context)
+    // Initialize dedicated NFT Image cache manager
+    private val nftImageCacheManager = NftImageCacheManager(context)
         
     // List of predefined tokens that users can select from the dropdown
     private val _internalPredefinedTokens = listOf(
@@ -116,6 +129,12 @@ class WalletViewModel(
             name = "XIAN Arbitrage",
             contract = "con_xarb",
             logoUrl = null // Will use drawable resource instead for local image
+        ),
+        PredefinedToken(
+            name = "Slither Token",
+            contract = "con_slither",
+            logoUrl = null, // Will use drawable resource instead for local image
+            symbol = "SSS"
         )
         // Add more predefined tokens here as needed
     )
@@ -232,6 +251,72 @@ class WalletViewModel(
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = null
         )
+    
+        // --- SSS/Slither Price State Flows (Cache-First) ---
+        val slitherPriceInfo: StateFlow<Pair<Float, Float>?> = tokenPriceRepository
+            .getTokenPriceInfo("con_slither")
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = null
+            )
+    
+        val slitherPrice: StateFlow<Float?> = tokenPriceRepository
+            .getTokenPrice("con_slither")
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = null
+            )
+    
+        // --- Snapshot (frozen) XIAN price for consistent cross-screen totals (Option A) ---
+    private val _xianPriceSnapshot = MutableStateFlow<Float?>(null)
+    val xianPriceSnapshot: StateFlow<Float?> = _xianPriceSnapshot.asStateFlow()
+
+    // --- Portfolio Snapshot State ---
+    data class PortfolioTokenEntry(
+        val contract: String,
+        val symbol: String?,
+        val balance: Float,
+        val usdValue: Float,
+        val percent: Float
+    )
+    data class PortfolioSnapshot(
+        val timestamp: Long,
+        val xianPrice: Float,
+        val totalUsd: Float,
+        val tokens: List<PortfolioTokenEntry>
+    )
+    private val _portfolioSnapshot = MutableStateFlow<PortfolioSnapshot?>(null)
+    val portfolioSnapshot: StateFlow<PortfolioSnapshot?> = _portfolioSnapshot.asStateFlow()
+
+    // --- Portfolio 7D Performance (Weighted Sparkline) ---
+    data class TokenContribution(
+        val contract: String,
+        val symbol: String?,
+        val weightPercent: Float,          // 0..100 at t0
+    val finalContributionPercent: Float, // weight * tokenChange(7d) in percentage points
+    val token7dChangePercent: Float     // raw token % change over the 7d window (final relative change)
+    )
+
+    data class PriceSeriesCache(
+        val pointsUsd: List<Double>, // length 168, hourly USD prices oldest -> newest
+        val epochHourStart: Long,    // epochSeconds truncated to hour for points[0]
+        val generatedAt: Long,       // epochMillis
+        val usedFallback: Boolean
+    )
+
+    private val _portfolio7dPerformance = MutableStateFlow<List<Float>>(emptyList())
+    val portfolio7dPerformance: StateFlow<List<Float>> = _portfolio7dPerformance.asStateFlow()
+
+    private val _portfolioPerfUsedFallback = MutableStateFlow(false)
+    val portfolioPerfUsedFallback: StateFlow<Boolean> = _portfolioPerfUsedFallback.asStateFlow()
+
+    private val _tokenContributions = MutableStateFlow<List<TokenContribution>>(emptyList())
+    val tokenContributions: StateFlow<List<TokenContribution>> = _tokenContributions.asStateFlow()
+
+    private var lastCompositionWeights: Map<String, Float> = emptyMap()
+    private val priceSeriesCache: MutableMap<String, PriceSeriesCache> = mutableMapOf()
 
     // --- NFT List Flow from Database --- //
     // Use flatMapLatest to switch the underlying Flow when the public key changes
@@ -423,8 +508,109 @@ class WalletViewModel(
         startConnectivityChecks()
         
         // Start periodic price refresh for all supported tokens
-        val supportedTokens = listOf("currency", "con_poop_coin", "con_xtfu", "con_xarb", "con_xwt")
+        val supportedTokens = listOf("currency", "con_poop_coin", "con_xtfu", "con_xarb", "con_xwt", "con_slither")
         tokenPriceRepository.startPeriodicRefresh(supportedTokens)
+
+        // Capture first non-null XIAN price as snapshot (Option A behavior centralized here)
+        viewModelScope.launch {
+            xianPrice.collect { px ->
+                if (px != null && _xianPriceSnapshot.value == null) {
+                    _xianPriceSnapshot.value = px
+                    Log.d("WalletViewModel", "Captured XIAN price snapshot: $px")
+                }
+            }
+        }
+
+        // Build portfolio snapshot whenever relevant flows change.
+        viewModelScope.launch {
+            combine(
+                balanceMap,
+                tokens,
+                poopPrice,
+                xtfuPrice,
+                xarbPrice,
+                xwtPrice,
+                slitherPrice,
+                xianPriceSnapshot,
+                tokenInfoMap
+            ) { values: Array<Any?> ->
+                @Suppress("UNCHECKED_CAST")
+                val balanceMapVal = values[0] as Map<String, Float>
+                @Suppress("UNCHECKED_CAST")
+                val tokenList = values[1] as List<String>
+                val poopP = values[2] as Float?
+                val xtfuP = values[3] as Float?
+                val xarbP = values[4] as Float?
+                val xwtP = values[5] as Float?
+                val slitherP = values[6] as Float?
+                val xianSnap = values[7] as Float?
+                @Suppress("UNCHECKED_CAST")
+                val infoMap = values[8] as Map<String, TokenInfo>
+
+                if (xianSnap == null) return@combine null
+
+                val priceInXianByContract = mapOf(
+                    "con_poop_coin" to poopP,
+                    "con_xtfu" to xtfuP,
+                    "con_xarb" to xarbP,
+                    "con_xwt" to xwtP,
+                    "con_slither" to slitherP
+                )
+
+                val entries = tokenList.map { contract ->
+                    val balance = balanceMapVal[contract] ?: 0f
+                    val usdValue = when (contract) {
+                        "currency" -> balance * xianSnap
+                        "con_usdc" -> balance
+                        else -> priceInXianByContract[contract]?.let { balance * it * xianSnap } ?: 0f
+                    }
+                    PortfolioTokenEntry(
+                        contract = contract,
+                        symbol = infoMap[contract]?.symbol,
+                        balance = balance,
+                        usdValue = usdValue,
+                        percent = 0f
+                    )
+                }.toMutableList()
+
+                val totalUsd = entries.sumOf { it.usdValue.toDouble() }.toFloat()
+                if (totalUsd > 0f && entries.isNotEmpty()) {
+                    var runningSum = 0f
+                    val lastIndex = entries.lastIndex
+                    entries.forEachIndexed { index, e ->
+                        val pct = if (index == lastIndex) {
+                            (100f - runningSum).coerceIn(0f, 100f)
+                        } else {
+                            val raw = (e.usdValue / totalUsd) * 100f
+                            val rounded = (raw * 10f).toInt() / 10f
+                            runningSum += rounded
+                            rounded
+                        }
+                        entries[index] = e.copy(percent = pct)
+                    }
+                }
+
+                PortfolioSnapshot(
+                    timestamp = System.currentTimeMillis(),
+                    xianPrice = xianSnap,
+                    totalUsd = totalUsd,
+                    tokens = entries
+                )
+            }.collect { snap ->
+                _portfolioSnapshot.value = snap
+            }
+        }
+
+        // Observe snapshot changes to recompute 7D performance when composition shifts > 1%
+        viewModelScope.launch {
+            portfolioSnapshot.collect { snap ->
+                snap?.let {
+                    if (shouldRecomputePortfolioPerf(it)) {
+                        computePortfolio7dPerformance(it)
+                    }
+                }
+            }
+        }
     }
 
     // --- Public Functions for UI Interaction ---
@@ -630,7 +816,7 @@ class WalletViewModel(
         
         // Force refresh all token prices
         viewModelScope.launch {
-            val supportedTokens = listOf("currency", "con_poop_coin", "con_xtfu", "con_xarb", "con_xwt")
+            val supportedTokens = listOf("currency", "con_poop_coin", "con_xtfu", "con_xarb", "con_xwt", "con_slither")
             tokenPriceRepository.refreshMultiplePrices(supportedTokens)
         }
     }
@@ -649,6 +835,19 @@ class WalletViewModel(
 
     fun addTokenAndRefresh(contract: String, onResult: ((net.xian.xianwalletapp.wallet.TokenAddResult) -> Unit)? = null) {
         viewModelScope.launch {
+            // 1. Verificar existencia del contrato antes de intentar añadirlo
+            val exists = try {
+                networkService.contractExists(contract)
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error checking contract existence for $contract", e)
+                false
+            }
+            if (!exists) {
+                Log.w("WalletViewModel", "Attempt to add non-existent contract: $contract")
+                onResult?.invoke(net.xian.xianwalletapp.wallet.TokenAddResult.INVALID_CONTRACT)
+                return@launch
+            }
+
             val result = walletManager.addToken(contract)
             when (result) {
                 net.xian.xianwalletapp.wallet.TokenAddResult.SUCCESS -> {
@@ -814,10 +1013,61 @@ class WalletViewModel(
         }
     }
 
-     /** Clears the transaction result state, e.g., after navigating away or showing a message. */
-     fun clearTransactionResult() {
+     /**
+      * Pay the AI analysis fee in XWT after a successful analysis.
+      * This uses the unlocked private key if available (no prompt). If the wallet is locked, it returns an error.
+      *
+      * @param recipientAddress The fixed recipient for the AI fee.
+      * @param amount The XWT amount to send as a decimal string (human-readable).
+      * @param stampLimit Optional stamp (gas) limit.
+      */
+     suspend fun payXwtFee(
+         recipientAddress: String,
+         amount: String,
+         stampLimit: Int = 500000
+     ): TransactionResult {
+         _isSendingTransaction.value = true
          _transactionResult.value = null
+         return try {
+             val privateKey = walletManager.getUnlockedPrivateKey()
+             if (privateKey == null) {
+                 val err = TransactionResult(
+                     success = false,
+                     errors = "Wallet is locked. Unlock the wallet to process AI fee."
+                 )
+                 _transactionResult.value = err
+                 err
+             } else {
+                 val result = networkService.sendTransaction(
+                     contract = "con_xwt",
+                     method = "transfer",
+                     kwargs = JSONObject().apply {
+                         put("to", recipientAddress)
+                         put("amount", BigDecimal(amount))
+                     },
+                     privateKey = privateKey,
+                     stampLimit = stampLimit
+                 )
+                 _transactionResult.value = result
+                 result
+             }
+         } catch (e: Exception) {
+             Log.e("WalletViewModel", "Error paying XWT fee", e)
+             val errorResult = TransactionResult(
+                 success = false,
+                 errors = e.message ?: "Unknown error during XWT fee payment"
+             )
+             _transactionResult.value = errorResult
+             errorResult
+         } finally {
+             _isSendingTransaction.value = false
+         }
      }
+ 
+      /** Clears the transaction result state, e.g., after navigating away or showing a message. */
+      fun clearTransactionResult() {
+          _transactionResult.value = null
+      }
 
     /**
      * Resets the fee estimation state back to Idle.
@@ -1049,7 +1299,7 @@ class WalletViewModel(
                         if (predefinedToken != null) {
                             val tokenInfo = TokenInfo(
                                 name = predefinedToken.name,
-                                symbol = predefinedToken.contract.takeLast(4).uppercase(),
+                                symbol = predefinedToken.symbol ?: predefinedToken.contract.takeLast(4).uppercase(),
                                 contract = predefinedToken.contract,
                                 logoUrl = predefinedToken.logoUrl
                             )
@@ -1112,7 +1362,7 @@ class WalletViewModel(
                     val tokenInfo = if (predefinedToken != null && predefinedToken.logoUrl != null) {
                         TokenInfo(
                             name = predefinedToken.name,
-                            symbol = predefinedToken.contract.takeLast(4).uppercase(),
+                            symbol = predefinedToken.symbol ?: predefinedToken.contract.takeLast(4).uppercase(),
                             contract = predefinedToken.contract,
                             logoUrl = predefinedToken.logoUrl
                         )
@@ -1466,7 +1716,7 @@ class WalletViewModel(
             val networkTokenInfo = if (predefinedToken != null && predefinedToken.logoUrl != null) {
                 TokenInfo(
                     name = predefinedToken.name,
-                    symbol = predefinedToken.contract.takeLast(4).uppercase(),
+                    symbol = predefinedToken.symbol ?: predefinedToken.contract.takeLast(4).uppercase(),
                     contract = predefinedToken.contract,
                     logoUrl = predefinedToken.logoUrl
                 )
@@ -1546,7 +1796,7 @@ class WalletViewModel(
                         val tokenInfo = if (predefinedToken != null && predefinedToken.logoUrl != null) {
                             TokenInfo(
                                 name = predefinedToken.name,
-                                symbol = predefinedToken.contract.takeLast(4).uppercase(),
+                                symbol = predefinedToken.symbol ?: predefinedToken.contract.takeLast(4).uppercase(),
                                 contract = predefinedToken.contract,
                                 logoUrl = predefinedToken.logoUrl
                             )
@@ -1724,7 +1974,7 @@ class WalletViewModel(
                         val newTokenEntity = TokenCacheEntity(
                             contract = predefinedToken.contract,
                             name = predefinedToken.name,
-                            symbol = predefinedToken.contract.takeLast(4).uppercase(),
+                            symbol = predefinedToken.symbol ?: predefinedToken.contract.takeLast(4).uppercase(),
                             decimals = 8,
                             logoUrl = predefinedToken.logoUrl,
                             isActive = true,
@@ -1763,7 +2013,7 @@ class WalletViewModel(
             try {
                 val tokensToCache = tokens.mapNotNull { token ->
                     token.logoUrl?.let { logoUrl ->
-                        Pair(token.contract.takeLast(4).uppercase(), logoUrl)
+                        Pair(token.symbol ?: token.contract.takeLast(4).uppercase(), logoUrl)
                     }
                 }
                 
@@ -1777,7 +2027,7 @@ class WalletViewModel(
                             val tokenEntity = TokenCacheEntity(
                                 contract = token.contract,
                                 name = token.name,
-                                symbol = token.contract.takeLast(4).uppercase(),
+                                symbol = token.symbol ?: token.contract.takeLast(4).uppercase(),
                                 decimals = 8,
                                 logoUrl = token.logoUrl,
                                 isLogoCached = tokenLogoCacheManager.isLogoCached(token.logoUrl)
@@ -1833,6 +2083,7 @@ class WalletViewModel(
      * Get the ImageLoader for use with AsyncImage composables
      */
     fun getImageLoader() = tokenLogoCacheManager.imageLoader
+    fun getNftImageLoader() = nftImageCacheManager.imageLoader
     
     /**
      * Preload token logos from database cache on startup
@@ -1851,10 +2102,15 @@ class WalletViewModel(
                     val cachedCount = tokenLogoCacheManager.cacheTokenLogos(tokensToCache)
                     Log.d("WalletViewModel", "Preloaded $cachedCount/${tokensToCache.size} token logos from cache")
                     
-                    // Mark as cached in database
+                    // Mark as cached in database using proper async cache verification
                     tokensNeedingCache.forEach { entity ->
-                        if (tokenLogoCacheManager.isLogoCached(entity.logoUrl)) {
-                            tokenCacheDao.markLogoAsCached(entity.contract)
+                        launch {
+                            if (tokenLogoCacheManager.isLogoCached(entity.logoUrl)) {
+                                tokenCacheDao.markLogoAsCached(entity.contract)
+                                Log.d("WalletViewModel", "Marked logo as cached for ${entity.contract}")
+                            } else {
+                                Log.w("WalletViewModel", "Logo cache verification failed for ${entity.contract}: ${entity.logoUrl}")
+                            }
                         }
                     }
                 }
@@ -1871,7 +2127,7 @@ class WalletViewModel(
     /**
      * Check if a token logo is cached
      */
-    fun isTokenLogoCached(logoUrl: String?): Boolean {
+    suspend fun isTokenLogoCached(logoUrl: String?): Boolean {
         return tokenLogoCacheManager.isLogoCached(logoUrl)
     }
     
@@ -1879,7 +2135,19 @@ class WalletViewModel(
      * Get cache statistics for debugging
      */
     suspend fun getTokenCacheStats() = tokenLogoCacheManager.getCacheStats()
-    
+
+    /**
+     * Dump NFT image cache state to audit log and return a human-readable summary.
+     */
+    suspend fun dumpNftCacheState(): String = withContext(Dispatchers.IO) {
+        nftImageCacheManager.dumpState()
+    }
+
+    /**
+     * Return the full filesystem path to the NFT cache audit log file.
+     */
+    fun getNftCacheAuditLogPath(): String = nftImageCacheManager.getAuditLogFile().absolutePath
+     
     /**
      * Clear all token logo caches (for debugging/settings)
      */
@@ -2004,4 +2272,272 @@ class WalletViewModel(
         }
     }
 
+    // === Portfolio 7D Performance helpers ===
+
+    private fun shouldRecomputePortfolioPerf(newSnap: PortfolioSnapshot): Boolean {
+        // Compare current composition (by percent) with last computed
+        val newWeights = newSnap.tokens
+            .filter { it.usdValue > 0f }
+            .associate { it.contract to it.percent.coerceAtLeast(0f) }
+        if (lastCompositionWeights.isEmpty()) {
+            lastCompositionWeights = newWeights
+            return true
+        }
+        // Sum absolute diffs across union of keys
+        val keys = lastCompositionWeights.keys + newWeights.keys
+        var diff = 0f
+        keys.forEach { k ->
+            val a = lastCompositionWeights[k] ?: 0f
+            val b = newWeights[k] ?: 0f
+            diff += abs(a - b)
+        }
+        val should = diff > 1.0f // > 1 percentage point change
+        if (should) lastCompositionWeights = newWeights
+        return should
+    }
+
+    private fun computePortfolio7dPerformance(snap: PortfolioSnapshot) {
+        // Launch heavy work on IO
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val xianUsd = snap.xianPrice
+                val allPairs = try { networkService.getAllPairs() } catch (_: Exception) { emptyList() }
+                val nowHour = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.HOURS)
+                val startHour = nowHour.minus(167, java.time.temporal.ChronoUnit.HOURS)
+                val startEpoch = startHour.epochSecond
+
+                // Build per-token hourly USD price series (7d, 168 pts)
+                data class SeriesResult(val contract: String, val symbol: String?, val balance: Float, val series: List<Double>, val usedFallback: Boolean)
+                val perToken = coroutineScope {
+                    snap.tokens.map { entry ->
+                        async(Dispatchers.IO) {
+                            val contract = entry.contract
+                            val symbol = entry.symbol
+                            val balance = entry.balance
+                            // Special handling for USDC-like stable if present
+                            if (contract == "con_usdc") {
+                                val ones = List(168) { 1.0 }
+                                SeriesResult(contract, symbol, balance, ones, false)
+                            } else {
+                                val (s, fb) = fetchHourlyPriceSeries7dUSD(contract, allPairs, xianUsd, startEpoch)
+                                SeriesResult(contract, symbol, balance, s, fb)
+                            }
+                        }
+                    }.awaitAll()
+                }.filter { it.series.size == 168 && it.balance > 0f }
+
+                if (perToken.isEmpty()) {
+                    _portfolio7dPerformance.value = emptyList()
+                    _tokenContributions.value = emptyList()
+                    _portfolioPerfUsedFallback.value = false
+                    return@launch
+                }
+
+                // Compute weights at t0 using price0 and balances; ignore weights < 0.1%
+                val price0ByToken = perToken.associate { it.contract to it.series.first() }
+                val usd0ByToken = perToken.associate { t -> t.contract to (t.balance * (price0ByToken[t.contract] ?: 0.0)) }
+                val total0 = usd0ByToken.values.sum().toFloat().coerceAtLeast(1e-6f)
+
+                val weights = usd0ByToken.mapValues { (_, v) -> (v.toFloat() / total0).coerceIn(0f, 1f) }
+                    .filterValues { it >= 0.001f } // >= 0.1%
+
+                if (weights.isEmpty()) {
+                    _portfolio7dPerformance.value = emptyList()
+                    _tokenContributions.value = emptyList()
+                    _portfolioPerfUsedFallback.value = false
+                    return@launch
+                }
+
+                // Per-token relative perf series (%), then weighted sum
+                val tokenPerfPct: Map<String, List<Float>> = perToken.associate { t ->
+                    val p0 = t.series.first().coerceAtLeast(1e-12)
+                    val rel = t.series.map { (((it / p0) - 1.0) * 100.0).toFloat() }
+                    t.contract to rel
+                }
+
+                val portfolioPerf = MutableList(168) { 0f }
+                for (i in 0 until 168) {
+                    var acc = 0f
+                    weights.forEach { (contract, w) ->
+                        val s = tokenPerfPct[contract]
+                        if (s != null && i < s.size) acc += (w * s[i])
+                    }
+                    // Round to 2 decimals per constraints
+                    portfolioPerf[i] = kotlin.math.round(acc * 100f) / 100f
+                }
+
+                // Token contributions to final curve (weight * final change)
+                val contributions = weights.map { (contract, w) ->
+                    val tokenSeries = tokenPerfPct[contract] ?: emptyList()
+                    val finalChange = if (tokenSeries.isNotEmpty()) tokenSeries.last() else 0f
+                    val finalContribution = kotlin.math.round((w * finalChange) * 100f) / 100f
+                    val sym = perToken.find { it.contract == contract }?.symbol
+                    if (DEBUG_PERF) {
+                        val seriesRaw = perToken.find { it.contract == contract }?.series
+                        val p0 = seriesRaw?.firstOrNull()
+                        val plast = seriesRaw?.lastOrNull()
+                        Log.d(
+                            "PerfDebug",
+                            "contract=$contract symbol=$sym p0=$p0 plast=$plast w=${w * 100f}% finalChange=${"%.4f".format(finalChange)} contribution=${"%.4f".format(finalContribution)}"
+                        )
+                    }
+                    TokenContribution(
+                        contract = contract,
+                        symbol = sym,
+                        weightPercent = kotlin.math.round(w * 10000f) / 100f, // 2 decimals
+                        finalContributionPercent = finalContribution,
+                        token7dChangePercent = kotlin.math.round(finalChange * 100f) / 100f
+                    )
+                }.sortedByDescending { kotlin.math.abs(it.finalContributionPercent) }
+
+                val usedFallbackAny = perToken.any { it.usedFallback }
+
+                // Update state
+                _portfolio7dPerformance.value = portfolioPerf
+                _tokenContributions.value = contributions
+                _portfolioPerfUsedFallback.value = usedFallbackAny
+            } catch (e: Exception) {
+                Log.e("WalletViewModel", "Error computing portfolio 7D performance", e)
+                _portfolio7dPerformance.value = emptyList()
+                _tokenContributions.value = emptyList()
+                _portfolioPerfUsedFallback.value = false
+            }
+        }
+    }
+
+    private suspend fun fetchHourlyPriceSeries7dUSD(
+        tokenContract: String,
+        allPairs: List<PairInfo>,
+        xianUsd: Float,
+        epochHourStart: Long
+    ): Pair<List<Double>, Boolean> {
+        try {
+            val pair = if (tokenContract == "currency") {
+                allPairs.find { (it.token0 == "currency" && it.token1 == "con_usdc") || (it.token1 == "currency" && it.token0 == "con_usdc") }
+            } else {
+                allPairs.find { (it.token0 == tokenContract && it.token1 == "currency") || (it.token1 == tokenContract && it.token0 == "currency") }
+            } ?: return Pair(emptyList(), true)
+
+            // Attempt cache hit (within current hour window)
+            priceSeriesCache[pair.id]?.let { cached ->
+                if (cached.epochHourStart == epochHourStart) {
+                    return Pair(cached.pointsUsd, cached.usedFallback)
+                }
+            }
+
+            val swapEvents = networkService.getSwapEventsForPair(pair.id, "1W")
+            if (swapEvents.isEmpty()) {
+                // Fallback: reuse latest available point
+                val baseUsd: Double = when (tokenContract) {
+                    "con_usdc" -> 1.0
+                    "currency" -> xianUsd.toDouble()
+                    else -> {
+                        val pxInXian = try {
+                            tokenPriceRepository.getTokenPrice(tokenContract).first()
+                        } catch (_: Exception) {
+                            null
+                        }
+                        if (pxInXian != null && pxInXian > 0f) (pxInXian * xianUsd).toDouble() else 0.0
+                    }
+                }
+                if (baseUsd > 0.0) {
+                    val points = List(168) { baseUsd }
+                    priceSeriesCache[pair.id] = PriceSeriesCache(
+                        pointsUsd = points,
+                        epochHourStart = epochHourStart,
+                        generatedAt = System.currentTimeMillis(),
+                        usedFallback = true
+                    )
+                    return Pair(points, true)
+                }
+                return Pair(emptyList(), true)
+            }
+
+            // Bucket by hour using VWAP
+            val hourMap = mutableMapOf<Long, Pair<Double, Double>>() // hourEpoch -> (sum(price*vol), sum(vol))
+            swapEvents.forEach { ev ->
+                try {
+                    val ts = java.time.Instant.parse(ev.timestamp + "Z")
+                    val hour = ts.truncatedTo(java.time.temporal.ChronoUnit.HOURS).epochSecond
+                    var price = ev.price
+                    // Normalize price orientation depending on pair layout.
+                    // API assumption (potential source of bug antes): ev.price is quoted as token0/token1.
+                    // We want:
+                    //  - For currency vs USDC pair: USDC per XIAN (i.e., price in USD). If token0=="currency" and token1=="con_usdc",
+                    //    then ev.price = currency/usdc => already XIAN per USDC, so invert to get USDC per XIAN.
+                    //    If token1=="currency" and token0=="con_usdc", ev.price = usdc/currency => already USDC per XIAN (no invert).
+                    //  - For generic token vs currency pair: need XIAN per token. If token0 == tokenContract and token1 == currency,
+                    //    ev.price = token/currency => already token per XIAN (need invert). If token0 == currency and token1 == token,
+                    //    ev.price = currency/token => already XIAN per token (no invert).
+                    // Old logic invert = (tokenContract == pair.token0 OR currency special) causaba signo invertido.
+                    // User report: still seeing inverted 7D changes => ev.price likely represents token1/token0
+                    // So we flip the inversion rule: now we invert when the *other* orientation is present.
+                    val invert = if (tokenContract == "currency") {
+                        // currency <-> USDC: if currency is *token1*, ev.price ~ token1/token0 => currency/usdc, need USDC per currency => no invert.
+                        // If currency is token0 (previous logic), now we do NOT invert; instead invert when currency is token1.
+                        pair.token1 == "currency" && pair.token0 == "con_usdc"
+                    } else {
+                        // token <-> currency: invert when token is token1 (opposite of previous assumption)
+                        pair.token1 == tokenContract && pair.token0 == "currency"
+                    }
+                    if (invert) {
+                        price = 1.0 / price
+                        if (DEBUG_PERF) Log.d("PerfDebug", "Inverted price for contract=$tokenContract pair=${pair.id}")
+                    }
+                    val value = price * ev.volume
+                    val (sumV, sumVol) = hourMap[hour] ?: (0.0 to 0.0)
+                    hourMap[hour] = (sumV + value) to (sumVol + ev.volume)
+                } catch (_: Exception) {
+                    // ignore bad timestamp
+                }
+            }
+
+            // Build 168-point hourly series [oldest..newest], forward-fill gaps with last known price
+            val points = ArrayList<Double>(168)
+            var lastPrice: Double? = null
+            var usedFallback = false
+            val nowHour = java.time.Instant.ofEpochSecond(epochHourStart).plus(167, java.time.temporal.ChronoUnit.HOURS)
+            for (i in 0 until 168) {
+                val hour = epochHourStart + i * 3600
+                val v = hourMap[hour]?.let { (sumV, sumVol) ->
+                    if (sumVol > 0.0) sumV / sumVol else lastPrice
+                } ?: lastPrice
+                val base = if (v == null) {
+                    // no prior price yet, attempt to use nearest future available as initial reference
+                    // find the next known hour within window
+                    val nextKnown = (0 until 168).firstNotNullOfOrNull { j ->
+                        val h = epochHourStart + j * 3600
+                        hourMap[h]?.let { (sv, svl) -> if (svl > 0.0) sv / svl else null }
+                    }
+                    if (nextKnown != null) {
+                        usedFallback = true
+                        nextKnown
+                    } else {
+                        usedFallback = true
+                        0.0
+                    }
+                } else v
+                lastPrice = base
+                // Convert to USD if needed
+                val usdPrice = if (tokenContract == "currency") {
+                    base // USDC per XIAN (already USD)
+                } else {
+                    base * xianUsd
+                }
+                points.add(usdPrice)
+            }
+
+            // Cache
+            priceSeriesCache[pair.id] = PriceSeriesCache(
+                pointsUsd = points,
+                epochHourStart = epochHourStart,
+                generatedAt = System.currentTimeMillis(),
+                usedFallback = usedFallback
+            )
+            return Pair(points, usedFallback)
+        } catch (e: Exception) {
+            Log.e("WalletViewModel", "fetchHourlyPriceSeries7dUSD error for $tokenContract", e)
+            return Pair(emptyList(), true)
+        }
+    }
 } // End of WalletViewModel class

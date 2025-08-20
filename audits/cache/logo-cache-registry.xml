@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<logoCacheRegistry generatedAt="2025-08-20T15:23:16Z" version="1.0">
+  <context>
+    <appCacheLayer managerClass="ImprovedTokenLogoCacheManager" declaredIn="app/src/main/java/net/xian/xianwalletapp/data/ImprovedTokenLogoCacheManager.kt:24-53" respectsHttpCacheHeaders="false" memoryCachePercent="0.25" diskCacheBytes="52428800" diskDirectory="filesDir/token_logos_cache" />
+    <note>The improved manager config sets respectCacheHeaders=false, so server-side ETag/Last-Modified are not used to invalidate Coil memory/disk caches. Network HTTP cache is only leveraged if an OkHttp Cache is configured (not present in current code).</note>
+  </context>
+
+  <sources>
+    <source type="predefined" declaredIn="app/src/main/java/net/xian/xianwalletapp/ui/viewmodels/WalletViewModel.kt:112-140">
+      <token contract="con_usdc" name="xUSDC">
+        <logo uri="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png" kind="remote-http" />
+        <declaredCache client="CoilPersistent" key="URL" respectsHttpValidators="false" deterministic="medium" />
+      </token>
+      <token contract="con_poop_coin" name="Poop Coin">
+        <logo uri="https://emojiisland.com/cdn/shop/products/Poop_Emoji_7b204f05-eec6-4496-91b1-351acc03d2c7_large.png" kind="remote-http" />
+        <declaredCache client="CoilPersistent" key="URL" respectsHttpValidators="false" deterministic="low" />
+      </token>
+      <token contract="con_xtfu" name="XTFU Token">
+        <logo uri="https://snakexchange.org/icons/con_xtfu.png" kind="remote-http" />
+        <declaredCache client="CoilPersistent" key="URL" respectsHttpValidators="false" deterministic="medium" />
+      </token>
+      <token contract="con_xarb" name="XIAN Arbitrage">
+        <logo uri="file:///android_asset/xarb.jpg" kind="local-asset" />
+        <declaredCache client="AndroidAsset" key="asset-path" immutable="true" />
+      </token>
+      <token contract="con_slither" name="Slither Token">
+        <logo uri="(runtime or override)" kind="unknown" />
+        <declaredCache client="CoilPersistent" key="URL" respectsHttpValidators="false" deterministic="unknown" />
+      </token>
+    </source>
+
+    <source type="dynamic-metadata" declaredIn="app/src/main/java/net/xian/xianwalletapp/network/XianNetworkService.kt:448">
+      <variable key="metadata:token_logo_url" />
+      <tokenInfoBuilder declaredIn="app/src/main/java/net/xian/xianwalletapp/network/XianNetworkService.kt:457-463">
+        <assign field="logoUrl" />
+      </tokenInfoBuilder>
+      <note>Any token added at runtime may provide logoUrl via network metadata. Origins vary; headers must be validated per host.</note>
+    </source>
+
+    <source type="ui-overrides">
+      <override where="ManageTokenList" declaredIn="app/src/main/java/net/xian/xianwalletapp/ui/components/ManageTokenList.kt:388-403">
+        <rule when="contract == 'con_xarb'" logo="file:///android_asset/xarb.jpg" kind="local-asset" />
+        <rule when="contract == 'con_xtfu'" logo="https://snakexchange.org/icons/con_xtfu.png" kind="remote-http" />
+        <rule when="contract == 'con_xwt'" logo="R.drawable.xwtlogo" kind="local-drawable" />
+      </override>
+      <override where="WalletScreen" declaredIn="app/src/main/java/net/xian/xianwalletapp/ui/screens/WalletScreen.kt:1548-1552">
+        <rule when="contract == 'con_xarb'" logo="file:///android_asset/xarb.jpg" kind="local-asset" />
+        <rule when="contract == 'con_xwt'" logo="R.drawable.xwtlogo" kind="local-drawable" />
+      </override>
+      <override where="TokenDetailScreen" declaredIn="app/src/main/java/net/xian/xianwalletapp/ui/screens/TokenDetailScreen.kt:628-643">
+        <rule when="tokenContract == 'con_xarb'" logo="file:///android_asset/xarb.jpg" kind="local-asset" />
+      </override>
+      <override where="StakingScreen (XIAN only)" declaredIn="app/src/main/java/net/xian/xianwalletapp/ui/screens/StakingScreen.kt:267-285">
+        <rule when="token == 'currency'" logo="R.drawable.xian_logo" kind="local-drawable" />
+      </override>
+    </source>
+  </sources>
+
+  <inventory>
+    <entry contract="con_usdc" source="predefined" uri="https://raw.githubusercontent.com/.../logo.png" method="remote-http" />
+    <entry contract="con_poop_coin" source="predefined" uri="https://emojiisland.com/.../Poop_Emoji_..._large.png" method="remote-http" />
+    <entry contract="con_xtfu" source="predefined/ui-override" uri="https://snakexchange.org/icons/con_xtfu.png" method="remote-http" />
+    <entry contract="con_xarb" source="predefined/ui-override" uri="file:///android_asset/xarb.jpg" method="local-asset" />
+    <entry contract="con_xwt" source="ui-override" uri="R.drawable.xwtlogo" method="local-drawable" />
+    <entry contract="currency" source="ui" uri="R.drawable.xian_logo" method="local-drawable" />
+    <entry contract="(various)" source="dynamic" uri="metadata:token_logo_url" method="remote-http" />
+  </inventory>
+
+  <summary>
+    <totals remoteHttp="3+" localAsset="1" localDrawable="2" dynamic="N" />
+    <riskAssessment>
+      <item contract="con_poop_coin" risk="no-content-hash; must rely on ETag/Last-Modified if honored" />
+      <item contract="con_usdc" risk="GitHub raw may send strong ETag; current app ignores validators" />
+      <item contract="dynamic" risk="heterogeneous origins; validators unknown" />
+    </riskAssessment>
+  </summary>
+</logoCacheRegistry>

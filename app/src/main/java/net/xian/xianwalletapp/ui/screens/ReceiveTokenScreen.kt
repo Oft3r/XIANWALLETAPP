@@ -41,7 +41,8 @@ fun ReceiveTokenScreen(
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
-    val snackbarHostState = remember { SnackbarHostState() }
+    // val snackbarHostState = remember { SnackbarHostState() }
+    val toastHostState = net.xian.xianwalletapp.ui.components.rememberToastHostState()
     val publicKey = walletManager.getPublicKey() ?: ""
     
     Scaffold(
@@ -72,13 +73,18 @@ fun ReceiveTokenScreen(
                     }
                 }
             )
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        }
     ) { paddingValues ->
-        Column(
+        Box(modifier = Modifier
+            .fillMaxSize()
+            .padding(paddingValues)) {
+            net.xian.xianwalletapp.ui.components.TopToastHost(
+                state = toastHostState,
+                modifier = Modifier.align(Alignment.TopEnd)
+            )
+            Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -168,12 +174,10 @@ fun ReceiveTokenScreen(
             
             // Action buttons
             // Copy button (now takes full width)
-            Button(
+        Button(
                 onClick = {
                     clipboardManager.setText(AnnotatedString(publicKey))
-                    kotlinx.coroutines.MainScope().launch {
-                        snackbarHostState.showSnackbar("Address copied to clipboard")
-                    }
+            toastHostState.show("Address copied to clipboard", net.xian.xianwalletapp.ui.components.ToastType.Success)
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -189,6 +193,7 @@ fun ReceiveTokenScreen(
                 Text("Copy Address")
             }
             // Removed Share button as Card is now clickable for sharing
+            }
         }
     }
 }

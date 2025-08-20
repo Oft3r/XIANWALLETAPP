@@ -67,6 +67,8 @@ import net.xian.xianwalletapp.ui.components.PasswordTextField
 import org.json.JSONObject
 import java.util.Locale
 import java.text.DecimalFormat
+import java.math.BigDecimal
+import java.math.RoundingMode
 
 // Static logo mapping function for all available tokens (moved to file level for global access)
 fun getTokenLogo(contract: String): Any? {
@@ -76,6 +78,7 @@ fun getTokenLogo(contract: String): Any? {
         "con_xwt" -> R.drawable.xwtlogo
         "con_xtfu" -> "https://snakexchange.org/icons/con_xtfu.png"
         "con_poop_coin" -> "https://emojiisland.com/cdn/shop/products/Poop_Emoji_7b204f05-eec6-4496-91b1-351acc03d2c7_large.png"
+        "con_slither" -> "https://snakexchange.org/icons/con_slither.png"
         "con_usdc" -> "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png"
         else -> R.drawable.ic_question_mark
     }
@@ -95,7 +98,8 @@ fun SwapScreen(
     viewModel: WalletViewModel
 ) {
     val context = LocalContext.current
-    val snackbarHostState = remember { SnackbarHostState() }
+    // val snackbarHostState = remember { SnackbarHostState() }
+    val toastHostState = net.xian.xianwalletapp.ui.components.rememberToastHostState()
     val coroutineScope = rememberCoroutineScope()
     
     // State variables
@@ -193,6 +197,7 @@ fun SwapScreen(
             "con_xtfu", "xtfu" -> "XTFU"
             "con_xarb", "xarb" -> "XARB"
             "con_xwt", "xwt" -> "XWT"
+            "con_slither", "slither" -> "SSS"
             else -> "UNKNOWN"
         }
     }
@@ -278,6 +283,7 @@ fun SwapScreen(
     val xtfuPrice by viewModel.xtfuPrice.collectAsStateWithLifecycle()
     val xarbPrice by viewModel.xarbPrice.collectAsStateWithLifecycle()
     val xwtPrice by viewModel.xwtPrice.collectAsStateWithLifecycle()
+    val slitherPrice by viewModel.slitherPrice.collectAsStateWithLifecycle()
     
     // Helper function to check if user has enough balance for the swap
     fun hasEnoughBalance(tokenContract: String, requiredAmount: String): Boolean {
@@ -309,13 +315,14 @@ fun SwapScreen(
     
     // Helper function to get display balance (precise if available, otherwise ViewModel)
     fun getDisplayBalance(tokenContract: String): String? {
-        return if (tokenContract == fromTokenContract) {
+        val raw = if (tokenContract == fromTokenContract) {
             fromTokenPreciseBalance
         } else if (tokenContract == toTokenContract) {
             toTokenPreciseBalance
         } else {
             balanceMap[tokenContract]?.toString()
         }
+        return truncate2(raw)
     }
     
     // Load token price changes when the screen is first displayed
@@ -328,7 +335,7 @@ fun SwapScreen(
             val allPairs = networkService.getAllPairs()
             
             // Define available tokens locally - including currency for XIAN price change
-            val tokenContracts = listOf("currency", "con_poop_coin", "con_xtfu", "con_xarb", "con_xwt")
+            val tokenContracts = listOf("currency", "con_poop_coin", "con_xtfu", "con_xarb", "con_xwt", "con_slither")
             
             // Load price changes for each token in parallel for faster loading
             val deferredResults = tokenContracts.map { contract ->
@@ -381,15 +388,16 @@ fun SwapScreen(
         Triple("con_poop_coin", "POOP", "Poop Coin"),
         Triple("con_xtfu", "XTFU", "XTFU Token"),
         Triple("con_xarb", "XARB", "XARB Token"),
-        Triple("con_xwt", "XWT", "XWT Token")
+        Triple("con_xwt", "XWT", "XWT Token"),
+        Triple("con_slither", "SSS", "Slither Token")
     )
     
     // Function to validate if a trading pair exists
     fun isValidTradingPair(fromToken: String, toToken: String): Boolean {
         // Valid pairs are only between currency and other tokens (no token-to-token swaps)
         return when {
-            fromToken == "currency" && toToken in listOf("con_usdc", "con_poop_coin", "con_xtfu", "con_xarb", "con_xwt") -> true
-            toToken == "currency" && fromToken in listOf("con_usdc", "con_poop_coin", "con_xtfu", "con_xarb", "con_xwt") -> true
+            fromToken == "currency" && toToken in listOf("con_usdc", "con_poop_coin", "con_xtfu", "con_xarb", "con_xwt", "con_slither") -> true
+            toToken == "currency" && fromToken in listOf("con_usdc", "con_poop_coin", "con_xtfu", "con_xarb", "con_xwt", "con_slither") -> true
             else -> false
         }
     }
@@ -445,6 +453,7 @@ fun SwapScreen(
                 "con_xtfu" -> xtfuPrice?.let { tradeAmount * it } ?: 0f
                 "con_xarb" -> xarbPrice?.let { tradeAmount * it } ?: 0f
                 "con_xwt" -> xwtPrice?.let { tradeAmount * it } ?: 0f
+                "con_slither" -> slitherPrice?.let { tradeAmount * it } ?: 0f
                 else -> 0f
             }
         }
@@ -591,6 +600,28 @@ fun SwapScreen(
                 }
                 fromTokenContract == "con_xwt" && toTokenContract == "currency" -> {
                     xwtPrice?.let { price ->
+                        val baseAmount = amount * price
+                        val calculatedImpact = calculatePriceImpact(amount, fromTokenContract, toTokenContract)
+                        priceImpact = calculatedImpact
+                        val impactReduction = baseAmount * (calculatedImpact / 100f)
+                        val finalAmount = baseAmount - impactReduction
+                        toAmount = "%.6f".format(Locale.US, finalAmount)
+                        swapRate = price
+                    }
+                }
+                fromTokenContract == "currency" && toTokenContract == "con_slither" -> {
+                    slitherPrice?.let { price ->
+                        val baseAmount = amount / price
+                        val calculatedImpact = calculatePriceImpact(amount, fromTokenContract, toTokenContract)
+                        priceImpact = calculatedImpact
+                        val impactReduction = baseAmount * (calculatedImpact / 100f)
+                        val finalAmount = baseAmount - impactReduction
+                        toAmount = "%.6f".format(Locale.US, finalAmount)
+                        swapRate = 1f / price
+                    }
+                }
+                fromTokenContract == "con_slither" && toTokenContract == "currency" -> {
+                    slitherPrice?.let { price ->
                         val baseAmount = amount * price
                         val calculatedImpact = calculatePriceImpact(amount, fromTokenContract, toTokenContract)
                         priceImpact = calculatedImpact
@@ -774,10 +805,16 @@ fun SwapScreen(
                     }
                 }
             )
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        }
     ) { paddingValues ->
-        Column(
+        Box(modifier = Modifier
+            .fillMaxSize()
+            .padding(paddingValues)) {
+            net.xian.xianwalletapp.ui.components.TopToastHost(
+                state = toastHostState,
+                modifier = Modifier.align(Alignment.TopEnd)
+            )
+            Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
@@ -789,7 +826,6 @@ fun SwapScreen(
                         )
                     )
                 )
-                .padding(paddingValues)
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -844,8 +880,8 @@ fun SwapScreen(
                                     }
                                     
                                     fromAmount = if (maxAmount > 0.0) {
-                                        // Use full precision to match validation logic
-                                        maxAmount.toString()
+                                        // Truncate to 3 decimals (no rounding) for Max button
+                                        truncate3(maxAmount.toString())
                                     } else {
                                         "0"
                                     }
@@ -1331,9 +1367,10 @@ fun SwapScreen(
             // Error message
             errorMessage?.let { message ->
                 LaunchedEffect(message) {
-                    snackbarHostState.showSnackbar(message)
+                    toastHostState.show(message, net.xian.xianwalletapp.ui.components.ToastType.Error)
                     errorMessage = null
                 }
+            }
             }
         }
         
@@ -1668,3 +1705,39 @@ private fun SwapSettingsDialog(
         }
     )
 }
+
+// --- Truncation Utilities (no rounding) ---
+private fun truncateDecimalString(value: String?, scale: Int): String {
+    if (value.isNullOrBlank()) return "0".let { if (scale > 0) it + "." + "0".repeat(scale) else it }
+    // Use BigDecimal for safety; fallback to original string if parsing fails
+    return try {
+        // Normalize via BigDecimal to remove scientific notation, then manually truncate
+        val bd = value.trim().let { BigDecimal(it) }
+        val plain = bd.stripTrailingZeros().toPlainString()
+        val parts = plain.split('.')
+        if (parts.size == 1) {
+            // No decimal part
+            if (scale == 0) parts[0] else parts[0] + "." + "0".repeat(scale)
+        } else {
+            val intPart = parts[0]
+            val fracPart = parts[1]
+            val truncatedFrac = if (fracPart.length >= scale) fracPart.substring(0, scale) else fracPart + "0".repeat(scale - fracPart.length)
+            if (scale == 0) intPart else intPart + "." + truncatedFrac
+        }
+    } catch (e: Exception) {
+        // Fallback: naive manual approach without BigDecimal
+        val raw = value.trim()
+        val dotIndex = raw.indexOf('.')
+        if (dotIndex == -1) {
+            if (scale == 0) raw else raw + "." + "0".repeat(scale)
+        } else {
+            val intPart = raw.substring(0, dotIndex)
+            val fracPart = raw.substring(dotIndex + 1)
+            val truncatedFrac = if (fracPart.length >= scale) fracPart.substring(0, scale) else fracPart + "0".repeat(scale - fracPart.length)
+            if (scale == 0) intPart else intPart + "." + truncatedFrac
+        }
+    }
+}
+
+private fun truncate2(value: String?): String = truncateDecimalString(value, 2)
+private fun truncate3(value: String?): String = truncateDecimalString(value, 3)

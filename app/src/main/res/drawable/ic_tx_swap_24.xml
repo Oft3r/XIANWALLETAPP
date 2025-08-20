@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Left-right swap arrows in a circle motif -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M12,2a10,10 0 1,0 0,20a10,10 0 1,0 0,-20zM7,9h6l-2,-2l1.41,-1.41L17.83,10l-5.42,4.41L11,13l2,0H7V9zM17,15H11l2,2l-1.41,1.41L6.17,14l5.42,-4.41L13,11l-2,0h6v4z" />
+</vector>

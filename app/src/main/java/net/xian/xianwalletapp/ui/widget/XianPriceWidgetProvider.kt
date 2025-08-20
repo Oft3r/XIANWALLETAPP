@@ -11,6 +11,10 @@ import android.widget.RemoteViews
 import net.xian.xianwalletapp.MainActivity // Import MainActivity
 import net.xian.xianwalletapp.R
 import net.xian.xianwalletapp.network.XianNetworkService
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import kotlinx.coroutines.*
 import java.text.DecimalFormat // Import DecimalFormat
 import java.util.Locale
@@ -69,36 +73,88 @@ class XianPriceWidgetProvider : AppWidgetProvider() {
         views.setOnClickPendingIntent(R.id.widget_refresh_button, refreshPendingIntent)
 
 
-        // Launch a coroutine to fetch the price in the background
+        // Launch a coroutine to fetch the price, 24h change and sparkline in background
         widgetScope.launch {
+            val networkService = XianNetworkService.getInstance(context.applicationContext)
             try {
-                val networkService = XianNetworkService.getInstance(context.applicationContext)
-                val priceInfo = networkService.getXianPriceInfo()
+                // Fetch all data concurrently
+                val priceDeferred = async { networkService.getXianPriceInfo() }
+                val pairsDeferred = async { networkService.getAllPairs() }
+
+                val priceInfo = priceDeferred.await()
+                val allPairs = pairsDeferred.await()
+
+                // Identify XIAN/USDC pair to compute 24h change and sparkline
+                val xianUsdcPair = allPairs.find {
+                    (it.token0 == "currency" && it.token1 == "con_usdc") ||
+                    (it.token1 == "currency" && it.token0 == "con_usdc")
+                }
+
+                val change24hDeferred = async {
+                    if (xianUsdcPair != null) {
+                        // Determine denomination: we want USDC per XIAN => if token0 is currency we want token1-per-token0? Actually getPriceChange24h(token) expects 0=token0-per-token1.
+                        // price current calculation uses reserves.first (USDC) / reserves.second (XIAN). If pair.token0 == currency then price = reserve1? We'll just derive denomination dynamically.
+                        // We want USDC per XIAN: price = USDC/XIAN. If pair.token0 == "currency" then token1 == "con_usdc" so token1-per-token0 => token=1, else token=0.
+                        val denomination = if (xianUsdcPair.token0 == "currency") 1 else 0
+                        networkService.getPriceChange24h(xianUsdcPair.id, denomination)
+                    } else null
+                }
+
+                val sparklineDeferred = async {
+                    if (xianUsdcPair != null) {
+                        try {
+                            val events = networkService.getSwapEventsForPair(xianUsdcPair.id, "1D")
+                            val prices = extractPricesFromEvents(events, xianUsdcPair)
+                            if (prices.size >= 2) buildSparklineBitmap(prices.takeLast(100)) else null
+                        } catch (e: Exception) {
+                            Log.e("XianPriceWidget", "Error generating sparkline: ${e.message}")
+                            null
+                        }
+                    } else null
+                }
 
                 val priceText = if (priceInfo != null) {
-                    val reserves = priceInfo.second // Extract the reserves pair
-
-                    // Use .first for reserve0 (USDC) and .second for reserve1 (XIAN)
-                    val price = if (reserves!!.second != 0f) reserves!!.first / reserves!!.second else 0f
-                    // Format the price to 3 decimal places with $ symbol
+                    val reserves = priceInfo.second
+                    val price = if (reserves != null && reserves.second != 0f) reserves.first / reserves.second else 0f
                     val format = DecimalFormat("$#,##0.000", java.text.DecimalFormatSymbols(Locale.US))
                     format.format(price)
-                } else {
-                    "N/A"
-                }
-                Log.d("XianPriceWidget", "Fetched price for widget $appWidgetId: $priceText")
-                // Update the widget view with the fetched price
-                withContext(Dispatchers.Main) { // Switch to Main thread for UI updates
+                } else "N/A"
+
+                val change24h = change24hDeferred.await()
+                val sparkline = sparklineDeferred.await()
+
+                withContext(Dispatchers.Main) {
                     views.setTextViewText(R.id.widget_price_text, priceText)
-                    // Instruct the widget manager to update the widget (initial update before network call finishes)
-                    // Also applies the refresh button's PendingIntent
+
+                    // 24h change formatting
+                    if (change24h != null && change24h.isFinite()) {
+                        val isPositive = change24h >= 0f
+                        val df = DecimalFormat("#,##0.00", java.text.DecimalFormatSymbols(Locale.US))
+                        val txt = (if (isPositive) "+" else "") + df.format(change24h) + "%"
+                        views.setTextViewText(R.id.widget_change_text, txt)
+                        val color = if (isPositive) Color.parseColor("#4CAF50") else Color.parseColor("#F44336")
+                        views.setTextColor(R.id.widget_change_text, color)
+                    } else {
+                        views.setTextViewText(R.id.widget_change_text, "--")
+                        views.setTextColor(R.id.widget_change_text, Color.GRAY)
+                    }
+
+                    // Sparkline
+                    if (sparkline != null) {
+                        views.setImageViewBitmap(R.id.widget_chart_image, sparkline)
+                        views.setViewVisibility(R.id.widget_chart_image, android.view.View.VISIBLE)
+                    } else {
+                        views.setViewVisibility(R.id.widget_chart_image, android.view.View.GONE)
+                    }
+
                     appWidgetManager.updateAppWidget(appWidgetId, views)
                 }
             } catch (e: Exception) {
                 Log.e("XianPriceWidget", "Error updating widget $appWidgetId", e)
-                // Update the widget view with an error message
-                withContext(Dispatchers.Main) { // Switch to Main thread for UI updates
+                withContext(Dispatchers.Main) {
                     views.setTextViewText(R.id.widget_price_text, "Error")
+                    views.setTextViewText(R.id.widget_change_text, "--")
+                    views.setViewVisibility(R.id.widget_chart_image, android.view.View.GONE)
                     appWidgetManager.updateAppWidget(appWidgetId, views)
                 }
             }
@@ -135,4 +191,67 @@ class XianPriceWidgetProvider : AppWidgetProvider() {
         }
         // Handle other standard widget intents if necessary, though super.onReceive usually covers them.
     }
+}
+
+// --- Helper functions ---
+private fun extractPricesFromEvents(
+    events: List<net.xian.xianwalletapp.network.SwapEvent>,
+    pair: net.xian.xianwalletapp.network.XianNetworkService.PairInfo
+): List<Float> {
+    // SwapEvent.price = token1/token0
+    // Queremos USDC por XIAN (USDC/XIAN)
+    // Si token0 == "currency" (XIAN) y token1 == "con_usdc" => price YA es USDC/XIAN (correcto)
+    // Si token0 == "con_usdc" y token1 == "currency" => price = XIAN/USDC, necesitamos invertir
+    val invert = pair.token0 == "con_usdc" && pair.token1 == "currency"
+    return events.mapNotNull { ev ->
+        val raw = ev.price.toFloat()
+        val adjusted = if (invert && raw > 0f) 1f / raw else raw
+        adjusted.takeIf { it.isFinite() && it > 0f }
+    }.reversed() // poner en orden cronológico ascendente
+}
+
+private fun buildSparklineBitmap(
+    prices: List<Float>,
+    width: Int = 320, // tamaño más compacto para caber en el widget
+    height: Int = 80,
+    stroke: Float = 3f
+): Bitmap {
+    val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bmp)
+    canvas.drawColor(Color.TRANSPARENT)
+    if (prices.isEmpty()) return bmp
+
+    val padX = 12f
+    val padY = 10f
+    val innerW = (width - padX * 2).coerceAtLeast(1f)
+    val innerH = (height - padY * 2).coerceAtLeast(1f)
+
+    val min = prices.minOrNull() ?: 0f
+    val max = prices.maxOrNull() ?: min + 1f
+    val range = (max - min).takeIf { it > 0f } ?: 1f
+
+    val lineColor = if (prices.last() >= prices.first()) Color.parseColor("#4CAF50") else Color.parseColor("#F44336")
+
+    val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = lineColor
+        strokeWidth = stroke
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+
+    // Sin fondo: totalmente transparente
+
+    var prevX = padX
+    var prevY = padY + innerH - ((prices.first() - min) / range * innerH)
+    val stepX = innerW / (prices.size - 1).coerceAtLeast(1)
+
+    for (i in 1 until prices.size) {
+        val x = padX + i * stepX
+        val y = padY + innerH - ((prices[i] - min) / range * innerH)
+        canvas.drawLine(prevX, prevY, x, y, strokePaint)
+        prevX = x
+        prevY = y
+    }
+
+    return bmp
 }

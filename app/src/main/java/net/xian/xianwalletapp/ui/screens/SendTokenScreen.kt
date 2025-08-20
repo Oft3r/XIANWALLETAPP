@@ -110,7 +110,8 @@ fun SendTokenScreen(
     var showPasswordDialog by remember { mutableStateOf(false) }
     // var showSuccessDialog by remember { mutableStateOf(false) } // Removed: Replaced with notification
     var transactionHash by remember { mutableStateOf("") }
-    val snackbarHostState = remember { SnackbarHostState() }
+    // val snackbarHostState = remember { SnackbarHostState() }
+    val toastHostState = net.xian.xianwalletapp.ui.components.rememberToastHostState()
     val context = LocalContext.current // Get context for permission check and history manager
     val transactionHistoryManager = remember { TransactionHistoryManager(context) } // Pass context variable
     var showConfirmationDialog by remember { mutableStateOf(false) }
@@ -137,9 +138,7 @@ fun SendTokenScreen(
             errorMessage = null // Clear previous errors
         } else {
             // Optional: Handle scan cancellation or failure (e.g., show snackbar)
-            coroutineScope.launch {
-                snackbarHostState.showSnackbar("QR scan cancelled or failed.")
-            }
+            coroutineScope.launch { toastHostState.show("QR scan cancelled or failed.", net.xian.xianwalletapp.ui.components.ToastType.Warning) }
         }
     }
 
@@ -161,9 +160,7 @@ fun SendTokenScreen(
             showQRScanner = true
         } else {
             // Permission denied
-            coroutineScope.launch {
-                snackbarHostState.showSnackbar("Camera permission is required to scan QR codes.")
-            }
+            coroutineScope.launch { toastHostState.show("Camera permission is required to scan QR codes.", net.xian.xianwalletapp.ui.components.ToastType.Warning) }
         }
     }    // Function to check permission and launch integrated scanner
     fun launchScannerWithPermissionCheck() {
@@ -202,9 +199,7 @@ fun SendTokenScreen(
         onResult = { isGranted ->
             if (!isGranted) {
                 // Optional: Show a snackbar or message explaining why the permission is needed
-                coroutineScope.launch {
-                    snackbarHostState.showSnackbar("Notification permission denied. You won't receive success notifications.")
-                }
+                coroutineScope.launch { toastHostState.show("Notification permission denied. You won't receive success notifications.", net.xian.xianwalletapp.ui.components.ToastType.Info) }
             }
         }
     )
@@ -297,13 +292,18 @@ fun SendTokenScreen(
                     // AddressBook icon moved to recipient address input field
                 }
             )
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        }
     ) { paddingValues ->
-        Column(
+        Box(modifier = Modifier
+            .fillMaxSize()
+            .padding(paddingValues)) {
+            net.xian.xianwalletapp.ui.components.TopToastHost(
+                state = toastHostState,
+                modifier = Modifier.align(Alignment.TopEnd)
+            )
+            Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -472,11 +472,11 @@ fun SendTokenScreen(
                                                 }
                                             } else {
                                                 Log.e("SendTokenScreen", "Failed to fetch balance: ${response.message()}")
-                                                snackbarHostState.showSnackbar("Failed to fetch balance")
+                                                toastHostState.show("Failed to fetch balance", net.xian.xianwalletapp.ui.components.ToastType.Error)
                                             }
                                         } catch (e: Exception) {
                                             Log.e("SendTokenScreen", "Error fetching balance", e)
-                                            snackbarHostState.showSnackbar("Error fetching balance")
+                                            toastHostState.show("Error fetching balance", net.xian.xianwalletapp.ui.components.ToastType.Error)
                                         } finally {
                                             isLoadingBalance = false
                                         }
@@ -638,6 +638,7 @@ fun SendTokenScreen(
             ) {
                 Text("Review Transaction") // Changed button text
             }
+            }
         }
         // --- Confirmation Dialog ---
         if (showConfirmationDialog && confirmationDetails != null) {
@@ -723,11 +724,15 @@ fun SendTokenScreen(
                                     // Handle result
                                     if (result.success) {
                                         transactionHash = result.txHash ?: ""
-                                        showTransactionSuccessNotification(
+                                        net.xian.xianwalletapp.workers.NotificationUtils.showRedesignedTransactionNotification(
                                             context = context,
-                                            title = "Transaction Successful",
-                                            message = "Sent $amountToSend $symbol to ${recipientToSend.take(6)}...${recipientToSend.takeLast(4)}",
-                                            txHash = transactionHash
+                                            channelId = "wallet_activity",
+                                            rawType = "Sent",
+                                            amount = amountToSend,
+                                            symbol = symbol,
+                                            otherPartyAddress = recipientToSend,
+                                            timestampMillis = System.currentTimeMillis(),
+                                            pendingIntent = null
                                         )
                                         val record = LocalTransactionRecord(
                                             type = "Sent",
@@ -1167,53 +1172,3 @@ private data class ConfettiPiece(
     val size: Float
 )
 
-// Helper function to show notification
-private fun showTransactionSuccessNotification(
-    context: Context,
-    title: String,
-    message: String,
-    txHash: String
-) {
-    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-    val channelId = "transaction_success_channel"
-
-    // --- Permission Check (Android 13+) ---
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            // Permission not granted on Android 13+, do not show notification
-            android.util.Log.w("SendTokenScreen", "POST_NOTIFICATIONS permission not granted. Skipping notification.")
-            return
-        }
-    }
-    // --- End Permission Check ---
-
-    // Create notification channel for Android Oreo and above
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        val channelName = "Transaction Status"
-        val channelDescription = "Notifications for successful transactions"
-        val importance = NotificationManager.IMPORTANCE_HIGH
-        val channel = NotificationChannel(channelId, channelName, importance).apply {
-            description = channelDescription
-        }
-        notificationManager.createNotificationChannel(channel)
-    }
-
-    // Build the notification
-    val builder = NotificationCompat.Builder(context, channelId)
-        .setSmallIcon(net.xian.xianwalletapp.R.mipmap.ic_launcher) // Use app launcher icon
-        .setContentTitle(title)
-        .setContentText(message)
-        .setStyle(NotificationCompat.BigTextStyle().bigText("$message\nTransaction ID: $txHash")) // Show full message and Tx ID
-        .setPriority(NotificationCompat.PRIORITY_HIGH)
-        .setAutoCancel(true) // Dismiss notification when tapped
-
-    // TODO: Add PendingIntent if you want to navigate somewhere specific when the notification is tapped
-    // Example:
-    // val intent = Intent(context, MainActivity::class.java) // Or specific activity
-    // val pendingIntent = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    // builder.setContentIntent(pendingIntent)
-
-    // Show the notification
-    val notificationId = System.currentTimeMillis().toInt() // Use timestamp for unique ID
-    notificationManager.notify(notificationId, builder.build())
-}

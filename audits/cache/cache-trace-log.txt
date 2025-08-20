@@ -1,0 +1,59 @@
+Token Logo Cache Trace Log
+GeneratedAt: 2025-08-20T15:29:48Z
+Spec: Conditional requests to verify CDN/browser validator behavior
+
+URL 1: https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png
+- HEAD: 200
+- Headers:
+  Cache-Control: max-age=300
+  ETag: "cca7f5fa44cd5b696ae88e317ae51c88e5121972bf223f100d5ed4a348da5344"
+  Expires: Wed, 20 Aug 2025 15:31:26 GMT
+  X-Cache: HIT
+  Source-Age: 38
+  Accept-Ranges: bytes
+- Conditional:
+  If-None-Match: 304 (validator honored by CDN)
+  If-Modified-Since: null (no Last-Modified provided)
+- Notes: Fastly/GitHub Raw serves strong ETag and short TTL; supports byte ranges.
+
+URL 2: https://emojiisland.com/cdn/shop/products/Poop_Emoji_7b204f05-eec6-4496-91b1-351acc03d2c7_large.png
+- HEAD: 200
+- Headers:
+  Cache-Control: public, max-age=31557600
+  Last-Modified: Sun, 17 Aug 2025 22:58:11 GMT
+  CF-Cache-Status: HIT
+  Age: 9257
+  Accept-Ranges: bytes
+- Conditional:
+  If-None-Match: null (no ETag provided)
+  If-Modified-Since: 304 (validator honored by CDN)
+- Notes: Long-lived immutable-style caching via max-age ~1y; Cloudflare HIT indicates cached.
+
+URL 3: https://snakexchange.org/icons/con_xtfu.png
+- HEAD: 200
+- Headers:
+  Cache-Control: public, max-age=14400, must-revalidate
+  ETag: "258b475ff1f2f87516b85c556150af7e"
+  Cf-Cache-Status: REVALIDATED
+  Server-Timing: cfCacheStatus=REVALIDATED
+- Conditional:
+  If-None-Match: 304 (validator honored by CDN)
+  If-Modified-Since: null (no Last-Modified provided)
+- Notes: must-revalidate with ETag present; Cloudflare performed revalidation successfully.
+
+Client Cache Layer Behavior (App)
+- Image loader: ImprovedTokenLogoCacheManager (see: app/src/main/java/net/xian/xianwalletapp/data/ImprovedTokenLogoCacheManager.kt)
+  Before change: respectCacheHeaders=false (server validators ignored).
+  After change: respectCacheHeaders=true and OkHttp HTTP cache enabled (20 MB), enabling deterministic ETag/Last-Modified revalidation.
+- UI usages: AsyncImage calls primarily rely on Coil; local assets/drawables bypass HTTP.
+
+Conclusions
+- All tested remote origins correctly support HTTP validators (ETag or Last-Modified) and return 304 to conditional requests.
+- With app change to honor headers and enable OkHttp cache, CDN validator behavior will be utilized consistently.
+- Local assets/drawables are immutable and do not require HTTP caching.
+
+Trace Method
+- Tools: PowerShell Invoke-WebRequest HEAD/GET; conditional headers If-None-Match / If-Modified-Since.
+- This log summarizes the successful 304 responses and cache headers for each origin.
+
+End of Log

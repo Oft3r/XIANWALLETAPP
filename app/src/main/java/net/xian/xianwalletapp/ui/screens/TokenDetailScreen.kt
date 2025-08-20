@@ -92,6 +92,7 @@ fun TokenDetailScreen(
     val xtfuPrice by viewModel.xtfuPrice.collectAsStateWithLifecycle()
     val xarbPrice by viewModel.xarbPrice.collectAsStateWithLifecycle()
     val xwtPrice by viewModel.xwtPrice.collectAsStateWithLifecycle()
+    val slitherPrice by viewModel.slitherPrice.collectAsStateWithLifecycle() // Collect SLITHER price
     val isChartLoading by viewModel.isChartLoading.collectAsStateWithLifecycle()
     val chartError by viewModel.chartError.collectAsStateWithLifecycle()
     val chartNormalizationType by viewModel.chartNormalizationType.collectAsStateWithLifecycle()
@@ -128,6 +129,7 @@ fun TokenDetailScreen(
         "con_xtfu" -> xtfuPrice
         "con_xarb" -> xarbPrice
         "con_xwt" -> xwtPrice
+        "con_slither" -> slitherPrice
         else -> null
     }    // Create formatters for different values
     val usdFormatter = DecimalFormat("#,##0.0000") // For USD values (4 decimals)

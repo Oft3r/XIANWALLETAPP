@@ -1,0 +1,37 @@
+<!-- Light mode notification mock: 360x64, 12dp radius, gradient #FFFFFF → #F7F9FC -->
+<svg width="360" height="64" viewBox="0 0 360 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgLight" x1="0" y1="0" x2="360" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F7F9FC"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Card background with 12dp radius and subtle shadow -->
+  <rect x="0.5" y="0.5" rx="12" ry="12" width="359" height="63" fill="url(#bgLight)" stroke="rgba(0,0,0,0.04)"/>
+  <rect x="0.5" y="60" width="359" height="3" fill="rgba(0,0,0,0.06)" rx="12"/>
+
+  <!-- Content: left-aligned text group -->
+  <g transform="translate(16,14)">
+    <!-- Primary: Action verb -->
+    <text id="action" x="0" y="14" font-family="SF Pro Display, -apple-system, Roboto, Arial" font-weight="600" font-size="16" fill="#000000">
+      Received
+    </text>
+
+    <!-- Secondary: Amount & asset -->
+    <text id="amount" x="88" y="14" font-family="SF Pro Text, -apple-system, Roboto, Arial" font-weight="400" font-size="14" fill="rgba(0,0,0,0.8)">
+      +0.1234 XWT
+    </text>
+
+    <!-- Tertiary: Relative time -->
+    <text id="time" x="0" y="36" font-family="SF Pro Text, -apple-system, Roboto, Arial" font-weight="400" font-size="12" fill="rgba(0,0,0,0.6)">
+      2 min ago
+    </text>
+  </g>
+
+  <!-- Right-aligned contextual icon: down arrow in circle, tinted green #34C759 -->
+  <g transform="translate(312,20)">
+    <circle cx="12" cy="12" r="12" fill="#34C759" opacity="0.15"/>
+    <path d="M12 6c.552 0 1 .448 1 1v8.586l3.293-3.293a1 1 0 0 1 1.414 1.414l-5 5a1 1 0 0 1-1.414 0l-5-5A1 1 0 1 1 7.707 12.293L11 15.586V7c0-.552.448-1 1-1z" fill="#34C759"/>
+  </g>
+</svg>

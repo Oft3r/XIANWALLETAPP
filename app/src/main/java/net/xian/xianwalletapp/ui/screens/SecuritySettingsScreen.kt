@@ -45,10 +45,10 @@ import kotlinx.coroutines.launch
 @Composable
 fun SecuritySettingsScreen(
     navController: NavController,
-    walletManager: WalletManager,
-    snackbarHostState: SnackbarHostState,
-    coroutineScope: CoroutineScope // Pass CoroutineScope for launching coroutines
+    walletManager: WalletManager
 ) {
+    val coroutineScope = rememberCoroutineScope()
+    val toastHostState = net.xian.xianwalletapp.ui.components.rememberToastHostState()
     var showDeleteWalletDialog by remember { mutableStateOf(false) }
     var showBackupDialog by remember { mutableStateOf(false) }
     var password by remember { mutableStateOf("") } // For backup dialog
@@ -90,13 +90,18 @@ fun SecuritySettingsScreen(
                     }
                 }
             )
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        }
     ) { paddingValues ->
-        Column(
+        Box(modifier = Modifier
+            .fillMaxSize()
+            .padding(paddingValues)) {
+            net.xian.xianwalletapp.ui.components.TopToastHost(
+                state = toastHostState,
+                modifier = Modifier.align(Alignment.TopEnd)
+            )
+            Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -134,21 +139,17 @@ fun SecuritySettingsScreen(
                             try {
                                 walletManager.disableBiometric()
                                 biometricEnabled = false // Update biometric state
-                                coroutineScope.launch {
-                                    snackbarHostState.showSnackbar("Biometric unlock disabled as password requirement was turned off.")
-                                }
+                                coroutineScope.launch { toastHostState.show("Biometric unlock disabled as password requirement was turned off.", net.xian.xianwalletapp.ui.components.ToastType.Info) }
                             } catch (e: Exception) {
                                 // Handle potential error during biometric disable
-                                coroutineScope.launch {
-                                    snackbarHostState.showSnackbar("Error disabling biometrics: ${e.message}")
-                                }
+                                coroutineScope.launch { toastHostState.show("Error disabling biometrics: ${e.message}", net.xian.xianwalletapp.ui.components.ToastType.Error) }
                                 // Optional: Revert requirePasswordOnStartup state if disabling biometrics fails critically?
                                 // For now, just log the error and proceed with password setting change.
                             }
                         } else {
                             // Show standard snackbar for password requirement change
                             coroutineScope.launch {
-                                snackbarHostState.showSnackbar("Password requirement on startup ${if (isChecked) "enabled" else "disabled"}")
+                                toastHostState.show("Password requirement on startup ${if (isChecked) "enabled" else "disabled"}", net.xian.xianwalletapp.ui.components.ToastType.Success)
                             }
                         }
                     }
@@ -200,11 +201,11 @@ fun SecuritySettingsScreen(
                                     walletManager.disableBiometric()
                                     biometricEnabled = false // Update state only after successful disable
                                     coroutineScope.launch {
-                                        snackbarHostState.showSnackbar("Biometric unlock disabled")
+                                        toastHostState.show("Biometric unlock disabled", net.xian.xianwalletapp.ui.components.ToastType.Info)
                                     }
                                 } catch (e: Exception) {
                                     coroutineScope.launch {
-                                        snackbarHostState.showSnackbar("Error disabling biometrics: ${e.message}")
+                                        toastHostState.show("Error disabling biometrics: ${e.message}", net.xian.xianwalletapp.ui.components.ToastType.Error)
                                     }
                                     // Keep the toggle visually enabled if disabling fails
                                     // Revert the state change visually if disable fails
@@ -272,7 +273,7 @@ fun SecuritySettingsScreen(
                             } else {
                                 // Handle error: Cannot delete if no active wallet is found (should not happen here)
                                 coroutineScope.launch {
-                                    snackbarHostState.showSnackbar("Error: Could not identify wallet to delete.")
+                                    toastHostState.show("Error: Could not identify wallet to delete.", net.xian.xianwalletapp.ui.components.ToastType.Error)
                                 }
                             }
                             showDeleteWalletDialog = false
@@ -311,22 +312,22 @@ fun SecuritySettingsScreen(
                                 if (privateKeyText.isNotEmpty()) {
                                     outputStream.write(privateKeyText.toByteArray())
                                     coroutineScope.launch {
-                                        snackbarHostState.showSnackbar("Private key exported successfully")
+                                        toastHostState.show("Private key exported successfully", net.xian.xianwalletapp.ui.components.ToastType.Success)
                                     }
                                 } else {
                                      coroutineScope.launch {
-                                        snackbarHostState.showSnackbar("Error: Private key is empty, cannot export")
+                                        toastHostState.show("Error: Private key is empty, cannot export", net.xian.xianwalletapp.ui.components.ToastType.Error)
                                     }
                                 }
                             }
                         } catch (e: IOException) {
                             coroutineScope.launch {
-                                snackbarHostState.showSnackbar("Error exporting private key: ${e.message}")
+                                toastHostState.show("Error exporting private key: ${e.message}", net.xian.xianwalletapp.ui.components.ToastType.Error)
                             }
                         }
                     } else {
                         coroutineScope.launch {
-                            snackbarHostState.showSnackbar("Export cancelled")
+                            toastHostState.show("Export cancelled", net.xian.xianwalletapp.ui.components.ToastType.Info)
                         }
                     }
                 }
@@ -410,7 +411,7 @@ fun SecuritySettingsScreen(
                                     onClick = {
                                         clipboardManager.setText(AnnotatedString(privateKeyText))
                                         coroutineScope.launch {
-                                            snackbarHostState.showSnackbar("Private key copied to clipboard")
+                                            toastHostState.show("Private key copied to clipboard", net.xian.xianwalletapp.ui.components.ToastType.Success)
                                         }
                                     },
                                     colors = xianButtonColors(XianButtonType.SECONDARY)
@@ -477,7 +478,7 @@ fun SecuritySettingsScreen(
                         override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                             super.onAuthenticationError(errorCode, errString)
                             coroutineScope.launch {
-                                snackbarHostState.showSnackbar("Biometric prompt error: $errString")
+                                toastHostState.show("Biometric prompt error: $errString", net.xian.xianwalletapp.ui.components.ToastType.Error)
                             }
                             biometricEnabled = false // Reset state
                             passwordToEnableBiometrics = ""
@@ -488,21 +489,21 @@ fun SecuritySettingsScreen(
                             result.cryptoObject?.cipher?.let { cipher ->
                                 if (walletManager.finalizeBiometricEnable(passwordToEnableBiometrics, cipher)) {
                                     biometricEnabled = true
-                                    coroutineScope.launch { snackbarHostState.showSnackbar("Biometric unlock enabled successfully.") }
+                                    coroutineScope.launch { toastHostState.show("Biometric unlock enabled successfully.", net.xian.xianwalletapp.ui.components.ToastType.Success) }
                                 } else {
                                     biometricEnabled = false
-                                    coroutineScope.launch { snackbarHostState.showSnackbar("Failed to finalize biometric setup.") }
+                                    coroutineScope.launch { toastHostState.show("Failed to finalize biometric setup.", net.xian.xianwalletapp.ui.components.ToastType.Error) }
                                 }
                             } ?: run {
                                  biometricEnabled = false
-                                 coroutineScope.launch { snackbarHostState.showSnackbar("Biometric error: Crypto object missing.") }
+                                 coroutineScope.launch { toastHostState.show("Biometric error: Crypto object missing.", net.xian.xianwalletapp.ui.components.ToastType.Error) }
                             }
                             passwordToEnableBiometrics = ""
                         }
 
                         override fun onAuthenticationFailed() {
                             super.onAuthenticationFailed()
-                            coroutineScope.launch { snackbarHostState.showSnackbar("Biometric authentication failed.") }
+                            coroutineScope.launch { toastHostState.show("Biometric authentication failed.", net.xian.xianwalletapp.ui.components.ToastType.Error) }
                             biometricEnabled = false // Reset state
                             passwordToEnableBiometrics = ""
                         }
@@ -553,27 +554,29 @@ fun SecuritySettingsScreen(
                         onClick = {
                             // 1. Verify password
                             val checkKey = walletManager.getPrivateKey(enablePassword)
-
-
                             if (checkKey != null) {
-                                // Password correct - Proceed to Step 2: Biometric Prompt
-                                walletManager.clearPrivateKeyCache() // Clear cache after verification
-                                passwordToEnableBiometrics = enablePassword // Store password temporarily
-                                showEnableBiometricPasswordDialog = false // Close password dialog
+                                // Password correct - proceed to biometric prompt
+                                walletManager.clearPrivateKeyCache()
+                                passwordToEnableBiometrics = enablePassword
+                                showEnableBiometricPasswordDialog = false
 
-                                // Prepare cipher and show biometric prompt
                                 val cipher = walletManager.prepareBiometricEncryption()
-                                // Ensure prompt is not null before authenticating
                                 if (cipher != null && biometricPromptEnable != null) {
-                                    biometricPromptEnable.authenticate(promptInfoEnable, BiometricPrompt.CryptoObject(cipher))
+                                    biometricPromptEnable.authenticate(
+                                        promptInfoEnable,
+                                        BiometricPrompt.CryptoObject(cipher)
+                                    )
                                 } else {
-                                    coroutineScope.launch { snackbarHostState.showSnackbar("Error preparing biometric setup or prompt unavailable.") }
-                                    biometricEnabled = false // Reset toggle if preparation fails or prompt is null
-                                    passwordToEnableBiometrics = "" // Clear password
+                                    coroutineScope.launch {
+                                        toastHostState.show(
+                                            "Error preparing biometric setup or prompt unavailable.",
+                                            net.xian.xianwalletapp.ui.components.ToastType.Error
+                                        )
+                                    }
+                                    biometricEnabled = false
+                                    passwordToEnableBiometrics = ""
                                 }
-
                             } else {
-                                // Password incorrect
                                 enableError = "Invalid password"
                             }
                         }
@@ -607,4 +610,5 @@ fun SecuritySettingsScreen(
         }
 
     }
+        }
 }

@@ -385,6 +385,7 @@ class XianNetworkService private constructor(private val context: Context) {
             val responseBody = response.body?.string() ?: "{}"
             val json = JSONObject(responseBody)
             val base64Value = json.optJSONObject("result")?.optJSONObject("response")?.optString("value")
+            android.util.Log.v("XianNetworkService", "fetchVariable raw base64 ($contract.$variablePath)=$base64Value")
 
             // Check for null or empty ("AA==") response, same as web wallet
             if (base64Value == null || base64Value == "AA==") {
@@ -395,7 +396,20 @@ class XianNetworkService private constructor(private val context: Context) {
             // Decode Base64
             return@withContext try {
                 val decodedBytes = Base64.decode(base64Value, Base64.DEFAULT)
-                String(decodedBytes)
+                val decoded = String(decodedBytes)
+                // Normalizar y validar (descartar valores basura / binarios)
+                val trimmed = decoded.trim()
+                if (trimmed.equals("null", ignoreCase = true) || trimmed.isEmpty()) {
+                    null
+                } else if (!trimmed.all { it.code in 32..126 }) { // sólo ASCII imprimible básico
+                    android.util.Log.d("XianNetworkService", "Discarding non-printable metadata value '$trimmed' for $contract.$variablePath")
+                    null
+                } else if (trimmed.length > 100) { // límite razonable
+                    android.util.Log.d("XianNetworkService", "Discarding too-long metadata value (len=${trimmed.length}) for $contract.$variablePath")
+                    null
+                } else {
+                    trimmed
+                }
             } catch (e: IllegalArgumentException) {
                 android.util.Log.e("XianNetworkService", "Failed to decode Base64 for $variablePath: $base64Value", e)
                 null
@@ -450,6 +464,80 @@ class XianNetworkService private constructor(private val context: Context) {
             android.util.Log.e("XianNetworkService", "Error in getTokenInfo for $contract: ${e.message}", e)
             // Fallback to contract address if any other error occurs
             return@withContext TokenInfo(name = contract, symbol = contract.take(3).uppercase(), contract = contract)
+        }
+    }
+
+    /**
+     * Quick existence check for a contract.
+     * Strategy:
+     * 1. Try fetching at least one metadata variable (token_name). If any metadata returns non-null -> exists.
+     * 2. Else attempt to fetch contract methods via getContractMethods. If list not null/empty -> exists.
+     * 3. If both fail / null -> treat as non-existent.
+     * Returns true only when we have positive evidence it exists.
+     */
+    suspend fun contractExists(contract: String): Boolean = withContext(Dispatchers.IO) {
+        if (contract.isBlank()) return@withContext false
+        if (contract == "currency") return@withContext true
+
+        // Normalizar a minúsculas (según convención vista en otros contratos)
+        val normalized = contract.trim()
+        // Validar patrón básico: empieza por con_ y caracteres válidos
+        val patternOk = normalized.matches(Regex("^con_[a-z0-9_]{2,}$"))
+        if (!patternOk) {
+            android.util.Log.w("XianNetworkService", "contractExists: pattern invalid for '$normalized'")
+            return@withContext false
+        }
+
+        try {
+            // 0. Chequeo rápido simulate_tx balance_of para detectar ModuleNotFoundError
+            val dummyAddress = "0".repeat(64)
+            val payload = JSONObject().apply {
+                put("sender", dummyAddress)
+                put("contract", normalized)
+                put("function", "balance_of")
+                put("kwargs", JSONObject().apply { put("address", dummyAddress) })
+            }
+            val payloadHex = payload.toString().toByteArray().joinToString("") { "%02x".format(it) }
+            val baseUrl = "$rpcUrl/abci_query?path="
+            val pathPart = "\"/simulate_tx/$payloadHex\""
+            val encodedPathPart = java.net.URLEncoder.encode(pathPart, "UTF-8").replace("+", "%20")
+            val simulateUrl = baseUrl + encodedPathPart
+            val simulateResp = client.newCall(Request.Builder().url(simulateUrl).build()).execute()
+            val simulateBody = simulateResp.body?.string() ?: "{}"
+            val simulateJson = try { JSONObject(simulateBody) } catch (_: Exception) { JSONObject("{}") }
+            val simVal = simulateJson.optJSONObject("result")?.optJSONObject("response")?.optString("value")
+            if (!simVal.isNullOrEmpty()) {
+                try {
+                    val decoded = String(Base64.decode(simVal, Base64.DEFAULT))
+                    if (decoded.contains("ModuleNotFoundError") && decoded.contains(normalized)) {
+                        android.util.Log.d("XianNetworkService", "contractExists: simulate_tx indicates NOT FOUND for $normalized")
+                        return@withContext false
+                    }
+                } catch (_: Exception) { /* ignore */ }
+            }
+
+            // 1. Intentar obtener métodos (evidencia fuerte de existencia)
+            val methods = try { getContractMethods(normalized) } catch (e: Exception) { null }
+            if (!methods.isNullOrEmpty()) {
+                android.util.Log.d("XianNetworkService", "contractExists: methods found (${methods.size}) for $normalized")
+                return@withContext true
+            }
+
+            // 2. Metadatos válidos (filtrados por fetchVariable ya sanitizado)
+            val nameMeta = fetchVariable(normalized, "metadata:token_name")
+            val symbolMeta = fetchVariable(normalized, "metadata:token_symbol")
+            val logoMeta = fetchVariable(normalized, "metadata:token_logo_url")
+            val metadataCount = listOf(nameMeta, symbolMeta, logoMeta).count { !it.isNullOrBlank() }
+            if (metadataCount >= 2) { // exigir al menos 2 coincidencias para reducir falsos positivos
+                android.util.Log.d("XianNetworkService", "contractExists: >=2 metadata entries present for $normalized (name=$nameMeta symbol=$symbolMeta logo=$logoMeta)")
+                return@withContext true
+            }
+
+            android.util.Log.d("XianNetworkService", "contractExists: no evidence of existence for $normalized (metadataCount=$metadataCount)")
+            return@withContext false
+        } catch (e: Exception) {
+            android.util.Log.e("XianNetworkService", "contractExists error for $normalized: ${e.message}", e)
+            return@withContext false
         }
     }
 
@@ -2580,6 +2668,43 @@ class XianNetworkService private constructor(private val context: Context) {
                 reserves // Order is already (XWT, XIAN)
             } else {
                 Pair(reserves.second, reserves.first) // Swap to (XWT, XIAN)
+            }
+        } else {
+            null
+        }
+    }
+
+    /**
+     * Fetches the reserve balances for the SLITHER/XIAN pair (con_slither / currency).
+     * @return Pair<Float, Float>? representing (reserve0 (SLITHER), reserve1 (XIAN)), or null if fetching fails.
+     */
+    suspend fun getSlitherPriceInfo(): Pair<Float, Float>? = withContext(Dispatchers.IO) {
+        val allPairs = getAllPairs() // Consider caching this result if called frequently
+        if (allPairs.isEmpty()) {
+            android.util.Log.w("XianNetworkService", "No pairs found, cannot get SLITHER price info.")
+            return@withContext null
+        }
+
+        // Find the SLITHER/XIAN pair (con_slither / currency)
+        val slitherXianPair = allPairs.find {
+            (it.token0 == "con_slither" && it.token1 == "currency") ||
+            (it.token1 == "con_slither" && it.token0 == "currency")
+        }
+
+        if (slitherXianPair == null) {
+            android.util.Log.w("XianNetworkService", "SLITHER/XIAN pair not found in the list of pairs.")
+            return@withContext null
+        }
+
+        android.util.Log.d("XianNetworkService", "Found SLITHER/XIAN pair with ID: ${slitherXianPair.id}")
+        val reserves = getReservesForPair(slitherXianPair.id)
+
+        // Ensure the returned reserves match the expected order (SLITHER, XIAN)
+        return@withContext if (reserves != null) {
+            if (slitherXianPair.token0 == "con_slither") {
+                reserves // Order is already (SLITHER, XIAN)
+            } else {
+                Pair(reserves.second, reserves.first) // Swap to (SLITHER, XIAN)
             }
         } else {
             null
