@@ -10,6 +10,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext // Import LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle // Added import
 // import androidx.compose.material.icons.filled.ArrowBack // Deprecated
@@ -299,11 +301,9 @@ fun ExpandableWalletHeaderCard(
 @Composable
 fun SettingsScreen(
     navController: NavController,
-    walletManager: WalletManager, // Keep walletManager
-    networkService: XianNetworkService, // Keep networkService
-    snackbarHostState: SnackbarHostState, // Add snackbarHostState parameter
-    coroutineScope: CoroutineScope, // Add coroutineScope parameter
-    walletViewModel: net.xian.xianwalletapp.ui.viewmodels.WalletViewModel // Add walletViewModel parameter
+    walletManager: WalletManager,
+    networkService: XianNetworkService,
+    walletViewModel: net.xian.xianwalletapp.ui.viewmodels.WalletViewModel
     // Removed preferredNftContract and walletAddress parameters
     // They are now collected from the WalletManager's flow
 ) {
@@ -311,6 +311,11 @@ fun SettingsScreen(
     var showAboutXian by remember { mutableStateOf(false) } // State to control About Xian visibility
     var isWalletSectionExpanded by remember { mutableStateOf(false) } // Renamed state for clarity
     val context = LocalContext.current // Get context here
+    val clipboardManager = LocalClipboardManager.current
+
+    // Cache Inspector dialog state
+    var showCacheDumpDialog by remember { mutableStateOf(false) }
+    var cacheDumpText by remember { mutableStateOf("") }
 
     // State for Rename Wallet Dialog
     var showRenameDialog by remember { mutableStateOf(false) }
@@ -334,6 +339,9 @@ fun SettingsScreen(
     val activeWalletName = remember(activePublicKey, renameTrigger) {
         walletManager.getActiveWalletName()
     }
+
+    val coroutineScope = rememberCoroutineScope()
+    val toastHostState = net.xian.xianwalletapp.ui.components.rememberToastHostState()
 
     Scaffold(
         topBar = {            if (!showSnakeGame && !showAboutXian) {
@@ -364,11 +372,20 @@ fun SettingsScreen(
                     }
                 )
             }
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        }
     ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            net.xian.xianwalletapp.ui.components.TopToastHost(
+                state = toastHostState,
+                modifier = Modifier.align(Alignment.TopEnd)
+            )
 
-        // Conditionally display the Rename Wallet Dialog
+            // Dialogs & Content inside Box
+            // Conditionally display the Rename Wallet Dialog
         if (showRenameDialog && walletToRenameKey != null) {
             RenameWalletDialog(
                 currentName = currentWalletNameForDialog, // Pass the captured current name
@@ -379,11 +396,7 @@ fun SettingsScreen(
                         renameTrigger++ // Increment trigger on success
                         walletViewModel.refreshActiveWalletName() // Refresh wallet name in main screen immediately
                     }
-                    coroutineScope.launch {
-                        snackbarHostState.showSnackbar(
-                            if (success) "Wallet renamed successfully!" else "Failed to rename wallet."
-                        )
-                    }
+                    coroutineScope.launch { toastHostState.show(if (success) "Wallet renamed successfully!" else "Failed to rename wallet.", if (success) net.xian.xianwalletapp.ui.components.ToastType.Success else net.xian.xianwalletapp.ui.components.ToastType.Error) }
                     showRenameDialog = false
                     // Note: UI should now update due to renameTrigger change
                     // For now, relying on recomposition from state change
@@ -398,19 +411,35 @@ fun SettingsScreen(
                 onDismiss = { showDeleteConfirmDialog = false },
                 onConfirm = {
                     val success = walletManager.deleteWallet(walletToDeleteKey!!)
-                    coroutineScope.launch {
-                        snackbarHostState.showSnackbar(
-                            if (success) "Wallet deleted successfully!" else "Failed to delete wallet."
-                        )
-                    }
+                    coroutineScope.launch { toastHostState.show(if (success) "Wallet deleted successfully!" else "Failed to delete wallet.", if (success) net.xian.xianwalletapp.ui.components.ToastType.Success else net.xian.xianwalletapp.ui.components.ToastType.Error) }
                     showDeleteConfirmDialog = false
                     // The active wallet might change, state flows should handle UI updates
                 }
             )
         }
 
+        // Show NFT Cache Dump dialog when requested
+        if (showCacheDumpDialog) {
+            AlertDialog(
+                onDismissRequest = { showCacheDumpDialog = false },
+                title = { Text("NFT Cache Dump") },
+                text = {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = cacheDumpText,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showCacheDumpDialog = false }) {
+                        Text("Close")
+                    }
+                }
+            )
+        }
 
-        when {
+    when {
             showAboutXian -> {
                 AboutXianScreen(onBack = { showAboutXian = false })
             }
@@ -422,7 +451,6 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(paddingValues)
                         .padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -476,6 +504,36 @@ fun SettingsScreen(
                         }
                     )
 
+                    // --- Cache Inspector (NFT Images) ---
+                    SettingsMenuItem(
+                        title = "Cache Inspector: Dump NFT Cache Now",
+                        icon = Icons.Default.Info,
+                        onClick = {
+                            coroutineScope.launch {
+                                try {
+                                    val summary = walletViewModel.dumpNftCacheState()
+                                    cacheDumpText = summary
+                                    showCacheDumpDialog = true
+                                    toastHostState.show("NFT cache dump completed", net.xian.xianwalletapp.ui.components.ToastType.Success)
+                                } catch (e: Exception) {
+                                    toastHostState.show("Failed to dump NFT cache: ${e.message}", net.xian.xianwalletapp.ui.components.ToastType.Error)
+                                }
+                            }
+                        }
+                    )
+
+                    SettingsMenuItem(
+                        title = "Cache Inspector: Copy NFT Audit Log Path",
+                        icon = Icons.Default.Edit,
+                        onClick = {
+                            val path = walletViewModel.getNftCacheAuditLogPath()
+                            clipboardManager.setText(AnnotatedString(path))
+                            coroutineScope.launch {
+                                toastHostState.show("Copied log path to clipboard", net.xian.xianwalletapp.ui.components.ToastType.Success)
+                            }
+                        }
+                    )
+
                     SettingsMenuItem(
                         title = "Snake Game",
                         icon = Icons.Default.VideogameAsset,
@@ -493,7 +551,7 @@ fun SettingsScreen(
                                 context.startActivity(intent)
                             } catch (e: Exception) {
                                 coroutineScope.launch { // Use the provided coroutineScope
-                                    snackbarHostState.showSnackbar("Could not open link. Is Telegram installed?")
+                                    toastHostState.show("Could not open link. Is Telegram installed?", net.xian.xianwalletapp.ui.components.ToastType.Error)
                                 }
                             }
                         }
@@ -540,6 +598,7 @@ fun SettingsScreen(
                 } // End of main settings Column
             } // End of else block
         } // End of when block
+        } // Close Box
     } // End Scaffold
 } // End SettingsScreen composable
 
@@ -553,18 +612,18 @@ fun SettingsMenuItem(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp) // Add vertical padding between cards
-            .clickable { onClick() }, // Make the whole card clickable
+            .padding(vertical = 6.dp)
+            .clickable { onClick() },
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface // Match TokenItem background
+            containerColor = MaterialTheme.colorScheme.surface
         )
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 16.dp), // Adjust padding inside the card
+                .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween // Keep arrangement
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
                 text = title,
@@ -572,8 +631,8 @@ fun SettingsMenuItem(
                 fontWeight = FontWeight.Medium
             )
             Icon(
-                imageVector = icon, // Use the provided icon
-                contentDescription = title, // Use title for accessibility
+                imageVector = icon,
+                contentDescription = title,
                 tint = MaterialTheme.colorScheme.primary
             )
         }

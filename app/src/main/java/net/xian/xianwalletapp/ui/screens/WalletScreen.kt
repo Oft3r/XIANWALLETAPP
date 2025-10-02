@@ -75,6 +75,7 @@ import androidx.compose.material.icons.filled.VisibilityOff // For Hide icon
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Eco // Icono de planta/eco para Farm
+import androidx.compose.material.icons.filled.Analytics // Icono para análisis de portafolio
 import androidx.compose.material.icons.filled.Build // Import for Build icon
 import androidx.compose.material.icons.filled.Person // Import Person icon
 import androidx.compose.material.icons.filled.ArrowDropDown // Import for dropdown arrow down
@@ -220,9 +221,12 @@ fun WalletScreen(
     val xtfuPrice by viewModel.xtfuPrice.collectAsStateWithLifecycle() // Collect XTFU price state
     val xarbPrice by viewModel.xarbPrice.collectAsStateWithLifecycle() // Collect XARB price state
     val xwtPrice by viewModel.xwtPrice.collectAsStateWithLifecycle() // Collect XWT price state
+    val slitherPrice by viewModel.slitherPrice.collectAsStateWithLifecycle() // Collect SLITHER price state
     val activeWalletName by viewModel.activeWalletName.collectAsStateWithLifecycle()
     val isBalanceVisible by viewModel.isBalanceVisible.collectAsStateWithLifecycle()
     val selectedCardBackground by viewModel.selectedCardBackground.collectAsStateWithLifecycle()
+    // Portfolio snapshot for consistent total value
+    val portfolioSnapshot by viewModel.portfolioSnapshot.collectAsStateWithLifecycle()
     
     // Special handling for XIAN price - only load once at startup, not during refresh
     // Store the first non-null price we receive
@@ -266,7 +270,9 @@ fun WalletScreen(
     var newTokenContract by remember { mutableStateOf("") }
     var showSnackbar by remember { mutableStateOf(false) }
     var snackbarMessage by remember { mutableStateOf("") }
-    val snackbarHostState = remember { SnackbarHostState() }
+    // Replace snackbar with custom toast host
+    // val snackbarHostState = remember { SnackbarHostState() }
+    val toastHostState = net.xian.xianwalletapp.ui.components.rememberToastHostState()
     // Removed isEditMode state - now using separate Manage tab
     
     // State for Local Activity
@@ -477,8 +483,8 @@ fun WalletScreen(
                     }
                 }
             )
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+    },
+    // snackbarHost removed; custom TopToastHost overlay used instead
         // Remove floatingActionButton parameter here
         bottomBar = {
             AnimatedVisibility(
@@ -493,6 +499,12 @@ fun WalletScreen(
             }
         }) { paddingValues ->
         Box(modifier = Modifier.fillMaxSize()) {
+            // Top overlay for toasts
+            net.xian.xianwalletapp.ui.components.TopToastHost(
+                state = toastHostState,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+            )
             SwipeRefresh(
                 state = swipeRefreshState, // Usar el estado personalizado
                 onRefresh = {
@@ -599,39 +611,13 @@ fun WalletScreen(
                         Spacer(modifier = Modifier.height(20.dp))
                         
                         // Calculate total balance across all tokens
-                        if (staticXianPrice == null) {
+                        if (staticXianPrice == null || portfolioSnapshot == null) {
                             SmallBouncingDotsLoader(
                                 modifier = Modifier.size(24.dp),
                                 dotColor = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         } else {
-                            // Calculate total balance using:
-                            // 1. XIAN: amount × price
-                            // 2. POOP: amount × price in XIAN × XIAN price
-                            // 3. XTFU: amount × price in XIAN × XIAN price
-                            // 4. USDC: direct USD value
-                              // Store delegated properties in local variables to avoid smart cast issues
-                            val currentXianPrice = staticXianPrice ?: 0f
-                            val currentPoopPrice = poopPrice
-                            val currentXtfuPrice = xtfuPrice
-                            val currentXarbPrice = xarbPrice
-                            val currentXwtPrice = xwtPrice
-                              val xianUsdValue = balanceMap["currency"]?.let { it * currentXianPrice } ?: 0f
-                            val poopUsdValue = if (currentPoopPrice != null && balanceMap["con_poop_coin"] != null) {
-                                balanceMap["con_poop_coin"]!! * currentPoopPrice * currentXianPrice
-                            } else 0f
-                            val xtfuUsdValue = if (currentXtfuPrice != null && balanceMap["con_xtfu"] != null) {
-                                balanceMap["con_xtfu"]!! * currentXtfuPrice * currentXianPrice
-                            } else 0f
-                            val xarbUsdValue = if (currentXarbPrice != null && balanceMap["con_xarb"] != null) {
-                                balanceMap["con_xarb"]!! * currentXarbPrice * currentXianPrice
-                            } else 0f
-                            val xwtUsdValue = if (currentXwtPrice != null && balanceMap["con_xwt"] != null) {
-                                balanceMap["con_xwt"]!! * currentXwtPrice * currentXianPrice
-                            } else 0f
-                            val usdcValue = balanceMap["con_usdc"] ?: 0f // Direct USD value
-                            
-                            val totalBalance = xianUsdValue + poopUsdValue + xtfuUsdValue + xarbUsdValue + xwtUsdValue + usdcValue
+                            val totalBalance = portfolioSnapshot?.totalUsd ?: 0f
 
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
@@ -665,7 +651,7 @@ fun WalletScreen(
                                     .clickable {
                                         clipboardManager.setText(AnnotatedString(address))
                                         coroutineScope.launch {
-                                            snackbarHostState.showSnackbar("Address copied to clipboard")
+                                            toastHostState.show("Address copied to clipboard", net.xian.xianwalletapp.ui.components.ToastType.Success)
                                         }
                                     }
                                     .padding(vertical = 4.dp, horizontal = 16.dp),
@@ -777,6 +763,26 @@ fun WalletScreen(
                             text = "Farming",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurface // Adjusted color for outside card
+                        )
+                    }
+
+                    // Analysis Option - New button
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.clickable {
+                            navController.navigate(XianDestinations.PORTFOLIO_ANALYSIS)
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Analytics,
+                            contentDescription = "Portfolio Analysis",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Analysis",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }
@@ -950,17 +956,10 @@ fun WalletScreen(
                                 var lastTokensScrollOffset by remember { mutableStateOf(0) }
                                 val tokensListState = rememberLazyListState()
                                 
-                                // Scroll behavior effect for tokens list
+                                // Keep bottom bar always visible on Tokens tab; only track indices
                                 LaunchedEffect(tokensListState.firstVisibleItemIndex, tokensListState.firstVisibleItemScrollOffset) {
                                     val index = tokensListState.firstVisibleItemIndex
                                     val offset = tokensListState.firstVisibleItemScrollOffset
-                                    if (index > lastTokensScrollIndex || (index == lastTokensScrollIndex && offset > lastTokensScrollOffset + 10)) {
-                                        // Scroll down (hide bottom bar)
-                                        if (showBottomBar) showBottomBar = false
-                                    } else if (index < lastTokensScrollIndex || (index == lastTokensScrollIndex && offset < lastTokensScrollOffset - 10)) {
-                                        // Scroll up (show bottom bar)
-                                        if (!showBottomBar) showBottomBar = true
-                                    }
                                     lastTokensScrollIndex = index
                                     lastTokensScrollOffset = offset
                                 }
@@ -983,6 +982,7 @@ fun WalletScreen(
                                             xtfuPrice = if (contract == "con_xtfu") xtfuPrice else null, // Pasar el precio de XTFU
                                             xarbPrice = if (contract == "con_xarb") xarbPrice else null, // Pasar el precio de XARB
                                             xwtPrice = if (contract == "con_xwt") xwtPrice else null, // Pasar el precio de XWT
+                                            slitherPrice = if (contract == "con_slither") slitherPrice else null, // Pass SLITHER price
                                             imageLoader = viewModel.getImageLoader(), // Pass the custom image loader
                                             balanceVisible = isBalanceVisible, // Pass balance visibility state
                                             onSendClick = {
@@ -1029,16 +1029,10 @@ fun WalletScreen(
                             val totalItems = nftList.size + ownedXnsNames.size
 
                             val collectiblesGridState = rememberLazyGridState()
+                            // Keep bottom bar always visible on Items tab; only track indices
                             LaunchedEffect(collectiblesGridState.firstVisibleItemIndex, collectiblesGridState.firstVisibleItemScrollOffset) {
                                 val index = collectiblesGridState.firstVisibleItemIndex
                                 val offset = collectiblesGridState.firstVisibleItemScrollOffset
-                                if (index > lastCollectiblesScrollIndex || (index == lastCollectiblesScrollIndex && offset > lastCollectiblesScrollOffset + 10)) {
-                                    // Scroll hacia abajo (usuario baja la lista)
-                                    if (showBottomBar) showBottomBar = false
-                                } else if (index < lastCollectiblesScrollIndex || (index == lastCollectiblesScrollIndex && offset < lastCollectiblesScrollOffset - 10)) {
-                                    // Scroll hacia arriba (usuario sube la lista)
-                                    if (!showBottomBar) showBottomBar = true
-                                }
                                 lastCollectiblesScrollIndex = index
                                 lastCollectiblesScrollOffset = offset
                             }
@@ -1055,6 +1049,7 @@ fun WalletScreen(
                                 items(nftList) { nft: NftCacheEntity -> // Keep explicit type
                                     NftItem(
                                         nftInfo = nft,
+                                        imageLoader = viewModel.getNftImageLoader(),
                                         onViewClick = { url: String? -> // Add explicit type for url
                                             url?.let { urlString: String -> // Explicitly type 'urlString'
                                                 try {
@@ -1064,14 +1059,14 @@ fun WalletScreen(
                                                     navController.navigate("${XianDestinations.WEB_BROWSER}?url=$encodedUrl")
                                                 } catch (e: Exception) {
                                                     coroutineScope.launch {
-                                                        snackbarHostState.showSnackbar("Could not open URL: Invalid format")
+                                                        toastHostState.show("Could not open URL: Invalid format", net.xian.xianwalletapp.ui.components.ToastType.Error)
                                                         Log.e("WalletScreen", "Error encoding or navigating to URL: $urlString", e)
                                                     }
                                                 }
                                             } ?: run {
                                                 // Handle case where URL is null, if necessary
                                                 coroutineScope.launch {
-                                                    snackbarHostState.showSnackbar("Cannot open: URL is missing")
+                                                    toastHostState.show("Cannot open: URL is missing", net.xian.xianwalletapp.ui.components.ToastType.Error)
                                                 }
                                             }
                                         }
@@ -1103,16 +1098,10 @@ fun WalletScreen(
                         var lastActivityScrollIndex by remember { mutableStateOf(0) }
                         var lastActivityScrollOffset by remember { mutableStateOf(0) }
                         val activityListState = rememberLazyListState()
+                        // Keep bottom bar always visible on Activity tab; only track indices
                         LaunchedEffect(activityListState.firstVisibleItemIndex, activityListState.firstVisibleItemScrollOffset) {
                             val index = activityListState.firstVisibleItemIndex
                             val offset = activityListState.firstVisibleItemScrollOffset
-                            if (index > lastActivityScrollIndex || (index == lastActivityScrollIndex && offset > lastActivityScrollOffset + 10)) {
-                                // Scroll down (hide bar)
-                                if (showBottomBar) showBottomBar = false
-                            } else if (index < lastActivityScrollIndex || (index == lastActivityScrollIndex && offset < lastActivityScrollOffset - 10)) {
-                                // Scroll up (show bar)
-                                if (!showBottomBar) showBottomBar = true
-                            }
                             lastActivityScrollIndex = index
                             lastActivityScrollOffset = offset
                         }
@@ -1263,6 +1252,7 @@ fun WalletScreen(
                                             AsyncImage(
                                                 model = when {
                                                     token.contract == "con_xarb" -> "file:///android_asset/xarb.jpg"
+                                                    token.contract == "con_slither" -> R.drawable.sss
                                                     else -> token.logoUrl
                                                 },
                                                 imageLoader = viewModel.getImageLoader(), // Use the custom image loader
@@ -1338,6 +1328,7 @@ fun TokenItem(
     xtfuPrice: Float? = null, // Añadir precio de XTFU en XIAN
     xarbPrice: Float? = null, // Añadir precio de XARB en XIAN
     xwtPrice: Float? = null, // Añadir precio de XWT en XIAN
+    slitherPrice: Float? = null, // Add SLITHER price parameter
     imageLoader: ImageLoader, // Add ImageLoader parameter
     balanceVisible: Boolean, // Add balance visibility parameter
     onSendClick: () -> Unit,
@@ -1373,6 +1364,7 @@ fun TokenItem(
                 "con_xtfu" -> xtfuPrice
                 "con_xarb" -> xarbPrice
                 "con_xwt" -> xwtPrice
+                "con_slither" -> slitherPrice
                 else -> null
             },
             imageLoader = imageLoader, // Pass down the loader
@@ -1538,6 +1530,7 @@ fun SwipeableTokenCard(
                         model = when {
                             contract == "con_xarb" -> "file:///android_asset/xarb.jpg"
                             contract == "con_xwt" -> R.drawable.xwtlogo
+                            contract == "con_slither" -> R.drawable.sss
                             else -> logoUrl
                         },
                         imageLoader = imageLoader, // Use the custom image loader

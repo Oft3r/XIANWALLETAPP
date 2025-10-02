@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import net.xian.xianwalletapp.R
 import net.xian.xianwalletapp.data.db.NftCacheEntity
 import coil.compose.AsyncImage
+import coil.ImageLoader
 
 /**
  * Composable for displaying an NFT item card
@@ -30,8 +31,9 @@ import coil.compose.AsyncImage
 @Composable
 fun NftItem(
     nftInfo: NftCacheEntity,
+    imageLoader: ImageLoader,
     onViewClick: (String?) -> Unit
-) {    
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -59,6 +61,7 @@ fun NftItem(
                     .placeholder(R.drawable.ic_launcher_foreground)
                     .fallback(R.drawable.ic_launcher_background)
                     .build(),
+                imageLoader = imageLoader,
                 contentDescription = nftInfo.name,
                 modifier = Modifier
                     .height(120.dp)
@@ -67,10 +70,19 @@ fun NftItem(
                 contentScale = ContentScale.Crop,
                 placeholder = painterResource(id = R.drawable.ic_launcher_foreground),
                 error = painterResource(id = R.drawable.ic_launcher_background),
-                onLoading = { 
-                    // Se podría mostrar un indicador de progreso aquí si se desea
+                onLoading = {
+                    android.util.Log.d("NftItem", "Loading NFT image: ${nftInfo.imageUrl}")
                 },
-                onError = { 
+                onSuccess = {
+                    val res = it.result
+                    val w = res.drawable?.intrinsicWidth
+                    val h = res.drawable?.intrinsicHeight
+                    android.util.Log.d(
+                        "NftItem",
+                        "Loaded NFT image: url=${nftInfo.imageUrl}, source=${res.dataSource}, size=${w}x${h}"
+                    )
+                },
+                onError = {
                     // Log el error pero continúa mostrando la imagen de error
                     android.util.Log.e("NftItem", "Error loading image: ${nftInfo.imageUrl}", it.result.throwable)
                 }

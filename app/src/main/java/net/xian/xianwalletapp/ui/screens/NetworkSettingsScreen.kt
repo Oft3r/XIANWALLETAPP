@@ -20,15 +20,19 @@ import net.xian.xianwalletapp.ui.theme.xianButtonColors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
+// Added for toast state
+import net.xian.xianwalletapp.ui.components.TopToastHost
+import net.xian.xianwalletapp.ui.components.rememberToastHostState
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NetworkSettingsScreen(
     navController: NavController,
     walletManager: WalletManager,
     networkService: XianNetworkService,
-    snackbarHostState: SnackbarHostState,
-    coroutineScope: CoroutineScope // Pass CoroutineScope for launching coroutines
-) {
+    ) {
+    val coroutineScope = rememberCoroutineScope()
+    val toastHostState = rememberToastHostState()
     var rpcUrl by remember { mutableStateOf(walletManager.getRpcUrl()) }
     var explorerUrl by remember { mutableStateOf(walletManager.getExplorerUrl()) }
     var showSaveDialog by remember { mutableStateOf(false) }
@@ -62,15 +66,21 @@ fun NetworkSettingsScreen(
                 }
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) } // Use the passed snackbarHostState
+    snackbarHost = { /* Removed snackbarHost */ }
     ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+        Box(modifier = Modifier
+            .fillMaxSize()
+            .padding(paddingValues)) {
+            TopToastHost(
+                state = toastHostState,
+                modifier = Modifier.align(Alignment.TopEnd)
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
             // RPC URL field
             OutlinedTextField(
                 value = rpcUrl,
@@ -118,6 +128,7 @@ fun NetworkSettingsScreen(
             ) {
                 Text("Reset to Default")
             }
+            }
         }
 
         // Save confirmation dialog
@@ -134,9 +145,7 @@ fun NetworkSettingsScreen(
                             networkService.setRpcUrl(rpcUrl)
                             networkService.setExplorerUrl(explorerUrl)
                             showSaveDialog = false
-                            coroutineScope.launch {
-                                snackbarHostState.showSnackbar("Settings saved")
-                            }
+                coroutineScope.launch { toastHostState.show("Settings saved", net.xian.xianwalletapp.ui.components.ToastType.Success) }
                         },
                         colors = xianButtonColors(XianButtonType.PRIMARY)
                     ) {
@@ -166,9 +175,7 @@ fun NetworkSettingsScreen(
                             explorerUrl = "https://explorer.xian.org" // Default Explorer
                             // Note: We only update the local state here. User needs to click Save to persist.
                             showResetDialog = false
-                            coroutineScope.launch {
-                                snackbarHostState.showSnackbar("Fields reset to default. Click Save to apply.")
-                            }
+                coroutineScope.launch { toastHostState.show("Fields reset to default. Click Save to apply.", net.xian.xianwalletapp.ui.components.ToastType.Info) }
                         },
                         colors = xianButtonColors(XianButtonType.SECONDARY)
                     ) {

@@ -33,6 +33,7 @@ object XianDestinations {
     const val WEB_BROWSER = "web_browser"
     const val SWAP = "swap"
     const val STAKING = "staking"
+    const val PORTFOLIO_ANALYSIS = "portfolio_analysis"
     const val ADVANCED = "advanced"
     const val NEWS = "news"
     const val SETTINGS = "settings"

@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -179,8 +178,7 @@ fun XianWalletApp(
     activity: MainActivity // Add MainActivity parameter for lifecycle management
 ) {
     val navController = rememberNavController()
-    val snackbarHostState = remember { SnackbarHostState() } // Hoist SnackbarHostState
-    val coroutineScope = rememberCoroutineScope() // Hoist CoroutineScope
+    // Removed global SnackbarHostState and coroutineScope since custom toast system is used per-screen
     var startDestination by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
     var requirePasswordVerification by remember { mutableStateOf(false) }
@@ -458,7 +456,17 @@ fun XianWalletApp(
             )
         }
         
-        composable(XianDestinations.SETTINGS) {
+        composable(XianDestinations.PORTFOLIO_ANALYSIS) {
+            PortfolioAnalysisScreen(
+                navController = navController,
+                navigationViewModel = viewModel(
+                    factory = NavigationViewModelFactory(SavedStateHandle())
+                ),
+                walletViewModel = walletViewModel
+            )
+        }
+        
+    composable(XianDestinations.SETTINGS) {
             // SettingsScreen now collects active wallet state directly from WalletManager
             // No need to pass walletAddress or preferredNftContract as parameters anymore
             // val walletAddress = walletManager.getActiveWalletPublicKey() // No longer needed here
@@ -469,20 +477,14 @@ fun XianWalletApp(
                 navController = navController,
                 walletManager = walletManager,
                 networkService = networkService,
-                snackbarHostState = snackbarHostState, // Pass hoisted state
-                coroutineScope = coroutineScope, // Pass hoisted scope
-                walletViewModel = walletViewModel // Add walletViewModel parameter
-                // Removed preferredNftContract parameter
-                // Removed walletAddress parameter
+                walletViewModel = walletViewModel
             )
         }
 
         composable(XianDestinations.SETTINGS_SECURITY) {
             SecuritySettingsScreen(
                 navController = navController,
-                walletManager = walletManager,
-                snackbarHostState = snackbarHostState, // Pass hoisted state
-                coroutineScope = coroutineScope // Pass hoisted scope
+                walletManager = walletManager
             )
         }
 
@@ -490,9 +492,7 @@ fun XianWalletApp(
             NetworkSettingsScreen(
                 navController = navController,
                 walletManager = walletManager,
-                networkService = networkService,
-                snackbarHostState = snackbarHostState, // Pass hoisted state
-                coroutineScope = coroutineScope // Pass hoisted scope
+                networkService = networkService
             )
         }
 

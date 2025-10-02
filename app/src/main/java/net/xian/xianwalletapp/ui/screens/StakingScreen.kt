@@ -24,6 +24,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.ui.draw.rotate
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -93,13 +94,33 @@ fun StakingScreen(
     var userBalance by remember { mutableStateOf(0.0) } // XIAN balance for main staking
     var userXwtBalance by remember { mutableStateOf(0.0) } // XWT balance for Farm 1
     
-    LaunchedEffect(Unit) {
-        navigationViewModel.syncSelectedItemWithRoute("staking")
-        // Get user's XIAN balance
+    // Function to refresh user balances
+    suspend fun refreshUserBalances() {
         val publicKey = walletManager.getPublicKey()
         if (publicKey != null) {
             userBalance = networkService.getTokenBalance("currency", publicKey).toDouble()
             userXwtBalance = networkService.getTokenBalance("con_xwt", publicKey).toDouble()
+        }
+    }
+    
+    LaunchedEffect(Unit) {
+        navigationViewModel.syncSelectedItemWithRoute("staking")
+        refreshUserBalances()
+    }
+    
+    // Auto-refresh balances when staking info changes (after successful transactions)
+    LaunchedEffect(uiState.stakingInfo.userStaked, uiState.stakingInfo.userRewards, uiState.stakingInfo.totalStaked) {
+        // Skip initial load
+        if (uiState.stakingInfo.totalStaked > 0) {
+            refreshUserBalances()
+        }
+    }
+    
+    // Auto-refresh balances when farm info changes (after successful transactions)
+    LaunchedEffect(farmOneState.info.userStaked, farmOneState.info.userTotalRewards, farmOneState.info.totalStaked) {
+        // Skip initial load
+        if (farmOneState.info.totalStaked > 0) {
+            refreshUserBalances()
         }
     }
 
@@ -169,9 +190,13 @@ fun StakingScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = { 
+                        onClick = {
                             stakingViewModel.loadStakingInfo()
                             farmOneViewModel.loadFarmInfo()
+                            // Also refresh user balances when manually refreshing
+                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                                refreshUserBalances()
+                            }
                         }
                     ) {
                         Icon(

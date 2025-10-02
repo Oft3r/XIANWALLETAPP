@@ -7,6 +7,11 @@ plugins {
 }
 
 android {
+    // Read OpenRouter API key from gradle.properties or environment variable (define early so it's available to defaultConfig)
+    val openrouterKey = providers.gradleProperty("OPENROUTER_API_KEY").orNull
+        ?: System.getenv("OPENROUTER_API_KEY")
+        ?: ""
+
     namespace = "net.xian.xianwalletapp"
     compileSdk = 35
 
@@ -14,8 +19,8 @@ android {
         applicationId = "net.xian.xianwalletapp"
         minSdk = 26
         targetSdk = 35
-        versionCode = 55 // Cambia este valor al nuevo código de versión
-        versionName = "1.9" // Cambia este valor a la nueva versión
+        versionCode = 61 // Cambia este valor al nuevo código de versión
+        versionName = "2.1.4" // Cambia este valor a la nueva versión
 
         // Aquí configuras el nombre del APK
         setProperty("archivesBaseName", "Xian Wallet-$versionName")
@@ -31,6 +36,9 @@ android {
                 arguments += listOf("-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON")
             }
         }
+
+        // Expose OpenRouter key to runtime (can be empty if not configured)
+        buildConfigField("String", "OPENROUTER_API_KEY", "\"$openrouterKey\"")
     }
 
     buildTypes {
@@ -57,6 +65,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     lint {
         abortOnError = false

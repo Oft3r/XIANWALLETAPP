@@ -208,6 +208,13 @@ class TokenPriceRepository @Inject constructor(
                         Pair(price, 0f) // Por ahora sin cambio porcentual
                     }
                 }
+                "con_slither" -> {
+                    val priceInfo = networkService.getSlitherPriceInfo()
+                    priceInfo?.let { (reserve0_slither, reserve1_xian) ->
+                        val price = if (reserve0_slither != 0f) reserve1_xian / reserve0_slither else 0f
+                        Pair(price, 0f) // Por ahora sin cambio porcentual
+                    }
+                }
                 else -> {
                     Log.w(TAG, "Unknown contract for price fetch: $contract")
                     null

@@ -100,7 +100,7 @@ class TransactionMonitorWorker(
 
     private fun showTransactionNotification(transaction: net.xian.xianwalletapp.data.LocalTransactionRecord) {
         val channelId = "wallet_activity"
-        
+
         // Create an intent to open MainActivity when the notification is tapped
         val intent = android.content.Intent(applicationContext, net.xian.xianwalletapp.MainActivity::class.java)
         intent.flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -110,39 +110,26 @@ class TransactionMonitorWorker(
             intent,
             android.app.PendingIntent.FLAG_UPDATE_CURRENT or (if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) android.app.PendingIntent.FLAG_IMMUTABLE else 0)
         )
-        
-        // Format the transaction details
-        val title = if (transaction.type == "Sent") "Transaction Sent" else "Transaction Received"
-        val amountFormatted = try {
-            String.format("%.2f", transaction.amount.toDouble())
-        } catch (e: NumberFormatException) {
-            transaction.amount
+
+        // Map to redesigned notification without exposing transaction hash
+        val rawType = when {
+            transaction.type.lowercase().startsWith("sent") -> "Sent"
+            transaction.type.lowercase().startsWith("receiv") -> "Received"
+            transaction.type.lowercase().startsWith("swap") -> "Swapped"
+            else -> "Interacted"
         }
-        val sign = if (transaction.type == "Sent") "-" else "+"
-        val amount = "$sign$amountFormatted ${transaction.symbol}"
-        
-        val otherPartyAddress = if (transaction.type == "Sent") transaction.recipient else transaction.sender
-        val addressLabel = if (transaction.type == "Sent") "To" else "From"
-        val addressDisplay = otherPartyAddress?.let { address ->
-            "$addressLabel: ${address.take(8)}...${address.takeLast(6)}"
-        } ?: ""
-        
-        val txDisplay = "TX: ${transaction.txHash.take(8)}...${transaction.txHash.takeLast(6)}"
-        
-        // Format timestamp
-        val formatter = java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm")
-            .withZone(java.time.ZoneId.systemDefault())
-        val timeDisplay = formatter.format(java.time.Instant.ofEpochMilli(transaction.timestamp))
-        
-        NotificationUtils.showTransactionNotification(
-            applicationContext,
-            channelId,
-            title,
-            amount,
-            addressDisplay,
-            txDisplay,
-            timeDisplay,
-            pendingIntent
+
+        val otherPartyAddress = if (rawType == "Sent") transaction.recipient else transaction.sender
+
+        net.xian.xianwalletapp.workers.NotificationUtils.showRedesignedTransactionNotification(
+            context = applicationContext,
+            channelId = channelId,
+            rawType = rawType,
+            amount = transaction.amount, // raw amount; formatting handled inside
+            symbol = transaction.symbol,
+            otherPartyAddress = otherPartyAddress,
+            timestampMillis = transaction.timestamp,
+            pendingIntent = pendingIntent
         )
     }
 }

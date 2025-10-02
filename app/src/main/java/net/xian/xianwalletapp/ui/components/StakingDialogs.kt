@@ -13,8 +13,44 @@ import androidx.compose.ui.unit.sp
 import net.xian.xianwalletapp.ui.theme.XianPrimary
 import net.xian.xianwalletapp.ui.theme.XianPrimaryText
 import net.xian.xianwalletapp.ui.theme.XianSecondaryText
+import java.math.BigDecimal
 
 // Replaced simple PasswordTextField with reusable component that supports visibility toggle (see PasswordTextField.kt)
+
+// --- Truncation Utilities (no rounding) ---
+private fun truncateDecimalString(value: String?, scale: Int): String {
+    if (value.isNullOrBlank()) return "0".let { if (scale > 0) it + "." + "0".repeat(scale) else it }
+    // Use BigDecimal for safety; fallback to original string if parsing fails
+    return try {
+        // Normalize via BigDecimal to remove scientific notation, then manually truncate
+        val bd = value.trim().let { BigDecimal(it) }
+        val plain = bd.stripTrailingZeros().toPlainString()
+        val parts = plain.split('.')
+        if (parts.size == 1) {
+            // No decimal part
+            if (scale == 0) parts[0] else parts[0] + "." + "0".repeat(scale)
+        } else {
+            val intPart = parts[0]
+            val fracPart = parts[1]
+            val truncatedFrac = if (fracPart.length >= scale) fracPart.substring(0, scale) else fracPart + "0".repeat(scale - fracPart.length)
+            if (scale == 0) intPart else intPart + "." + truncatedFrac
+        }
+    } catch (e: Exception) {
+        // Fallback: naive manual approach without BigDecimal
+        val raw = value.trim()
+        val dotIndex = raw.indexOf('.')
+        if (dotIndex == -1) {
+            if (scale == 0) raw else raw + "." + "0".repeat(scale)
+        } else {
+            val intPart = raw.substring(0, dotIndex)
+            val fracPart = raw.substring(dotIndex + 1)
+            val truncatedFrac = if (fracPart.length >= scale) fracPart.substring(0, scale) else fracPart + "0".repeat(scale - fracPart.length)
+            if (scale == 0) intPart else intPart + "." + truncatedFrac
+        }
+    }
+}
+
+private fun truncateToInteger(value: Double): String = truncateDecimalString(value.toString(), 0)
 
 @Composable
 fun StakeDialog(
@@ -78,7 +114,7 @@ fun StakeDialog(
                             fontSize = 12.sp
                         )
                         TextButton(
-                            onClick = { amount = maxAmount.toString() }
+                            onClick = { amount = truncateToInteger(maxAmount) }
                         ) {
                             Text("Max", color = XianPrimary)
                         }
@@ -199,7 +235,7 @@ fun UnstakeDialog(
                             fontSize = 12.sp
                         )
                         TextButton(
-                            onClick = { amount = maxAmount.toString() }
+                            onClick = { amount = truncateToInteger(maxAmount) }
                         ) {
                             Text("Max", color = XianPrimary)
                         }
