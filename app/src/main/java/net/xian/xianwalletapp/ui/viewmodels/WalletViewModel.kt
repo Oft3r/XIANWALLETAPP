@@ -45,6 +45,7 @@ import net.xian.xianwalletapp.data.LocalTransactionRecord // For transaction his
 import net.xian.xianwalletapp.data.TransactionRepository // For transaction history
 import net.xian.xianwalletapp.data.TokenPriceRepository // For price caching
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.map
 // Imports para Vico Chart
 import com.patrykandpatrick.vico.core.entry.ChartEntryModelProducer
 import com.patrykandpatrick.vico.core.entry.entryOf
@@ -133,7 +134,7 @@ class WalletViewModel(
         PredefinedToken(
             name = "Slither Token",
             contract = "con_slither",
-            logoUrl = null, // Will use drawable resource instead for local image
+            logoUrl = "drawable://sss", // Reference to local sss.png drawable
             symbol = "SSS"
         )
         // Add more predefined tokens here as needed
@@ -162,6 +163,29 @@ class WalletViewModel(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
+        )
+
+    // Cached balances Flow (cache-first) scoped to active public key.
+    // Emits last known balances from Room immediately and updates as cache/network writes occur.
+    val cachedBalances: StateFlow<Map<String, Float>> = _publicKeyFlow
+        .flatMapLatest { key ->
+            if (key.isNotEmpty()) {
+                tokenCacheDao
+                    .getActiveTokensWithBalances(key)
+                    .map { list ->
+                        // Only use balances that were fetched at least once (timestamp > 0)
+                        list
+                            .filter { it.balanceLastUpdated > 0L }
+                            .associate { it.contract to it.cachedBalance }
+                    }
+            } else {
+                flowOf(emptyMap())
+            }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyMap()
         )
 
     // --- Cached Price State Flows (Cache-First Pattern) ---
@@ -434,6 +458,29 @@ class WalletViewModel(
         // Ensure the initial public key state is set correctly
         _publicKeyFlow.value = walletManager.getActiveWalletPublicKey() ?: ""
         _activeWalletName.value = walletManager.getActiveWalletName() // Initialize active wallet name
+
+        // Apply cached balances to UI immediately (cache-first) and keep them in sync with DB
+        viewModelScope.launch {
+            cachedBalances.collect { cacheMap ->
+                try {
+                    if (cacheMap.isNotEmpty()) {
+                        val currentTokens = _tokens.value.toSet()
+                        val filtered = cacheMap.filterKeys { it in currentTokens }
+                        val previous = _balanceMap.value
+                        if (filtered.any { (k, v) -> previous[k] != v }) {
+                            val merged = previous.toMutableMap()
+                            merged.putAll(filtered)
+                            _balanceMap.value = merged
+                            Log.d("WalletViewModel", "Applied cached balances to UI: ${filtered.size} tokens")
+                        }
+                    } else {
+                        Log.d("WalletViewModel", "No cached balances with timestamps to apply")
+                    }
+                } catch (e: Exception) {
+                    Log.e("WalletViewModel", "Error applying cached balances", e)
+                }
+            }
+        }
         
         // Cargar información adicional de los tokens predefinidos (logos, etc)
         loadPredefinedTokensInfo()

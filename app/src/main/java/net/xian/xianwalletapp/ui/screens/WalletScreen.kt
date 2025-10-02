@@ -956,17 +956,10 @@ fun WalletScreen(
                                 var lastTokensScrollOffset by remember { mutableStateOf(0) }
                                 val tokensListState = rememberLazyListState()
                                 
-                                // Scroll behavior effect for tokens list
+                                // Keep bottom bar always visible on Tokens tab; only track indices
                                 LaunchedEffect(tokensListState.firstVisibleItemIndex, tokensListState.firstVisibleItemScrollOffset) {
                                     val index = tokensListState.firstVisibleItemIndex
                                     val offset = tokensListState.firstVisibleItemScrollOffset
-                                    if (index > lastTokensScrollIndex || (index == lastTokensScrollIndex && offset > lastTokensScrollOffset + 10)) {
-                                        // Scroll down (hide bottom bar)
-                                        if (showBottomBar) showBottomBar = false
-                                    } else if (index < lastTokensScrollIndex || (index == lastTokensScrollIndex && offset < lastTokensScrollOffset - 10)) {
-                                        // Scroll up (show bottom bar)
-                                        if (!showBottomBar) showBottomBar = true
-                                    }
                                     lastTokensScrollIndex = index
                                     lastTokensScrollOffset = offset
                                 }
@@ -1036,16 +1029,10 @@ fun WalletScreen(
                             val totalItems = nftList.size + ownedXnsNames.size
 
                             val collectiblesGridState = rememberLazyGridState()
+                            // Keep bottom bar always visible on Items tab; only track indices
                             LaunchedEffect(collectiblesGridState.firstVisibleItemIndex, collectiblesGridState.firstVisibleItemScrollOffset) {
                                 val index = collectiblesGridState.firstVisibleItemIndex
                                 val offset = collectiblesGridState.firstVisibleItemScrollOffset
-                                if (index > lastCollectiblesScrollIndex || (index == lastCollectiblesScrollIndex && offset > lastCollectiblesScrollOffset + 10)) {
-                                    // Scroll hacia abajo (usuario baja la lista)
-                                    if (showBottomBar) showBottomBar = false
-                                } else if (index < lastCollectiblesScrollIndex || (index == lastCollectiblesScrollIndex && offset < lastCollectiblesScrollOffset - 10)) {
-                                    // Scroll hacia arriba (usuario sube la lista)
-                                    if (!showBottomBar) showBottomBar = true
-                                }
                                 lastCollectiblesScrollIndex = index
                                 lastCollectiblesScrollOffset = offset
                             }
@@ -1111,16 +1098,10 @@ fun WalletScreen(
                         var lastActivityScrollIndex by remember { mutableStateOf(0) }
                         var lastActivityScrollOffset by remember { mutableStateOf(0) }
                         val activityListState = rememberLazyListState()
+                        // Keep bottom bar always visible on Activity tab; only track indices
                         LaunchedEffect(activityListState.firstVisibleItemIndex, activityListState.firstVisibleItemScrollOffset) {
                             val index = activityListState.firstVisibleItemIndex
                             val offset = activityListState.firstVisibleItemScrollOffset
-                            if (index > lastActivityScrollIndex || (index == lastActivityScrollIndex && offset > lastActivityScrollOffset + 10)) {
-                                // Scroll down (hide bar)
-                                if (showBottomBar) showBottomBar = false
-                            } else if (index < lastActivityScrollIndex || (index == lastActivityScrollIndex && offset < lastActivityScrollOffset - 10)) {
-                                // Scroll up (show bar)
-                                if (!showBottomBar) showBottomBar = true
-                            }
                             lastActivityScrollIndex = index
                             lastActivityScrollOffset = offset
                         }
@@ -1271,6 +1252,7 @@ fun WalletScreen(
                                             AsyncImage(
                                                 model = when {
                                                     token.contract == "con_xarb" -> "file:///android_asset/xarb.jpg"
+                                                    token.contract == "con_slither" -> R.drawable.sss
                                                     else -> token.logoUrl
                                                 },
                                                 imageLoader = viewModel.getImageLoader(), // Use the custom image loader
@@ -1548,6 +1530,7 @@ fun SwipeableTokenCard(
                         model = when {
                             contract == "con_xarb" -> "file:///android_asset/xarb.jpg"
                             contract == "con_xwt" -> R.drawable.xwtlogo
+                            contract == "con_slither" -> R.drawable.sss
                             else -> logoUrl
                         },
                         imageLoader = imageLoader, // Use the custom image loader

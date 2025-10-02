@@ -629,6 +629,7 @@ fun TokenDetailScreen(
                         AsyncImage(
                             model = when {
                                 tokenContract == "con_xarb" -> "file:///android_asset/xarb.jpg"
+                                tokenContract == "con_slither" -> R.drawable.sss
                                 else -> logoUrl
                             },
                             contentDescription = "$tokenName Logo",

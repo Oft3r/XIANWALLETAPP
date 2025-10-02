@@ -390,6 +390,7 @@ private fun AddedTokenItem(
                     contract == "con_xarb" -> "file:///android_asset/xarb.jpg"
                     contract == "con_xtfu" -> "https://snakexchange.org/icons/con_xtfu.png"
                     contract == "con_xwt" -> R.drawable.xwtlogo
+                    contract == "con_slither" -> R.drawable.sss
                     else -> logoUrl
                 },
                 imageLoader = viewModel.getImageLoader(), // Use the cached image loader
@@ -497,6 +498,7 @@ private fun AvailableTokenItem(
                     token.contract == "con_xarb" -> "file:///android_asset/xarb.jpg"
                     token.contract == "con_xtfu" -> "https://snakexchange.org/icons/con_xtfu.png"
                     token.contract == "con_xwt" -> R.drawable.xwtlogo
+                    token.contract == "con_slither" -> R.drawable.sss
                     else -> token.logoUrl
                 },
                 imageLoader = viewModel.getImageLoader(), // Use the cached image loader

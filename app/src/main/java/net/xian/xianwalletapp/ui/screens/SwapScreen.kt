@@ -78,7 +78,7 @@ fun getTokenLogo(contract: String): Any? {
         "con_xwt" -> R.drawable.xwtlogo
         "con_xtfu" -> "https://snakexchange.org/icons/con_xtfu.png"
         "con_poop_coin" -> "https://emojiisland.com/cdn/shop/products/Poop_Emoji_7b204f05-eec6-4496-91b1-351acc03d2c7_large.png"
-        "con_slither" -> "https://snakexchange.org/icons/con_slither.png"
+        "con_slither" -> R.drawable.sss
         "con_usdc" -> "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png"
         else -> R.drawable.ic_question_mark
     }
@@ -416,6 +416,8 @@ fun SwapScreen(
             fromToken == "con_xarb" && toToken == "currency" -> xarbPrice
             fromToken == "currency" && toToken == "con_xwt" -> xwtPrice?.let { 1f / it }
             fromToken == "con_xwt" && toToken == "currency" -> xwtPrice
+            fromToken == "currency" && toToken == "con_slither" -> slitherPrice?.let { 1f / it }
+            fromToken == "con_slither" && toToken == "currency" -> slitherPrice
             else -> null
         }
         
@@ -438,6 +440,9 @@ fun SwapScreen(
             
             (fromToken == "currency" && toToken == "con_xwt") ||
             (fromToken == "con_xwt" && toToken == "currency") -> 20000f // Medium-low liquidity
+            
+            (fromToken == "currency" && toToken == "con_slither") ||
+            (fromToken == "con_slither" && toToken == "currency") -> 18000f // Medium-low liquidity
             
             else -> 10000f // Default small pool
         }
@@ -745,7 +750,7 @@ fun SwapScreen(
             if (swapResult.success) {
                 swapProgress = 1f
                 swapStatusMessage = "Swap completed successfully!"
-                errorMessage = "Swap completed successfully! Transaction: ${swapResult.txHash}"
+                errorMessage = "Swap completed successfully!"
                 // Refresh balances
                 viewModel.refreshData()
                 // Clear form
@@ -1367,7 +1372,12 @@ fun SwapScreen(
             // Error message
             errorMessage?.let { message ->
                 LaunchedEffect(message) {
-                    toastHostState.show(message, net.xian.xianwalletapp.ui.components.ToastType.Error)
+                    val toastType = if (message.contains("Swap completed successfully")) {
+                        net.xian.xianwalletapp.ui.components.ToastType.Success
+                    } else {
+                        net.xian.xianwalletapp.ui.components.ToastType.Error
+                    }
+                    toastHostState.show(message, toastType)
                     errorMessage = null
                 }
             }
