@@ -5,7 +5,6 @@ import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import net.xian.xianwalletapp.BuildConfig
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -38,13 +37,13 @@ object OpenRouterService {
     suspend fun chatCompletion(
         systemPrompt: String,
         userPrompt: String,
+        apiKey: String,
         model: String = "openrouter/auto",
         temperature: Float = 0.7f,
         topP: Float = 0.9f
     ): String = withContext(Dispatchers.IO) {
-        val apiKey = BuildConfig.OPENROUTER_API_KEY ?: ""
         if (apiKey.isBlank()) {
-            throw IllegalStateException("Missing OpenRouter API key. Provide OPENROUTER_API_KEY in gradle.properties or environment.")
+            throw IllegalStateException("Missing OpenRouter API key. Please set it in Settings.")
         }
 
         val payload = ChatRequest(

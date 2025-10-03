@@ -68,12 +68,12 @@ class FaviconCacheManager(private val context: Context) {
 
     /**
      * Gets the cached favicon URL for a given website URL.
-     * Consider normalizing websiteUrl if consistency is needed (e.g., removing trailing slashes).
+     * Tries exact key first, then a normalized key (host-based) to avoid mismatch issues.
      */
     fun getFaviconUrl(websiteUrl: String): String? {
-        // Example normalization (optional, implement based on how URLs are stored/fetched):
-        // val normalizedKey = normalizeUrlForCache(websiteUrl)
-        return memoryCache[websiteUrl] // Use original or normalized key
+        memoryCache[websiteUrl]?.let { return it }
+        val normalizedKey = normalizeUrlForCache(websiteUrl)
+        return memoryCache[normalizedKey]
     }
 
     /**
@@ -81,14 +81,17 @@ class FaviconCacheManager(private val context: Context) {
      * Consider normalizing websiteUrl if consistency is needed.
      */
     suspend fun saveFaviconUrl(websiteUrl: String, faviconUrl: String) {
-        // Example normalization (optional):
-        // val normalizedKey = normalizeUrlForCache(websiteUrl)
-        val keyToSave = websiteUrl // Use original or normalized key
-
-        if (memoryCache[keyToSave] != faviconUrl) {
-            memoryCache[keyToSave] = faviconUrl
-            saveCacheToFile() // Save changes asynchronously
+        val normalizedKey = normalizeUrlForCache(websiteUrl)
+        var changed = false
+        if (memoryCache[websiteUrl] != faviconUrl) {
+            memoryCache[websiteUrl] = faviconUrl
+            changed = true
         }
+        if (memoryCache[normalizedKey] != faviconUrl) {
+            memoryCache[normalizedKey] = faviconUrl
+            changed = true
+        }
+        if (changed) saveCacheToFile() // Save changes asynchronously
     }
 
      /**
@@ -117,9 +120,16 @@ class FaviconCacheManager(private val context: Context) {
         }
     }
 
-    // Optional: Helper function for URL normalization if needed
-    // private fun normalizeUrlForCache(url: String): String {
-    //     // Implement normalization logic (e.g., lowercase, remove trailing slash, etc.)
-    //     return url.trim().lowercase().removeSuffix("/")
-    // }
+    // Helper function to normalize URL to a stable cache key (lowercased host, optionally scheme)
+    private fun normalizeUrlForCache(url: String): String {
+        return try {
+            val trimmed = url.trim()
+            val withScheme = if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) trimmed else "https://$trimmed"
+            val u = java.net.URL(withScheme)
+            // Key by host only — favicons are typically per-site, not per-path
+            u.host.lowercase()
+        } catch (_: Exception) {
+            url.trim().lowercase().removeSuffix("/")
+        }
+    }
 }

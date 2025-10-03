@@ -41,6 +41,9 @@ import net.xian.xianwalletapp.ui.viewmodels.WalletViewModelFactory // Import Wal
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.layout.Box
+import net.xian.xianwalletapp.ui.components.GlobalBrowserBubblesOverlay
+import net.xian.xianwalletapp.ui.viewmodels.BrowserOverlayViewModel
 import kotlinx.coroutines.delay
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
@@ -190,6 +193,8 @@ fun XianWalletApp(
     val walletViewModel: WalletViewModel = viewModel(
         factory = WalletViewModelFactory(context, walletManager, networkService)
     )
+    // Shared overlay ViewModel for browser bubbles
+    val browserOverlayViewModel: BrowserOverlayViewModel = viewModel()
     // Determine start destination based on whether a wallet exists and if password is required
     LaunchedEffect(Unit) {
         delay(3000) // Extended delay for splash screen effect to allow complete app initialization
@@ -285,11 +290,12 @@ fun XianWalletApp(
         }
     }
     
-    // Register composable screens
-    NavHost(
-        navController = navController,
-        startDestination = if (isLoading) XianDestinations.SPLASH else startDestination
-    ) {
+    // Register composable screens within a Box so we can overlay global UI
+    Box(modifier = Modifier.fillMaxSize()) {
+        NavHost(
+            navController = navController,
+            startDestination = if (isLoading) XianDestinations.SPLASH else startDestination
+        ) {
         // Add a password verification route
         composable(XianDestinations.PASSWORD_VERIFICATION) {
             PasswordVerificationScreen(
@@ -418,7 +424,8 @@ fun XianWalletApp(
                 walletManager = walletManager, // Pass existing instance
                 networkService = networkService, // Pass existing instance
                 faviconCacheManager = faviconCacheManager, // Pass FaviconCacheManager instance
-                initialUrl = initialUrl // Pass the extracted URL
+                initialUrl = initialUrl, // Pass the extracted URL
+                browserOverlayViewModel = browserOverlayViewModel
             )
         }
           composable(XianDestinations.ADVANCED) {
@@ -496,6 +503,14 @@ fun XianWalletApp(
             )
         }
 
+        // AI Analysis Settings screen
+        composable(XianDestinations.SETTINGS_AI) {
+            AiSettingsScreen(
+                navController = navController,
+                walletManager = walletManager
+            )
+        }
+
         // Card Background Selector screen
         composable(XianDestinations.CARD_BACKGROUND_SELECTOR) {
             CardBackgroundSelectorScreen(
@@ -525,5 +540,13 @@ fun XianWalletApp(
                 }
             )
         }
+        }
+
+        // Global overlay for browser bubbles (visible on all screens)
+        GlobalBrowserBubblesOverlay(
+            navController = navController,
+            viewModel = browserOverlayViewModel,
+            faviconCacheManager = faviconCacheManager
+        )
     }
 }

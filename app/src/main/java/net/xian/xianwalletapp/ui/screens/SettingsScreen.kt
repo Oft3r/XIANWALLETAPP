@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack // Use Auto
 import androidx.compose.material.icons.automirrored.filled.Send // Use AutoMirrored
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.NetworkCheck
+import androidx.compose.material.icons.filled.Analytics
 // import androidx.compose.material.icons.filled.ChevronRight // Optional, can be added later if needed
 import androidx.compose.material.icons.filled.VideogameAsset
 import androidx.compose.material.icons.filled.Info
@@ -53,6 +54,7 @@ import net.xian.xianwalletapp.network.XianNetworkService
 import net.xian.xianwalletapp.wallet.WalletManager
 import kotlinx.coroutines.CoroutineScope // Add CoroutineScope import
 import kotlinx.coroutines.launch
+import net.xian.xianwalletapp.ui.components.PasswordTextField
 
 // Helper function moved outside composables
 private fun summarizeAddress(address: String?): String {
@@ -313,9 +315,7 @@ fun SettingsScreen(
     val context = LocalContext.current // Get context here
     val clipboardManager = LocalClipboardManager.current
 
-    // Cache Inspector dialog state
-    var showCacheDumpDialog by remember { mutableStateOf(false) }
-    var cacheDumpText by remember { mutableStateOf("") }
+    // Cache Inspector dialog state (removed feature)
 
     // State for Rename Wallet Dialog
     var showRenameDialog by remember { mutableStateOf(false) }
@@ -418,26 +418,7 @@ fun SettingsScreen(
             )
         }
 
-        // Show NFT Cache Dump dialog when requested
-        if (showCacheDumpDialog) {
-            AlertDialog(
-                onDismissRequest = { showCacheDumpDialog = false },
-                title = { Text("NFT Cache Dump") },
-                text = {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = cacheDumpText,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { showCacheDumpDialog = false }) {
-                        Text("Close")
-                    }
-                }
-            )
-        }
+        // Removed NFT Cache Dump dialog
 
     when {
             showAboutXian -> {
@@ -504,34 +485,12 @@ fun SettingsScreen(
                         }
                     )
 
-                    // --- Cache Inspector (NFT Images) ---
-                    SettingsMenuItem(
-                        title = "Cache Inspector: Dump NFT Cache Now",
-                        icon = Icons.Default.Info,
-                        onClick = {
-                            coroutineScope.launch {
-                                try {
-                                    val summary = walletViewModel.dumpNftCacheState()
-                                    cacheDumpText = summary
-                                    showCacheDumpDialog = true
-                                    toastHostState.show("NFT cache dump completed", net.xian.xianwalletapp.ui.components.ToastType.Success)
-                                } catch (e: Exception) {
-                                    toastHostState.show("Failed to dump NFT cache: ${e.message}", net.xian.xianwalletapp.ui.components.ToastType.Error)
-                                }
-                            }
-                        }
-                    )
+                    // Removed Cache Inspector category entries
 
                     SettingsMenuItem(
-                        title = "Cache Inspector: Copy NFT Audit Log Path",
-                        icon = Icons.Default.Edit,
-                        onClick = {
-                            val path = walletViewModel.getNftCacheAuditLogPath()
-                            clipboardManager.setText(AnnotatedString(path))
-                            coroutineScope.launch {
-                                toastHostState.show("Copied log path to clipboard", net.xian.xianwalletapp.ui.components.ToastType.Success)
-                            }
-                        }
+                        title = "AI Analysis Settings",
+                        icon = Icons.Default.Analytics,
+                        onClick = { navController.navigate(XianDestinations.SETTINGS_AI) }
                     )
 
                     SettingsMenuItem(

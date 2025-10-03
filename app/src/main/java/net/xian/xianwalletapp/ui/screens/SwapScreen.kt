@@ -115,6 +115,13 @@ fun SwapScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var swapRate by remember { mutableStateOf<Float?>(null) }
     var priceImpact by remember { mutableStateOf<Float?>(null) }
+    // Routed (two-leg) preview state
+    var isRouted by remember { mutableStateOf(false) }
+    var routedLeg1Rate by remember { mutableStateOf<Float?>(null) }    // 1 From = XIAN
+    var routedLeg2Rate by remember { mutableStateOf<Float?>(null) }    // 1 XIAN = To
+    var routedLeg1Impact by remember { mutableStateOf<Float?>(null) }
+    var routedLeg2Impact by remember { mutableStateOf<Float?>(null) }
+    var routedXianOut by remember { mutableStateOf<Float?>(null) }
     var showPasswordDialog by remember { mutableStateOf(false) }
     var password by remember { mutableStateOf("") }
     var isPairValid by remember { mutableStateOf(true) }
@@ -392,15 +399,24 @@ fun SwapScreen(
         Triple("con_slither", "SSS", "Slither Token")
     )
     
-    // Function to validate if a trading pair exists
+    // Function to validate if a direct trading pair exists
     fun isValidTradingPair(fromToken: String, toToken: String): Boolean {
-        // Valid pairs are only between currency and other tokens (no token-to-token swaps)
+        // Valid direct pairs are only between XIAN (currency) and other tokens
         return when {
             fromToken == "currency" && toToken in listOf("con_usdc", "con_poop_coin", "con_xtfu", "con_xarb", "con_xwt", "con_slither") -> true
             toToken == "currency" && fromToken in listOf("con_usdc", "con_poop_coin", "con_xtfu", "con_xarb", "con_xwt", "con_slither") -> true
             else -> false
         }
     }
+
+    // Determine if we can route a token-to-token swap via XIAN as intermediary
+    fun canRouteViaXian(fromToken: String, toToken: String): Boolean {
+        if (fromToken == "currency" || toToken == "currency") return false
+        // Route is possible if both tokens have valid pairs with XIAN
+        return isValidTradingPair(fromToken, "currency") && isValidTradingPair("currency", toToken)
+    }
+
+    // Placeholder: estimateRoutedAmountViaXian is declared after calculatePriceImpact
     
     // Helper function to calculate price impact based on trade size and available liquidity
     fun calculatePriceImpact(tradeAmount: Float, fromToken: String, toToken: String): Float {
@@ -485,25 +501,123 @@ fun SwapScreen(
         return adjustedImpact.coerceAtMost(25f)
     }
 
-    // Calculate swap preview and validate pair
+    // Estimate routed output (A -> XIAN -> C), returning Pair(amountOut, priceImpactApprox)
+    fun estimateRoutedAmountViaXian(amountIn: Float, fromToken: String, toToken: String): Pair<Float?, Float?> {
+        // First leg: fromToken -> XIAN
+        val priceToXian = when (fromToken) {
+            "con_usdc" -> xianPrice?.let { 1f / it }
+            "con_poop_coin" -> poopPrice
+            "con_xtfu" -> xtfuPrice
+            "con_xarb" -> xarbPrice
+            "con_xwt" -> xwtPrice
+            "con_slither" -> slitherPrice
+            else -> null
+        }
+
+        if (priceToXian == null) return Pair(null, null)
+
+        val impact1 = calculatePriceImpact(amountIn, fromToken, "currency")
+        val xianReceived = (amountIn * (priceToXian as Float)) * (1f - (impact1 / 100f))
+
+        // Second leg: XIAN -> toToken
+        val priceFromXian = when (toToken) {
+            "con_usdc" -> xianPrice
+            "con_poop_coin" -> poopPrice?.let { 1f / it }
+            "con_xtfu" -> xtfuPrice?.let { 1f / it }
+            "con_xarb" -> xarbPrice?.let { 1f / it }
+            "con_xwt" -> xwtPrice?.let { 1f / it }
+            "con_slither" -> slitherPrice?.let { 1f / it }
+            else -> null
+        }
+
+        if (priceFromXian == null) return Pair(null, null)
+        val priceFromXianF = priceFromXian as Float
+
+        val impact2 = calculatePriceImpact(xianReceived, "currency", toToken)
+        val finalOut = (xianReceived * priceFromXianF) * (1f - (impact2 / 100f))
+
+        val combinedImpact = (impact1 + impact2).coerceAtMost(25f)
+        return Pair(finalOut, combinedImpact)
+    }
+
+    // Calculate swap preview and validate pair (including routing via XIAN when needed)
     LaunchedEffect(fromAmount, fromTokenContract, toTokenContract) {
-        // First validate the trading pair
-        if (!isValidTradingPair(fromTokenContract, toTokenContract)) {
+        val directValid = isValidTradingPair(fromTokenContract, toTokenContract)
+        val routedValid = !directValid && canRouteViaXian(fromTokenContract, toTokenContract)
+
+        if (!directValid && !routedValid) {
             isPairValid = false
-            pairWarningMessage = "Trading pair not available. Only swaps between XIAN and other tokens are supported."
+            pairWarningMessage = "No direct pair. This swap route is unavailable."
             toAmount = ""
             swapRate = null
             priceImpact = null
             return@LaunchedEffect
-        } else {
-            isPairValid = true
-            pairWarningMessage = null
+        }
+
+        isPairValid = true
+        pairWarningMessage = if (routedValid) "No direct pair. Routing via XIAN automatically." else null
+        isRouted = routedValid
+        if (!routedValid) {
+            routedLeg1Rate = null
+            routedLeg2Rate = null
+            routedLeg1Impact = null
+            routedLeg2Impact = null
+            routedXianOut = null
         }
         
         if (fromAmount.isNotEmpty() && fromAmount.toFloatOrNull() != null) {
             // Simple swap rate calculation based on available prices
             val amount = fromAmount.toFloat()
             when {
+                // Routed preview: A -> XIAN -> C
+                routedValid -> {
+                    // Compute per-leg preview
+                    val leg1Rate = when (fromTokenContract) {
+                        "con_usdc" -> xianPrice?.let { 1f / it }
+                        "con_poop_coin" -> poopPrice
+                        "con_xtfu" -> xtfuPrice
+                        "con_xarb" -> xarbPrice
+                        "con_xwt" -> xwtPrice
+                        "con_slither" -> slitherPrice
+                        else -> null
+                    }
+                    val leg2Rate = when (toTokenContract) {
+                        "con_usdc" -> xianPrice
+                        "con_poop_coin" -> poopPrice?.let { 1f / it }
+                        "con_xtfu" -> xtfuPrice?.let { 1f / it }
+                        "con_xarb" -> xarbPrice?.let { 1f / it }
+                        "con_xwt" -> xwtPrice?.let { 1f / it }
+                        "con_slither" -> slitherPrice?.let { 1f / it }
+                        else -> null
+                    }
+
+                    if (leg1Rate != null && leg2Rate != null) {
+                        val imp1 = calculatePriceImpact(amount, fromTokenContract, "currency")
+                        val xianOut = (amount * leg1Rate) * (1f - (imp1 / 100f))
+
+                        val imp2 = calculatePriceImpact(xianOut, "currency", toTokenContract)
+                        val finalOut = (xianOut * leg2Rate) * (1f - (imp2 / 100f))
+
+                        routedLeg1Rate = leg1Rate
+                        routedLeg2Rate = leg2Rate
+                        routedLeg1Impact = imp1
+                        routedLeg2Impact = imp2
+                        routedXianOut = xianOut
+
+                        toAmount = "%.6f".format(Locale.US, finalOut)
+                        swapRate = null
+                        priceImpact = (imp1 + imp2).coerceAtMost(25f)
+                    } else {
+                        toAmount = ""
+                        swapRate = null
+                        priceImpact = null
+                        routedLeg1Rate = null
+                        routedLeg2Rate = null
+                        routedLeg1Impact = null
+                        routedLeg2Impact = null
+                        routedXianOut = null
+                    }
+                }
                 fromTokenContract == "currency" && toTokenContract == "con_usdc" -> {
                     xianPrice?.let { price ->
                         val baseAmount = amount * price
@@ -650,16 +764,78 @@ fun SwapScreen(
     }
     
     /**
-     * Performs the two-step swap process:
-     * 1. Approve tokens for the DEX contract
-     * 2. Execute the swap via the con_oswap contract
+     * Perform a single swap leg: token_in -> token_out
+     */
+    suspend fun performSingleSwap(
+        privateKey: ByteArray,
+        tokenIn: String,
+        tokenOut: String,
+        amountIn: Double,
+        slippage: Double,
+        progressBase: Float,
+        statusPrefix: String
+    ): Boolean {
+        // Approve amountIn * 1.1 to con_oswap
+        swapProgress = progressBase
+        swapStatusMessage = "$statusPrefix: Preparing approval..."
+
+        val approveKwargs = JSONObject().apply {
+            put("amount", amountIn * 1.1)
+            put("to", "con_oswap")
+        }
+
+        swapProgress = (progressBase + 0.1f).coerceAtMost(0.95f)
+        swapStatusMessage = "$statusPrefix: Approving tokens..."
+
+        val approveResult = networkService.sendTransaction(
+            contract = tokenIn,
+            method = "approve",
+            kwargs = approveKwargs,
+            privateKey = privateKey,
+            stampLimit = 50000
+        )
+
+        if (!approveResult.success) {
+            errorMessage = "Failed to approve $tokenIn: ${approveResult.errors ?: "Unknown error"}"
+            return false
+        }
+
+        swapStatusMessage = "$statusPrefix: Waiting for approval..."
+        kotlinx.coroutines.delay(1500)
+
+        swapStatusMessage = "$statusPrefix: Swapping..."
+        val swapKwargs = JSONObject().apply {
+            put("token_in", tokenIn)
+            put("token_out", tokenOut)
+            put("amount_in", amountIn)
+            put("slippage", slippage)
+            put("deadline_min", 2.0)
+        }
+
+        val swapResult = networkService.sendTransaction(
+            contract = "con_oswap",
+            method = "swap",
+            kwargs = swapKwargs,
+            privateKey = privateKey,
+            stampLimit = 100000
+        )
+
+        if (!swapResult.success) {
+            errorMessage = "Swap $tokenIn -> $tokenOut failed: ${swapResult.errors ?: "Unknown error"}"
+            return false
+        }
+        return true
+    }
+
+    /**
+     * Performs swap. If no direct pair, route via XIAN automatically.
      */
     suspend fun performSwap(password: String?) {
         try {
             isLoading = true
             swapProgress = 0f
             swapStatusMessage = "Initiating swap..."
-            
+
             val amount = fromAmount.toDoubleOrNull()
             if (amount == null || amount <= 0) {
                 errorMessage = "Invalid amount"
@@ -693,73 +869,93 @@ fun SwapScreen(
             // Ensure keyToUse is non-null before proceeding
             val finalPrivateKey = keyToUse ?: throw IllegalStateException("Private key acquisition failed unexpectedly.")
             
-            swapProgress = 0.2f
-            swapStatusMessage = "Preparing token approval..."
-            
-            // Calculate amount with 10% extra for approval
-            val approvalAmount = amount * 1.1
-            
-            // Step 1: Approve tokens for the DEX contract
-            val approveKwargs = JSONObject().apply {
-                put("amount", approvalAmount)
-                put("to", "con_oswap")
-            }
-            
-            swapProgress = 0.4f
-            swapStatusMessage = "Approving tokens..."
-            
-            val approveResult = networkService.sendTransaction(
-                contract = fromTokenContract,
-                method = "approve",
-                kwargs = approveKwargs,
-                privateKey = finalPrivateKey,
-                stampLimit = 50000
-            )
-            
-            if (!approveResult.success) {
-                errorMessage = "Failed to approve tokens: ${approveResult.errors ?: "Unknown error"}"
-                return
-            }
-            
-            swapProgress = 0.6f
-            swapStatusMessage = "Waiting for approval confirmation..."
-            
-            // Wait a moment for the approval to be processed
-            kotlinx.coroutines.delay(2000)
-            
-            swapProgress = 0.8f
-            swapStatusMessage = "Executing swap..."
-            
-            // Step 2: Execute the swap
-            val swapKwargs = JSONObject().apply {
-                put("token_in", fromTokenContract)
-                put("token_out", toTokenContract)
-                put("amount_in", amount)
-                put("slippage", selectedSlippage) // Use selected slippage
-                put("deadline_min", 2.0) // 2 minutes deadline
-            }
-            
-            val swapResult = networkService.sendTransaction(
-                contract = "con_oswap",
-                method = "swap",
-                kwargs = swapKwargs,
-                privateKey = finalPrivateKey,
-                stampLimit = 100000
-            )
-            
-            if (swapResult.success) {
+            val directValid = isValidTradingPair(fromTokenContract, toTokenContract)
+            val routedValid = !directValid && canRouteViaXian(fromTokenContract, toTokenContract)
+
+            if (directValid) {
+                // Single-leg swap
+                val ok = performSingleSwap(
+                    privateKey = finalPrivateKey,
+                    tokenIn = fromTokenContract,
+                    tokenOut = toTokenContract,
+                    amountIn = amount,
+                    slippage = selectedSlippage,
+                    progressBase = 0.2f,
+                    statusPrefix = "Swap"
+                )
+                if (!ok) return
                 swapProgress = 1f
                 swapStatusMessage = "Swap completed successfully!"
                 errorMessage = "Swap completed successfully!"
-                // Refresh balances
                 viewModel.refreshData()
-                // Clear form
+                fromAmount = ""
+                toAmount = ""
+            } else if (routedValid) {
+                // Two-leg routed swap via XIAN
+                val intermediary = "currency"
+
+                // Snapshot XIAN balance before
+                val walletAddress = walletManager.getPublicKey() ?: ""
+                val preXianBalanceStr = getPreciseTokenBalance(intermediary, walletAddress)
+                    ?: balanceMap[intermediary]?.toString()
+                val preXian = preXianBalanceStr?.toDoubleOrNull() ?: 0.0
+
+                // First leg: from -> XIAN
+                val ok1 = performSingleSwap(
+                    privateKey = finalPrivateKey,
+                    tokenIn = fromTokenContract,
+                    tokenOut = intermediary,
+                    amountIn = amount,
+                    slippage = selectedSlippage,
+                    progressBase = 0.1f,
+                    statusPrefix = "Leg 1/2 (${getTokenSymbol(fromTokenContract)}→XIAN)"
+                )
+                if (!ok1) return
+
+                swapProgress = 0.55f
+                swapStatusMessage = "Refreshing balances..."
+                viewModel.refreshData()
+                kotlinx.coroutines.delay(2000)
+
+                // Compute XIAN delta
+                val postXianBalanceStr = getPreciseTokenBalance(intermediary, walletAddress)
+                    ?: balanceMap[intermediary]?.toString()
+                val postXian = postXianBalanceStr?.toDoubleOrNull() ?: preXian
+                var xianDelta = (postXian - preXian).coerceAtLeast(0.0)
+
+                // Reserve fees: keep at least 5 XIAN and 0.001 buffer
+                val availableForLeg2 = (postXian - 5.001).coerceAtLeast(0.0)
+                if (availableForLeg2 <= 0.0) {
+                    errorMessage = "Insufficient XIAN to complete second leg after fees."
+                    return
+                }
+                xianDelta = xianDelta.coerceAtMost(availableForLeg2)
+                if (xianDelta <= 0.0) {
+                    errorMessage = "Could not determine received XIAN for second leg."
+                    return
+                }
+
+                // Second leg: XIAN -> to
+                val ok2 = performSingleSwap(
+                    privateKey = finalPrivateKey,
+                    tokenIn = intermediary,
+                    tokenOut = toTokenContract,
+                    amountIn = xianDelta,
+                    slippage = selectedSlippage,
+                    progressBase = 0.6f,
+                    statusPrefix = "Leg 2/2 (XIAN→${getTokenSymbol(toTokenContract)})"
+                )
+                if (!ok2) return
+
+                swapProgress = 1f
+                swapStatusMessage = "Cross-swap completed successfully!"
+                errorMessage = "Swap completed successfully!"
+                viewModel.refreshData()
                 fromAmount = ""
                 toAmount = ""
             } else {
-                swapProgress = 0f
-                swapStatusMessage = ""
-                errorMessage = "Swap failed: ${swapResult.errors ?: "Unknown error"}"
+                errorMessage = "This swap route is unavailable."
+                return
             }
             
         } catch (e: Exception) {
@@ -1134,8 +1330,8 @@ fun SwapScreen(
                 }
             }
             
-            // Swap rate and price impact display
-            if (swapRate != null && fromAmount.isNotEmpty()) {
+            // Swap rate and price impact display (direct)
+            if (swapRate != null && fromAmount.isNotEmpty() && !isRouted) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1197,6 +1393,133 @@ fun SwapScreen(
                                     color = when {
                                         impact < 1f -> Color.Green
                                         impact < 3f -> Color(0xFFFF9800) // Orange
+                                        else -> Color.Red
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Routed two-leg details (shown when auto-routing via XIAN)
+            if (isRouted && fromAmount.isNotEmpty()) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+                        .border(
+                            width = 1.dp,
+                            color = XianPrimary,
+                            shape = RoundedCornerShape(8.dp)
+                        ),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color.Transparent
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Swap Details (Routed)",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Route line
+                        Text(
+                            text = "Route: $fromTokenSymbol → XIAN → $toTokenSymbol",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+
+                        // Leg 1
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Leg 1: $fromTokenSymbol → XIAN",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(text = "Rate:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text(
+                                text = routedLeg1Rate?.let { "1 $fromTokenSymbol = ${String.format(Locale.US, "%.6f", it)} XIAN" } ?: "--",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(text = "Price Impact:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            val imp1 = routedLeg1Impact
+                            Text(
+                                text = if (imp1 != null) "${String.format(Locale.US, "%.2f", imp1)}%" else "--",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = when {
+                                    imp1 == null -> MaterialTheme.colorScheme.onPrimaryContainer
+                                    imp1 < 1f -> Color.Green
+                                    imp1 < 3f -> Color(0xFFFF9800)
+                                    else -> Color.Red
+                                }
+                            )
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(text = "Est. Out:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text(
+                                text = routedXianOut?.let { "${String.format(Locale.US, "%.6f", it)} XIAN" } ?: "--",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+
+                        // Leg 2
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Leg 2: XIAN → $toTokenSymbol",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(text = "Rate:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text(
+                                text = routedLeg2Rate?.let { "1 XIAN = ${String.format(Locale.US, "%.6f", it)} $toTokenSymbol" } ?: "--",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(text = "Price Impact:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            val imp2 = routedLeg2Impact
+                            Text(
+                                text = if (imp2 != null) "${String.format(Locale.US, "%.2f", imp2)}%" else "--",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = when {
+                                    imp2 == null -> MaterialTheme.colorScheme.onPrimaryContainer
+                                    imp2 < 1f -> Color.Green
+                                    imp2 < 3f -> Color(0xFFFF9800)
+                                    else -> Color.Red
+                                }
+                            )
+                        }
+
+                        // Combined price impact
+                        priceImpact?.let { impact ->
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(text = "Combined Impact:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Text(
+                                    text = "${String.format(Locale.US, "%.2f", impact)}%",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = when {
+                                        impact < 1f -> Color.Green
+                                        impact < 3f -> Color(0xFFFF9800)
                                         else -> Color.Red
                                     }
                                 )

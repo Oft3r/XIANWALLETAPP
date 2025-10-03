@@ -931,7 +931,20 @@ if (haveUsdc < thresholdUsdc) {
                     val cyan = Color(0xFF00E5FF)
                     val isNewAnalysis = aiAnalysisRequested && aiAnalysisResult != null
 
-                    Button(
+                    val hasApiKey = walletManager.getOpenRouterApiKey()?.isNotBlank() == true
+                    if (!hasApiKey) {
+                        OutlinedButton(
+                            onClick = { navController.navigate(net.xian.xianwalletapp.navigation.XianDestinations.SETTINGS_AI) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(
+                                text = "Configure AI (API key missing)",
+                                color = XianPrimary,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    } else Button(
                         onClick = {
                             if (!aiAnalysisRequested) {
                                 // Show fee confirmation modal before starting AI request
@@ -965,7 +978,7 @@ if (haveUsdc < thresholdUsdc) {
                                 contentColor = Color.Black
                             )
                         },
-                        enabled = !isAnalyzing
+                        enabled = !isAnalyzing && hasApiKey
                     ) {
                         if (isAnalyzing) {
                             Row(
@@ -1000,6 +1013,13 @@ if (haveUsdc < thresholdUsdc) {
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall
                         )
+                        val needsKey = aiError?.contains("API key not set") == true
+                        if (needsKey) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            TextButton(onClick = { navController.navigate(net.xian.xianwalletapp.navigation.XianDestinations.SETTINGS_AI) }) {
+                                Text("Open Settings")
+                            }
+                        }
                     }
 
                     // Fee confirmation modal
@@ -1078,15 +1098,23 @@ if (haveUsdc < thresholdUsdc) {
                                                             appendLine("Generate the summary and 3 suggestions now.")
                                                         }
  
-                                                        val content = OpenRouterService.chatCompletion(
-                                                            systemPrompt = systemPrompt,
-                                                            userPrompt = userPrompt,
-                                                            model = "moonshotai/kimi-k2:free",
-                                                            temperature = 0.2f,
-                                                            topP = 0.9f
-                                                        )
-                                                        aiAnalysisResult = content
-                                                        apiSucceeded = true
+                                                        val userApiKey = walletManager.getOpenRouterApiKey()
+                                                        val userModel = walletManager.getOpenRouterModel()
+                                                        if (userApiKey.isNullOrBlank()) {
+                                                            aiError = "OpenRouter API key not set. Please set it in Settings."
+                                                            aiAnalysisResult = generateAIAnalysis(snapshot)
+                                                        } else {
+                                                            val content = OpenRouterService.chatCompletion(
+                                                                systemPrompt = systemPrompt,
+                                                                userPrompt = userPrompt,
+                                                                apiKey = userApiKey,
+                                                                model = userModel,
+                                                                temperature = 0.2f,
+                                                                topP = 0.9f
+                                                            )
+                                                            aiAnalysisResult = content
+                                                            apiSucceeded = true
+                                                        }
                                                     }
                                                 } catch (e: Exception) {
                                                     aiError = e.localizedMessage ?: "Unknown error"
@@ -1232,15 +1260,23 @@ if (showPasswordDialogAi) {
                                                 appendLine("Generate the summary and 3 suggestions now.")
                                             }
 
-                                            val content = OpenRouterService.chatCompletion(
-                                                systemPrompt = systemPrompt,
-                                                userPrompt = userPrompt,
-                                                model = "moonshotai/kimi-k2:free",
-                                                temperature = 0.2f,
-                                                topP = 0.9f
-                                            )
-                                            aiAnalysisResult = content
-                                            apiSucceeded = true
+                                            val userApiKey = walletManager.getOpenRouterApiKey()
+                                            val userModel = walletManager.getOpenRouterModel()
+                                            if (userApiKey.isNullOrBlank()) {
+                                                aiError = "OpenRouter API key not set. Please set it in Settings."
+                                                aiAnalysisResult = generateAIAnalysis(snapshot)
+                                            } else {
+                                                val content = OpenRouterService.chatCompletion(
+                                                    systemPrompt = systemPrompt,
+                                                    userPrompt = userPrompt,
+                                                    apiKey = userApiKey,
+                                                    model = userModel,
+                                                    temperature = 0.2f,
+                                                    topP = 0.9f
+                                                )
+                                                aiAnalysisResult = content
+                                                apiSucceeded = true
+                                            }
                                         }
                                     } catch (e: Exception) {
                                         aiError = e.localizedMessage ?: "Unknown error"

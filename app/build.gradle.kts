@@ -7,10 +7,6 @@ plugins {
 }
 
 android {
-    // Read OpenRouter API key from gradle.properties or environment variable (define early so it's available to defaultConfig)
-    val openrouterKey = providers.gradleProperty("OPENROUTER_API_KEY").orNull
-        ?: System.getenv("OPENROUTER_API_KEY")
-        ?: ""
 
     namespace = "net.xian.xianwalletapp"
     compileSdk = 35
@@ -37,8 +33,7 @@ android {
             }
         }
 
-        // Expose OpenRouter key to runtime (can be empty if not configured)
-        buildConfigField("String", "OPENROUTER_API_KEY", "\"$openrouterKey\"")
+        // No longer exposing OpenRouter key via BuildConfig. Users set it in-app.
     }
 
     buildTypes {
@@ -147,6 +142,7 @@ dependencies {
     // Forzar versión compatible de Google Play Services
     implementation("com.google.android.gms:play-services-mlkit-barcode-scanning:18.3.1")
     implementation("io.coil-kt:coil-compose:2.5.0")
+    implementation("io.coil-kt:coil-svg:2.5.0")
     // HTML Parsing
     implementation("org.jsoup:jsoup:1.17.2")
     implementation("org.slf4j:slf4j-nop:1.7.32") // Add NOP SLF4J implementation for R8

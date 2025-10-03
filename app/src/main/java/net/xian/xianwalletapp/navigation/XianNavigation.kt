@@ -18,6 +18,8 @@ import net.xian.xianwalletapp.wallet.WalletManager // Assuming you need these
 import net.xian.xianwalletapp.network.XianNetworkService // Assuming you need these
 import net.xian.xianwalletapp.data.FaviconCacheManager // Import FaviconCacheManager
 import net.xian.xianwalletapp.ui.viewmodels.WalletViewModel // Import WalletViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
+import net.xian.xianwalletapp.ui.viewmodels.BrowserOverlayViewModel
 /**
  * Navigation routes for the Xian wallet app
  */
@@ -40,6 +42,7 @@ object XianDestinations {
     const val PASSWORD_VERIFICATION = "password_verification"
     const val SETTINGS_SECURITY = "settings_security"
     const val SETTINGS_NETWORK = "settings_network"
+    const val SETTINGS_AI = "settings_ai"
     const val ADDRESS_BOOK = "address_book"
     const val CARD_BACKGROUND_SELECTOR = "card_background_selector"
     // SETTINGS_ABOUT_XIAN destination removed
@@ -172,7 +175,8 @@ fun XianNavGraph(
                 walletManager = walletManager, // Pass the instance from XianNavGraph parameters
                 networkService = networkService, // Pass the instance from XianNavGraph parameters
                 faviconCacheManager = faviconCacheManager, // Pass the cache manager instance
-                initialUrl = initialUrl // Pass the extracted URL
+                initialUrl = initialUrl, // Pass the extracted URL
+                browserOverlayViewModel = viewModel<BrowserOverlayViewModel>()
             )
         }
 
