@@ -29,9 +29,39 @@ Xian Wallet App is a native Android mobile wallet designed to interact with the 
 *   **Additional Functionalities:**
     *   **News:** Integrated news section fetching data from the Xian Reddit community.
     *   **Web Browser:** An in-app web browser for interacting with DApps or websites, integrated with wallet functions via `XianWebViewBridge`.
+    *   **DApp Bubbles:** Minimize any DApp/web page into a draggable floating bubble that stays accessible across all screens. Tap to restore the session instantly.
     *   **Security Settings:** Option to require a password on application startup.
     *   **About Xian:** Screen providing information about the Xian network.
     *   **Snake Game:** A simple integrated Snake game.
+
+## Portfolio Analysis (AI)
+
+Get a clear view of your portfolio's composition, performance, and personalized insights.
+
+- Overview: Total USD value, token allocation pie chart, and a 7-day weighted performance sparkline.
+- Per-token details: Balance, USD value, and percentage weight.
+- Insights: Optional AI-generated "Projection & Recommendations" summarizing trends and actionable suggestions.
+- Access: From the Wallet screen, tap "Portfolio Analysis", or navigate to `portfolio_analysis`.
+
+Requirements and behavior:
+- Minimum balance gate: Requires at least $4.00 USDC equivalent in `XWT` to open the analysis screen.
+- AI fee: Requesting an AI analysis costs $0.04 USDC (paid in `XWT`). The fee is only charged after a successful analysis.
+- API key: Set an OpenRouter API key and preferred model in Settings -> AI. Keys are stored on-device.
+- Models: Defaults to `openrouter/auto`. You can choose other supported models and test your configuration from the Settings screen.
+
+Notes:
+- If no API key is configured or an error occurs, the app falls back to a local summary with conservative guidance.
+- The AI prompt is strictly constrained to your on-screen portfolio (no external tokens are suggested).
+
+## Floating DApp Bubbles
+
+Quickly minimize DApps to continue navigating the app, then restore with a tap.
+
+- Minimize: In the Web Browser options menu, select "Minimize". The current page state is saved.
+- Overlay: A draggable floating bubble (with site icon when available) appears and remains accessible on every screen.
+- Restore: Tap the bubble to reopen the DApp in the Web Browser and continue exactly where you left off.
+- Multiple sessions: You can keep multiple minimized DApps. Each bubble is independently draggable; positions persist during the session.
+- Favicon caching: Favicons are cached to improve recognition and load times.
 
 ## How it Works
 
