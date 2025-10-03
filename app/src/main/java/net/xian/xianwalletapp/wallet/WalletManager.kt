@@ -99,6 +99,10 @@ class WalletManager private constructor(context: Context) {
         private const val KEY_BALANCE_VISIBLE = "balance_visible"
         private const val KEY_SELECTED_CARD_BACKGROUND = "selected_card_background" // Key for balance visibility
 
+        // OpenRouter API settings
+        private const val KEY_OPENROUTER_API_KEY = "openrouter_api_key"
+        private const val KEY_OPENROUTER_MODEL = "openrouter_model"
+
         // DataStore Keys
         private val FAVORITE_XAPPS_KEY = stringPreferencesKey("favorite_xapps_list_datastore") // New key for DataStore
 
@@ -161,6 +165,32 @@ class WalletManager private constructor(context: Context) {
 
     fun setSelectedCardBackground(backgroundName: String?) {
         prefs.edit().putString(KEY_SELECTED_CARD_BACKGROUND, backgroundName).apply()
+    }
+
+    // --- OpenRouter Settings ---
+    fun setOpenRouterApiKey(key: String?) {
+        if (key.isNullOrBlank()) {
+            prefs.edit().remove(KEY_OPENROUTER_API_KEY).apply()
+        } else {
+            prefs.edit().putString(KEY_OPENROUTER_API_KEY, key.trim()).apply()
+        }
+    }
+
+    fun getOpenRouterApiKey(): String? {
+        return prefs.getString(KEY_OPENROUTER_API_KEY, null)
+    }
+
+    fun setOpenRouterModel(model: String?) {
+        if (model.isNullOrBlank()) {
+            prefs.edit().remove(KEY_OPENROUTER_MODEL).apply()
+        } else {
+            prefs.edit().putString(KEY_OPENROUTER_MODEL, model.trim()).apply()
+        }
+    }
+
+    fun getOpenRouterModel(): String {
+        // Keep previous default behavior/model if none saved
+        return prefs.getString(KEY_OPENROUTER_MODEL, "moonshotai/kimi-k2:free") ?: "moonshotai/kimi-k2:free"
     }
 
     private fun loadWalletNames(): MutableMap<String, String> {
