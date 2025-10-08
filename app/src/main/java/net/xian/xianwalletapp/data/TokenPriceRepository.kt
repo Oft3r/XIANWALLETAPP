@@ -215,6 +215,13 @@ class TokenPriceRepository @Inject constructor(
                         Pair(price, 0f) // Por ahora sin cambio porcentual
                     }
                 }
+                "con_big_nig_with_a_cig" -> {
+                    val priceInfo = networkService.getBigNigPriceInfo()
+                    priceInfo?.let { (reserve0_big_nig, reserve1_xian) ->
+                        val price = if (reserve0_big_nig != 0f) reserve1_xian / reserve0_big_nig else 0f
+                        Pair(price, 0f) // Por ahora sin cambio porcentual
+                    }
+                }
                 else -> {
                     Log.w(TAG, "Unknown contract for price fetch: $contract")
                     null

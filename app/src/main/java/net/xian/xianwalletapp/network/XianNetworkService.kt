@@ -2712,6 +2712,43 @@ class XianNetworkService private constructor(private val context: Context) {
     }
 
     /**
+     * Fetches the reserve balances for the BIG_NIG/XIAN pair (con_big_nig_with_a_cig / currency).
+     * @return Pair<Float, Float>? representing (reserve0 (BIG_NIG), reserve1 (XIAN)), or null if fetching fails.
+     */
+    suspend fun getBigNigPriceInfo(): Pair<Float, Float>? = withContext(Dispatchers.IO) {
+        val allPairs = getAllPairs() // Consider caching this result if called frequently
+        if (allPairs.isEmpty()) {
+            android.util.Log.w("XianNetworkService", "No pairs found, cannot get BIG_NIG price info.")
+            return@withContext null
+        }
+
+        // Find the BIG_NIG/XIAN pair (con_big_nig_with_a_cig / currency)
+        val bigNigXianPair = allPairs.find {
+            (it.token0 == "con_big_nig_with_a_cig" && it.token1 == "currency") ||
+            (it.token1 == "con_big_nig_with_a_cig" && it.token0 == "currency")
+        }
+
+        if (bigNigXianPair == null) {
+            android.util.Log.w("XianNetworkService", "BIG_NIG/XIAN pair not found in the list of pairs.")
+            return@withContext null
+        }
+
+        android.util.Log.d("XianNetworkService", "Found BIG_NIG/XIAN pair with ID: ${bigNigXianPair.id}")
+        val reserves = getReservesForPair(bigNigXianPair.id)
+
+        // Ensure the returned reserves match the expected order (BIG_NIG, XIAN)
+        return@withContext if (reserves != null) {
+            if (bigNigXianPair.token0 == "con_big_nig_with_a_cig") {
+                reserves // Order is already (BIG_NIG, XIAN)
+            } else {
+                Pair(reserves.second, reserves.first) // Swap to (BIG_NIG, XIAN)
+            }
+        } else {
+            null
+        }
+    }
+
+    /**
      * Fetches swap events for a specific token pair from GraphQL
      * Used for generating historical price charts
      * @param pairId The pair ID to fetch swap events for

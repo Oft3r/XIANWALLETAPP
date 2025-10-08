@@ -9,16 +9,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDropUp
-import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material3.*
-import net.xian.xianwalletapp.ui.components.TopToastHost
-import net.xian.xianwalletapp.ui.components.ToastType
-import net.xian.xianwalletapp.ui.components.rememberToastHostState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,73 +28,73 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.runtime.snapshotFlow
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
 import net.xian.xianwalletapp.R
-import net.xian.xianwalletapp.ui.viewmodels.WalletViewModel
 import net.xian.xianwalletapp.ui.viewmodels.PredefinedToken
+import net.xian.xianwalletapp.ui.viewmodels.WalletViewModel
+
 // Toast system imports (ToastHostState utilities live elsewhere in project)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ManageTokenList(
-    viewModel: WalletViewModel,
-    onBackClick: () -> Unit,
-    showBottomBar: Boolean,
-    onShowBottomBarChange: (Boolean) -> Unit
+        viewModel: WalletViewModel,
+        onBackClick: () -> Unit,
+        showBottomBar: Boolean,
+        onShowBottomBarChange: (Boolean) -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
     // Replace SnackbarHostState with toast host state
     val toastHostState = rememberToastHostState()
-    
+
     val tokens by viewModel.tokens.collectAsStateWithLifecycle()
     val tokenInfoMap by viewModel.tokenInfoMap.collectAsStateWithLifecycle()
     val predefinedTokens by viewModel.predefinedTokens.collectAsStateWithLifecycle()
-    
+
     var contractAddress by remember { mutableStateOf("") }
     var isVerifying by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
     var textFieldWidthPx by remember { mutableStateOf(0) }
     val density = LocalDensity.current
-    
+
     val listState = rememberLazyListState()
     var lastScrollIndex by remember { mutableStateOf(0) }
     var lastScrollOffset by remember { mutableStateOf(0) }
-    
+
     LaunchedEffect(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
         val index = listState.firstVisibleItemIndex
         val offset = listState.firstVisibleItemScrollOffset
-        if (index > lastScrollIndex || (index == lastScrollIndex && offset > lastScrollOffset + 10)) {
+        if (index > lastScrollIndex || (index == lastScrollIndex && offset > lastScrollOffset + 10)
+        ) {
             // Scroll down (hide bottom bar)
             if (showBottomBar) onShowBottomBarChange(false)
-        } else if (index < lastScrollIndex || (index == lastScrollIndex && offset < lastScrollOffset - 10)) {
+        } else if (index < lastScrollIndex ||
+                        (index == lastScrollIndex && offset < lastScrollOffset - 10)
+        ) {
             // Scroll up (show bottom bar)
             if (!showBottomBar) onShowBottomBarChange(true)
         }
         lastScrollIndex = index
         lastScrollOffset = offset
     }
-    
+
     // Filter predefined tokens to show only those not already added
-    val availableTokens = predefinedTokens.filter { predefined ->
-        !tokens.contains(predefined.contract)
-    }
-    
+    val availableTokens =
+            predefinedTokens.filter { predefined -> !tokens.contains(predefined.contract) }
+
     // Filter added tokens (exclude default tokens as they can't be removed)
     val defaultTokens = setOf("currency", "con_xwt")
     val addedTokens = tokens.filter { it !in defaultTokens }
-    
+
     // Local state for reordering (exclude default tokens from reorderable tokens)
     val reorderableTokens = tokens.filter { it !in defaultTokens }
     var localTokenOrder by remember { mutableStateOf(reorderableTokens) }
     var isReorderMode by remember { mutableStateOf(false) }
-    
+
     // Update local order when tokens change
-    LaunchedEffect(tokens) {
-        localTokenOrder = tokens.filter { it !in defaultTokens }
-    }
-    
+    LaunchedEffect(tokens) { localTokenOrder = tokens.filter { it !in defaultTokens } }
+
     // Function to move item in list
     fun moveItem(fromIndex: Int, toIndex: Int) {
         val mutableList = localTokenOrder.toMutableList()
@@ -110,96 +105,142 @@ fun ManageTokenList(
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(bottom = 80.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                state = listState,
+                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                contentPadding = PaddingValues(bottom = 80.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // Manual token addition section
             item {
                 Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                         Text(
-                            text = "Add Token Manually",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(bottom = 6.dp)
+                                text = "Add Token Manually",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(bottom = 6.dp)
                         )
-                        
-                        
+
                         // Box to anchor the dropdown and measure the TextField
                         Box {
                             OutlinedTextField(
-                                value = contractAddress,
-                                onValueChange = { contractAddress = it },
-                                label = { Text("Token Contract Address") },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .onGloballyPositioned { coordinates ->
-                                        val widthInPixels = coordinates.size.width
-                                        if (textFieldWidthPx != widthInPixels) {
-                                            textFieldWidthPx = widthInPixels
-                                        }
-                                    },
-                                singleLine = true,
-                                trailingIcon = {
-                                    IconButton(
-                                        onClick = {
-                                            if (contractAddress.isNotBlank() && !isVerifying) {
-                                                isVerifying = true
-                                                viewModel.addTokenAndRefresh(contractAddress) { result ->
-                                                    coroutineScope.launch {
-                                                        val message = when (result) {
-                                                            net.xian.xianwalletapp.wallet.TokenAddResult.SUCCESS -> "Token added successfully"
-                                                            net.xian.xianwalletapp.wallet.TokenAddResult.ALREADY_EXISTS -> "Token is already in your wallet"
-                                                            net.xian.xianwalletapp.wallet.TokenAddResult.INVALID_CONTRACT -> "Contract not found or invalid"
-                                                            net.xian.xianwalletapp.wallet.TokenAddResult.NO_ACTIVE_WALLET -> "No active wallet found"
-                                                            net.xian.xianwalletapp.wallet.TokenAddResult.FAILED -> "Failed to add token"
-                                                        }
-                                                        val type = when (result) {
-                                                            net.xian.xianwalletapp.wallet.TokenAddResult.SUCCESS -> ToastType.Success
-                                                            net.xian.xianwalletapp.wallet.TokenAddResult.ALREADY_EXISTS -> ToastType.Info
-                                                            net.xian.xianwalletapp.wallet.TokenAddResult.INVALID_CONTRACT -> ToastType.Error
-                                                            net.xian.xianwalletapp.wallet.TokenAddResult.NO_ACTIVE_WALLET -> ToastType.Error
-                                                            net.xian.xianwalletapp.wallet.TokenAddResult.FAILED -> ToastType.Error
-                                                        }
-                                                        toastHostState.show(message, type)
-                                                        isVerifying = false
-                                                        if (result == net.xian.xianwalletapp.wallet.TokenAddResult.SUCCESS) {
-                                                            contractAddress = ""
+                                    value = contractAddress,
+                                    onValueChange = { contractAddress = it },
+                                    label = { Text("Token Contract Address") },
+                                    modifier =
+                                            Modifier.fillMaxWidth().onGloballyPositioned {
+                                                    coordinates ->
+                                                val widthInPixels = coordinates.size.width
+                                                if (textFieldWidthPx != widthInPixels) {
+                                                    textFieldWidthPx = widthInPixels
+                                                }
+                                            },
+                                    singleLine = true,
+                                    trailingIcon = {
+                                        IconButton(
+                                                onClick = {
+                                                    if (contractAddress.isNotBlank() && !isVerifying
+                                                    ) {
+                                                        isVerifying = true
+                                                        viewModel.addTokenAndRefresh(
+                                                                contractAddress
+                                                        ) { result ->
+                                                            coroutineScope.launch {
+                                                                val message =
+                                                                        when (result) {
+                                                                            net.xian.xianwalletapp
+                                                                                    .wallet
+                                                                                    .TokenAddResult
+                                                                                    .SUCCESS ->
+                                                                                    "Token added successfully"
+                                                                            net.xian.xianwalletapp
+                                                                                    .wallet
+                                                                                    .TokenAddResult
+                                                                                    .ALREADY_EXISTS ->
+                                                                                    "Token is already in your wallet"
+                                                                            net.xian.xianwalletapp
+                                                                                    .wallet
+                                                                                    .TokenAddResult
+                                                                                    .INVALID_CONTRACT ->
+                                                                                    "Contract not found or invalid"
+                                                                            net.xian.xianwalletapp
+                                                                                    .wallet
+                                                                                    .TokenAddResult
+                                                                                    .NO_ACTIVE_WALLET ->
+                                                                                    "No active wallet found"
+                                                                            net.xian.xianwalletapp
+                                                                                    .wallet
+                                                                                    .TokenAddResult
+                                                                                    .FAILED ->
+                                                                                    "Failed to add token"
+                                                                        }
+                                                                val type =
+                                                                        when (result) {
+                                                                            net.xian.xianwalletapp
+                                                                                    .wallet
+                                                                                    .TokenAddResult
+                                                                                    .SUCCESS ->
+                                                                                    ToastType
+                                                                                            .Success
+                                                                            net.xian.xianwalletapp
+                                                                                    .wallet
+                                                                                    .TokenAddResult
+                                                                                    .ALREADY_EXISTS ->
+                                                                                    ToastType.Info
+                                                                            net.xian.xianwalletapp
+                                                                                    .wallet
+                                                                                    .TokenAddResult
+                                                                                    .INVALID_CONTRACT ->
+                                                                                    ToastType.Error
+                                                                            net.xian.xianwalletapp
+                                                                                    .wallet
+                                                                                    .TokenAddResult
+                                                                                    .NO_ACTIVE_WALLET ->
+                                                                                    ToastType.Error
+                                                                            net.xian.xianwalletapp
+                                                                                    .wallet
+                                                                                    .TokenAddResult
+                                                                                    .FAILED ->
+                                                                                    ToastType.Error
+                                                                        }
+                                                                toastHostState.show(message, type)
+                                                                isVerifying = false
+                                                                if (result ==
+                                                                                net.xian
+                                                                                        .xianwalletapp
+                                                                                        .wallet
+                                                                                        .TokenAddResult
+                                                                                        .SUCCESS
+                                                                ) {
+                                                                    contractAddress = ""
+                                                                }
+                                                            }
                                                         }
                                                     }
-                                                }
+                                                },
+                                                enabled =
+                                                        !expanded &&
+                                                                contractAddress.isNotBlank() &&
+                                                                !isVerifying
+                                        ) {
+                                            if (isVerifying) {
+                                                CircularProgressIndicator(
+                                                        modifier = Modifier.size(20.dp),
+                                                        strokeWidth = 2.dp
+                                                )
+                                            } else {
+                                                Icon(
+                                                        Icons.Default.Add,
+                                                        contentDescription = "Add Token",
+                                                        modifier = Modifier.size(20.dp)
+                                                )
                                             }
-                                        },
-                                        enabled = !expanded && contractAddress.isNotBlank() && !isVerifying
-                                    ) {
-                                        if (isVerifying) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(20.dp),
-                                                strokeWidth = 2.dp
-                                            )
-                                        } else {
-                                            Icon(
-                                                Icons.Default.Add,
-                                                contentDescription = "Add Token",
-                                                modifier = Modifier.size(20.dp)
-                                            )
                                         }
                                     }
-                                }
                             )
                         }
                     }
@@ -210,55 +251,55 @@ fun ManageTokenList(
             if (localTokenOrder.isNotEmpty()) {
                 item {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 6.dp, bottom = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Token Order",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                                text = "Token Order",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
                         )
-                        
+
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             if (isReorderMode) {
                                 Button(
-                                    onClick = {
-                                        // Reconstruct the full token list with default tokens first
-                                        val defaultTokensInOrder = defaultTokens.filter { it in tokens }
-                                        val fullTokenOrder = defaultTokensInOrder + localTokenOrder
-                                        viewModel.reorderTokens(fullTokenOrder)
-                                        isReorderMode = false
-                                        coroutineScope.launch {
-                                            toastHostState.show("Token order saved", ToastType.Success)
-                                        }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = MaterialTheme.colorScheme.primary,
-                                        contentColor = Color.Black
-                                    )
-                                ) {
-                                    Text("Save Order")
-                                }
-                                
+                                        onClick = {
+                                            // Reconstruct the full token list with default tokens
+                                            // first
+                                            val defaultTokensInOrder =
+                                                    defaultTokens.filter { it in tokens }
+                                            val fullTokenOrder =
+                                                    defaultTokensInOrder + localTokenOrder
+                                            viewModel.reorderTokens(fullTokenOrder)
+                                            isReorderMode = false
+                                            coroutineScope.launch {
+                                                toastHostState.show(
+                                                        "Token order saved",
+                                                        ToastType.Success
+                                                )
+                                            }
+                                        },
+                                        colors =
+                                                ButtonDefaults.buttonColors(
+                                                        containerColor =
+                                                                MaterialTheme.colorScheme.primary,
+                                                        contentColor = Color.Black
+                                                )
+                                ) { Text("Save Order") }
+
                                 TextButton(
-                                    onClick = {
-                                        localTokenOrder = tokens.filter { it != "currency" }
-                                        isReorderMode = false
-                                    }
-                                ) {
-                                    Text("Cancel")
-                                }
+                                        onClick = {
+                                            localTokenOrder = tokens.filter { it != "currency" }
+                                            isReorderMode = false
+                                        }
+                                ) { Text("Cancel") }
                             } else {
                                 if (localTokenOrder.isNotEmpty()) {
-                                    TextButton(
-                                        onClick = { isReorderMode = true }
-                                    ) {
+                                    TextButton(onClick = { isReorderMode = true }) {
                                         Text("Reorder")
                                     }
                                 }
@@ -271,24 +312,31 @@ fun ManageTokenList(
                 itemsIndexed(localTokenOrder) { index, contract ->
                     val tokenInfo = tokenInfoMap[contract]
                     AddedTokenItem(
-                        contract = contract,
-                        name = tokenInfo?.name ?: contract,
-                        symbol = tokenInfo?.symbol ?: "",
-                        logoUrl = tokenInfo?.logoUrl,
-                        viewModel = viewModel, // Pass viewModel for image loader access
-                        isReorderMode = isReorderMode,
-                        canMoveUp = index > 0,
-                        canMoveDown = index < localTokenOrder.size - 1,
-                        onMoveUp = if (index > 0) { { moveItem(index, index - 1) } } else null,
-                        onMoveDown = if (index < localTokenOrder.size - 1) { { moveItem(index, index + 1) } } else null,
-                        onRemoveClick = if (!isReorderMode) {
-                            {
-                                viewModel.removeToken(contract)
-                                coroutineScope.launch {
-                                    toastHostState.show("Token removed", ToastType.Info)
-                                }
-                            }
-                        } else null
+                            contract = contract,
+                            name = tokenInfo?.name ?: contract,
+                            symbol = tokenInfo?.symbol ?: "",
+                            logoUrl = tokenInfo?.logoUrl,
+                            viewModel = viewModel, // Pass viewModel for image loader access
+                            isReorderMode = isReorderMode,
+                            canMoveUp = index > 0,
+                            canMoveDown = index < localTokenOrder.size - 1,
+                            onMoveUp =
+                                    if (index > 0) {
+                                        { moveItem(index, index - 1) }
+                                    } else null,
+                            onMoveDown =
+                                    if (index < localTokenOrder.size - 1) {
+                                        { moveItem(index, index + 1) }
+                                    } else null,
+                            onRemoveClick =
+                                    if (!isReorderMode) {
+                                        {
+                                            viewModel.removeToken(contract)
+                                            coroutineScope.launch {
+                                                toastHostState.show("Token removed", ToastType.Info)
+                                            }
+                                        }
+                                    } else null
                     )
                 }
             }
@@ -297,38 +345,54 @@ fun ManageTokenList(
             if (availableTokens.isNotEmpty()) {
                 item {
                     Text(
-                        text = "Available Tokens",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+                            text = "Available Tokens",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
                     )
                 }
 
                 items(availableTokens) { token ->
                     AvailableTokenItem(
-                        token = token,
-                        viewModel = viewModel, // Pass viewModel for image loader access
-                        onAddClick = {
-                            viewModel.addTokenAndRefresh(token.contract) { result ->
-                                coroutineScope.launch {
-                                    val message = when (result) {
-                                        net.xian.xianwalletapp.wallet.TokenAddResult.SUCCESS -> "${token.name} added successfully"
-                                        net.xian.xianwalletapp.wallet.TokenAddResult.ALREADY_EXISTS -> "${token.name} is already in your wallet"
-                                        net.xian.xianwalletapp.wallet.TokenAddResult.INVALID_CONTRACT -> "Invalid contract address"
-                                        net.xian.xianwalletapp.wallet.TokenAddResult.NO_ACTIVE_WALLET -> "No active wallet found"
-                                        net.xian.xianwalletapp.wallet.TokenAddResult.FAILED -> "Failed to add ${token.name}"
+                            token = token,
+                            viewModel = viewModel, // Pass viewModel for image loader access
+                            onAddClick = {
+                                viewModel.addTokenAndRefresh(token.contract) { result ->
+                                    coroutineScope.launch {
+                                        val message =
+                                                when (result) {
+                                                    net.xian.xianwalletapp.wallet.TokenAddResult
+                                                            .SUCCESS ->
+                                                            "${token.name} added successfully"
+                                                    net.xian.xianwalletapp.wallet.TokenAddResult
+                                                            .ALREADY_EXISTS ->
+                                                            "${token.name} is already in your wallet"
+                                                    net.xian.xianwalletapp.wallet.TokenAddResult
+                                                            .INVALID_CONTRACT ->
+                                                            "Invalid contract address"
+                                                    net.xian.xianwalletapp.wallet.TokenAddResult
+                                                            .NO_ACTIVE_WALLET ->
+                                                            "No active wallet found"
+                                                    net.xian.xianwalletapp.wallet.TokenAddResult
+                                                            .FAILED -> "Failed to add ${token.name}"
+                                                }
+                                        val type =
+                                                when (result) {
+                                                    net.xian.xianwalletapp.wallet.TokenAddResult
+                                                            .SUCCESS -> ToastType.Success
+                                                    net.xian.xianwalletapp.wallet.TokenAddResult
+                                                            .ALREADY_EXISTS -> ToastType.Info
+                                                    net.xian.xianwalletapp.wallet.TokenAddResult
+                                                            .INVALID_CONTRACT -> ToastType.Error
+                                                    net.xian.xianwalletapp.wallet.TokenAddResult
+                                                            .NO_ACTIVE_WALLET -> ToastType.Error
+                                                    net.xian.xianwalletapp.wallet.TokenAddResult
+                                                            .FAILED -> ToastType.Error
+                                                }
+                                        toastHostState.show(message, type)
                                     }
-                                    val type = when (result) {
-                                        net.xian.xianwalletapp.wallet.TokenAddResult.SUCCESS -> ToastType.Success
-                                        net.xian.xianwalletapp.wallet.TokenAddResult.ALREADY_EXISTS -> ToastType.Info
-                                        net.xian.xianwalletapp.wallet.TokenAddResult.INVALID_CONTRACT -> ToastType.Error
-                                        net.xian.xianwalletapp.wallet.TokenAddResult.NO_ACTIVE_WALLET -> ToastType.Error
-                                        net.xian.xianwalletapp.wallet.TokenAddResult.FAILED -> ToastType.Error
-                                    }
-                                    toastHostState.show(message, type)
                                 }
                             }
-                        }
                     )
                 }
             }
@@ -337,15 +401,14 @@ fun ManageTokenList(
             if (availableTokens.isEmpty() && addedTokens.isEmpty()) {
                 item {
                     Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(32.dp),
-                        contentAlignment = Alignment.Center
+                            modifier = Modifier.fillMaxWidth().padding(32.dp),
+                            contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "All available tokens have been added.\nYou can add custom tokens using the contract address above.",
-                            textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text =
+                                        "All available tokens have been added.\nYou can add custom tokens using the contract address above.",
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -353,101 +416,96 @@ fun ManageTokenList(
         }
         // Toast overlay replacing previous bottom snackbar
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopEnd)
-                .padding(top = 4.dp, end = 4.dp)
+                modifier =
+                        Modifier.fillMaxWidth()
+                                .align(Alignment.TopEnd)
+                                .padding(top = 4.dp, end = 4.dp)
         ) { TopToastHost(state = toastHostState) }
     }
 }
 
 @Composable
 private fun AddedTokenItem(
-    contract: String,
-    name: String,
-    symbol: String,
-    logoUrl: String?,
-    viewModel: WalletViewModel, // Add viewModel parameter to access image loader
-    isReorderMode: Boolean = false,
-    canMoveUp: Boolean = false,
-    canMoveDown: Boolean = false,
-    onMoveUp: (() -> Unit)? = null,
-    onMoveDown: (() -> Unit)? = null,
-    onRemoveClick: (() -> Unit)? = null
+        contract: String,
+        name: String,
+        symbol: String,
+        logoUrl: String?,
+        viewModel: WalletViewModel, // Add viewModel parameter to access image loader
+        isReorderMode: Boolean = false,
+        canMoveUp: Boolean = false,
+        canMoveDown: Boolean = false,
+        onMoveUp: (() -> Unit)? = null,
+        onMoveDown: (() -> Unit)? = null,
+        onRemoveClick: (() -> Unit)? = null
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
         ) {
             AsyncImage(
-                model = when {
-                    contract == "con_xarb" -> "file:///android_asset/xarb.jpg"
-                    contract == "con_xtfu" -> "https://snakexchange.org/icons/con_xtfu.png"
-                    contract == "con_xwt" -> R.drawable.xwtlogo
-                    contract == "con_slither" -> R.drawable.sss
-                    else -> logoUrl
-                },
-                imageLoader = viewModel.getImageLoader(), // Use the cached image loader
-                contentDescription = "$name Logo",
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
-                placeholder = painterResource(id = R.drawable.ic_question_mark),
-                error = painterResource(id = R.drawable.ic_question_mark)
+                    model =
+                            when {
+                                contract == "con_xarb" -> "file:///android_asset/xarb.jpg"
+                                contract == "con_xtfu" ->
+                                        "https://snakexchange.org/icons/con_xtfu.png"
+                                contract == "con_xwt" -> R.drawable.xwtlogo
+                                contract == "con_slither" -> R.drawable.sss
+                                contract == "con_big_nig_with_a_cig" -> R.drawable.bignigeyes
+                                else -> logoUrl
+                            },
+                    imageLoader = viewModel.getImageLoader(), // Use the cached image loader
+                    contentDescription = "$name Logo",
+                    modifier =
+                            Modifier.size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                                    ),
+                    placeholder = painterResource(id = R.drawable.ic_question_mark),
+                    error = painterResource(id = R.drawable.ic_question_mark)
             )
 
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = 16.dp)
-            ) {
+            Column(modifier = Modifier.weight(1f).padding(start = 16.dp)) {
+                Text(text = name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Text(
-                    text = name,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
-                )
-                Text(
-                    text = symbol.ifEmpty { contract },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 14.sp
+                        text = symbol.ifEmpty { contract },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 14.sp
                 )
             }
 
             if (isReorderMode) {
                 // Reorder controls
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     // Move Up button
-                    IconButton(
-                        onClick = { onMoveUp?.invoke() },
-                        enabled = canMoveUp
-                    ) {
+                    IconButton(onClick = { onMoveUp?.invoke() }, enabled = canMoveUp) {
                         Icon(
-                            Icons.Default.ArrowDropUp,
-                            contentDescription = "Move Up",
-                            tint = if (canMoveUp) MaterialTheme.colorScheme.primary
-                                  else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                Icons.Default.ArrowDropUp,
+                                contentDescription = "Move Up",
+                                tint =
+                                        if (canMoveUp) MaterialTheme.colorScheme.primary
+                                        else
+                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                                        alpha = 0.3f
+                                                )
                         )
                     }
-                    
+
                     // Move Down button
-                    IconButton(
-                        onClick = { onMoveDown?.invoke() },
-                        enabled = canMoveDown
-                    ) {
+                    IconButton(onClick = { onMoveDown?.invoke() }, enabled = canMoveDown) {
                         Icon(
-                            Icons.Default.ArrowDropDown,
-                            contentDescription = "Move Down",
-                            tint = if (canMoveDown) MaterialTheme.colorScheme.primary
-                                  else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                Icons.Default.ArrowDropDown,
+                                contentDescription = "Move Down",
+                                tint =
+                                        if (canMoveDown) MaterialTheme.colorScheme.primary
+                                        else
+                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                                        alpha = 0.3f
+                                                )
                         )
                     }
                 }
@@ -455,20 +513,28 @@ private fun AddedTokenItem(
                 // Remove button (only show if not in reorder mode and onRemoveClick is provided)
                 onRemoveClick?.let { removeClick ->
                     Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.error.copy(alpha = 0.1f))
-                            .border(1.dp, MaterialTheme.colorScheme.error, CircleShape)
-                            .clickable(onClick = removeClick),
-                        contentAlignment = Alignment.Center
+                            modifier =
+                                    Modifier.size(32.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                    MaterialTheme.colorScheme.error.copy(
+                                                            alpha = 0.1f
+                                                    )
+                                            )
+                                            .border(
+                                                    1.dp,
+                                                    MaterialTheme.colorScheme.error,
+                                                    CircleShape
+                                            )
+                                            .clickable(onClick = removeClick),
+                            contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "−",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.error,
-                            textAlign = TextAlign.Center
+                                text = "−",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error,
+                                textAlign = TextAlign.Center
                         )
                     }
                 }
@@ -479,73 +545,70 @@ private fun AddedTokenItem(
 
 @Composable
 private fun AvailableTokenItem(
-    token: PredefinedToken,
-    viewModel: WalletViewModel, // Add viewModel parameter to access image loader
-    onAddClick: () -> Unit
+        token: PredefinedToken,
+        viewModel: WalletViewModel, // Add viewModel parameter to access image loader
+        onAddClick: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
         ) {
             AsyncImage(
-                model = when {
-                    token.contract == "con_xarb" -> "file:///android_asset/xarb.jpg"
-                    token.contract == "con_xtfu" -> "https://snakexchange.org/icons/con_xtfu.png"
-                    token.contract == "con_xwt" -> R.drawable.xwtlogo
-                    token.contract == "con_slither" -> R.drawable.sss
-                    else -> token.logoUrl
-                },
-                imageLoader = viewModel.getImageLoader(), // Use the cached image loader
-                contentDescription = "${token.name} Logo",
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
-                placeholder = painterResource(id = R.drawable.ic_question_mark),
-                error = painterResource(id = R.drawable.ic_question_mark)
+                    model =
+                            when {
+                                token.contract == "con_xarb" -> "file:///android_asset/xarb.jpg"
+                                token.contract == "con_xtfu" ->
+                                        "https://snakexchange.org/icons/con_xtfu.png"
+                                token.contract == "con_xwt" -> R.drawable.xwtlogo
+                                token.contract == "con_slither" -> R.drawable.sss
+                                token.contract == "con_big_nig_with_a_cig" -> R.drawable.bignigeyes
+                                else -> token.logoUrl
+                            },
+                    imageLoader = viewModel.getImageLoader(), // Use the cached image loader
+                    contentDescription = "${token.name} Logo",
+                    modifier =
+                            Modifier.size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                                    ),
+                    placeholder = painterResource(id = R.drawable.ic_question_mark),
+                    error = painterResource(id = R.drawable.ic_question_mark)
             )
 
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = 16.dp)
-            ) {
+            Column(modifier = Modifier.weight(1f).padding(start = 16.dp)) {
+                Text(text = token.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Text(
-                    text = token.name,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
-                )
-                Text(
-                    text = token.contract,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 14.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                        text = token.contract,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                 )
             }
 
             // Add button
             Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
-                    .border(1.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                    .clickable(onClick = onAddClick),
-                contentAlignment = Alignment.Center
+                    modifier =
+                            Modifier.size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                                    )
+                                    .border(1.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                                    .clickable(onClick = onAddClick),
+                    contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "+",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    textAlign = TextAlign.Center
+                        text = "+",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        textAlign = TextAlign.Center
                 )
             }
         }
