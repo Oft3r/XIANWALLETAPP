@@ -6,64 +6,71 @@
     android:layout_height="match_parent"
     android:padding="8dp"
     android:background="@drawable/widget_gradient_border">
-    &lt;!-- Attributes for FrameLayout --&gt;
-    &lt;!-- Reduced padding for FrameLayout --&gt;
-    &lt;!-- Apply gradient border --&gt;
+
 
     &lt;!-- Nested LinearLayout for main content --&gt;
     <LinearLayout
         android:id="@+id/widget_content_layout"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:gravity="center_horizontal"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
         android:padding="8dp">
-        <!-- Title -->
-        <TextView
-            android:id="@+id/widget_title"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="XIAN Price"
-            android:textColor="@color/text_primary"
-            android:textSize="14sp" />
 
-        <!-- Price and 24h change row -->
+        <!-- Price Info Section -->
         <LinearLayout
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginTop="2dp">
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <!-- Title -->
             <TextView
-                android:id="@+id/widget_price_text"
+                android:id="@+id/widget_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Loading..."
+                android:text="XIAN Price"
                 android:textColor="@color/text_primary"
-                android:textSize="18sp"
-                android:textStyle="bold" />
-            <TextView
-                android:id="@+id/widget_change_text"
+                android:textSize="14sp" />
+
+            <!-- Price and 24h change row -->
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:text="--"
-                android:textSize="12sp"
-                android:textColor="@color/text_primary" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="2dp">
+                <TextView
+                    android:id="@+id/widget_price_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Loading..."
+                    android:textColor="@color/text_primary"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+                <TextView
+                    android:id="@+id/widget_change_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="--"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_primary" />
+            </LinearLayout>
         </LinearLayout>
 
         <!-- Sparkline chart image -->
         <ImageView
             android:id="@+id/widget_chart_image"
-            android:layout_width="match_parent"
-            android:layout_height="50dp"
-            android:layout_marginTop="4dp"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
             android:scaleType="fitXY"
-            android:contentDescription="24h price chart"
-            android:visibility="gone" />
+            android:contentDescription="24h price chart" />
 
     </LinearLayout>
-    &lt;!-- End of content LinearLayout --&gt;
+
 
     &lt;!-- Refresh Button --&gt;
     <ImageView
