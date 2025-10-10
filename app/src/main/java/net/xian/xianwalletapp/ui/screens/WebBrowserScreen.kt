@@ -4,6 +4,7 @@ package net.xian.xianwalletapp.ui.screens
 // import net.xian.xianwalletapp.R
 // import androidx.compose.ui.res.painterResource
 // Drag + overlay imports for draggable bubbles
+import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.util.Log
@@ -55,6 +56,7 @@ import androidx.compose.material.icons.filled.Language // Placeholder icon
 import androidx.compose.material.icons.filled.Minimize // Import Minimize icon
 import androidx.compose.material.icons.filled.MoreVert // Import More Vert icon for three dots
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.RemoveCircleOutline // Import Remove icon
 import androidx.compose.material.icons.filled.Star // Import Star icon
 import androidx.compose.material.icons.outlined.Star
@@ -1497,6 +1499,28 @@ fun WebBrowserScreen(
                                                         tint = MaterialTheme.colorScheme.primary
                                                 )
                                             }
+                                    )
+
+                                    // Opción de compartir
+                                    DropdownMenuItem(
+                                        text = { Text("Share") },
+                                        onClick = {
+                                            val sendIntent: Intent = Intent().apply {
+                                                action = Intent.ACTION_SEND
+                                                putExtra(Intent.EXTRA_TEXT, currentWebViewUrl)
+                                                type = "text/plain"
+                                            }
+                                            val shareIntent = Intent.createChooser(sendIntent, null)
+                                            context.startActivity(shareIntent)
+                                            showOptionsMenu = false
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Default.Share,
+                                                contentDescription = "Share",
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
                                     )
 
                                     // Opción de añadir/quitar favoritos (siempre mostrar)
