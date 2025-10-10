@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -31,9 +32,13 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -51,6 +56,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.xian.xianwalletapp.R
+import net.xian.xianwalletapp.navigation.XianDestinations
 import net.xian.xianwalletapp.network.XianNetworkService
 import net.xian.xianwalletapp.ui.components.PasswordTextField
 import net.xian.xianwalletapp.ui.theme.XianButtonType
@@ -126,6 +132,7 @@ fun SwapScreen(
     var showXianFeeWarning by remember { mutableStateOf(false) }
     var swapProgress by remember { mutableStateOf(0f) }
     var swapStatusMessage by remember { mutableStateOf("") }
+    var unverifiedTokenMessage by remember { mutableStateOf<String?>(null) }
 
     // Precise balance states for SwapScreen (independent from ViewModel)
     var fromTokenPreciseBalance by remember { mutableStateOf<String?>(null) }
@@ -640,6 +647,22 @@ fun SwapScreen(
 
     // Calculate swap preview and validate pair (including routing via XIAN when needed)
     LaunchedEffect(fromAmount, fromTokenContract, toTokenContract) {
+        val isFromVerified = availableTokens.any { it.first == fromTokenContract }
+        val isToVerified = availableTokens.any { it.first == toTokenContract }
+
+        if (!isFromVerified || !isToVerified) {
+            isPairValid = false
+            unverifiedTokenMessage =
+                    "Swapping is only available for verified tokens from the list. Otherwise, please visit snakexchange.org."
+            pairWarningMessage = null // Clear other warnings
+            toAmount = ""
+            swapRate = null
+            priceImpact = null
+            return@LaunchedEffect
+        } else {
+            unverifiedTokenMessage = null // Clear the message if tokens are valid
+        }
+
         val directValid = isValidTradingPair(fromTokenContract, toTokenContract)
         val routedValid = !directValid && canRouteViaXian(fromTokenContract, toTokenContract)
 
@@ -1811,6 +1834,69 @@ fun SwapScreen(
                                     )
                                 }
                             }
+                        }
+                    }
+                }
+
+                // Unverified token warning
+                if (unverifiedTokenMessage != null) {
+                    Card(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                            colors =
+                                    CardDefaults.cardColors(
+                                            containerColor =
+                                                    MaterialTheme.colorScheme.errorContainer
+                                    )
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                    text = "⚠️ Warning",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            val annotatedString = buildAnnotatedString {
+                                append(
+                                        "Swapping is only available for verified tokens from the list. Otherwise, please visit "
+                                )
+                                pushStringAnnotation(
+                                        tag = "URL",
+                                        annotation = "https://snakexchange.org"
+                                )
+                                withStyle(
+                                        style =
+                                                SpanStyle(
+                                                        color = Color.Blue,
+                                                        textDecoration = TextDecoration.Underline
+                                                )
+                                ) { append("snakexchange.org") }
+                                pop()
+                                append(".")
+                            }
+
+                            ClickableText(
+                                    text = annotatedString,
+                                    style =
+                                            MaterialTheme.typography.bodyMedium.copy(
+                                                    color =
+                                                            MaterialTheme.colorScheme
+                                                                    .onErrorContainer
+                                            ),
+                                    onClick = { offset ->
+                                        annotatedString
+                                                .getStringAnnotations(
+                                                        tag = "URL",
+                                                        start = offset,
+                                                        end = offset
+                                                )
+                                                .firstOrNull()
+                                                ?.let { annotation ->
+                                                    navController.navigate(
+                                                            "${XianDestinations.WEB_BROWSER}?url=${annotation.item}"
+                                                    )
+                                                }
+                                    }
+                            )
                         }
                     }
                 }
