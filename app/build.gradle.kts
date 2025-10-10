@@ -7,7 +7,6 @@ plugins {
 }
 
 android {
-
     namespace = "net.xian.xianwalletapp"
     compileSdk = 35
 
@@ -20,17 +19,13 @@ android {
 
         // Aquí configuras el nombre del APK
         setProperty("archivesBaseName", "Xian Wallet-$versionName")
-        
+
         // Configuración para compatibilidad con páginas de 16 KB
-        ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
-        }
-        
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+
         // Configuración adicional para 16 KB page size
         externalNativeBuild {
-            cmake {
-                arguments += listOf("-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON")
-            }
+            cmake { arguments += listOf("-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON") }
         }
 
         // No longer exposing OpenRouter key via BuildConfig. Users set it in-app.
@@ -46,8 +41,8 @@ android {
             isMinifyEnabled = false
             isDebuggable = false
             proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                    getDefaultProguardFile("proguard-android-optimize.txt"),
+                    "proguard-rules.pro"
             )
         }
     }
@@ -55,17 +50,13 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-    kotlinOptions {
-        jvmTarget = "11"
-    }
+    kotlinOptions { jvmTarget = "11" }
     buildFeatures {
         compose = true
         buildConfig = true
     }
-    lint {
-        abortOnError = false
-    }
-    
+    lint { abortOnError = false }
+
     // Configuración para compatibilidad con páginas de 16 KB
     packaging {
         jniLibs {
@@ -78,7 +69,6 @@ android {
             excludes += listOf("META-INF/DEPENDENCIES", "META-INF/LICENSE", "META-INF/LICENSE.txt")
         }
     }
-
 }
 
 dependencies {
@@ -95,40 +85,44 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation("androidx.appcompat:appcompat:1.7.0") // Added for AppCompatActivity
     implementation("com.google.android.material:material:1.11.0") // Add Material Design dependency
-    
+
     // Material Icons
     implementation("androidx.compose.material:material-icons-core:1.7.0")
     implementation("androidx.compose.material:material-icons-extended:1.7.0")
     implementation("androidx.compose.material:material:1.7.0") // For ExperimentalMaterialApi
-    
+
     // Accompanist
     implementation("com.google.accompanist:accompanist-swiperefresh:0.32.0")
-    
+
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.7")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.3") // Add ViewModel for Compose
-    
+    implementation(
+            "androidx.lifecycle:lifecycle-viewmodel-compose:2.8.3"
+    ) // Add ViewModel for Compose
+
     // Network
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0") // Add logging interceptor
-    
+
     // Security
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     // Biometric authentication
     implementation("androidx.biometric:biometric:1.2.0-alpha05")
     // Using a different crypto library since libsodium is not accessible
     implementation("org.bouncycastle:bcprov-jdk18on:1.79") // Re-enabled explicit Bouncy Castle
-    
+
     implementation("org.bitcoinj:bitcoinj-core:0.16.2") { // Re-added bitcoinj
-        exclude(group = "org.bouncycastle", module = "bcprov-jdk15to18") // Exclude transitive BC dependency
+        exclude(
+                group = "org.bouncycastle",
+                module = "bcprov-jdk15to18"
+        ) // Exclude transitive BC dependency
     }
     // implementation("io.github.novacrypto:bip39:0.1.10") // Removed again
 
-
     // JSON parsing
-    implementation("com.google.code.gson:gson:2.10.1")    // QR Code Generation (ZXing)
+    implementation("com.google.code.gson:gson:2.10.1") // QR Code Generation (ZXing)
     implementation("com.google.zxing:core:3.5.3")
     // QR Code Scanning (ZXing Embedded) - Keep for fallback
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
@@ -146,12 +140,16 @@ dependencies {
     // HTML Parsing
     implementation("org.jsoup:jsoup:1.17.2")
     implementation("org.slf4j:slf4j-nop:1.7.32") // Add NOP SLF4J implementation for R8
-    
+
     // Jetpack DataStore Preferences
-    implementation("androidx.datastore:datastore-preferences:1.1.1") // Use the latest stable version    // Room Persistence Library
+    implementation(
+            "androidx.datastore:datastore-preferences:1.1.1"
+    ) // Use the latest stable version    // Room Persistence Library
     val room_version = "2.6.1" // Use the latest stable version
     implementation("androidx.room:room-runtime:$room_version")
-    kapt("androidx.room:room-compiler:$room_version") // Change this line    // Optional - Kotlin Extensions and Coroutines support for Room
+    kapt(
+            "androidx.room:room-compiler:$room_version"
+    ) // Change this line    // Optional - Kotlin Extensions and Coroutines support for Room
     implementation("androidx.room:room-ktx:$room_version")
 
     // Vico Chart Library for price charts
